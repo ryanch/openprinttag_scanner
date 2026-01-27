@@ -1,0 +1,2 @@
+dependencies:
+  espressif/cbor: "^0.6.0"
