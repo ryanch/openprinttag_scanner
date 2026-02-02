@@ -59,8 +59,9 @@ void setup() {
   Wire.begin(LCD_SDA, LCD_SCL);
   Serial.println("I2C initialized");
 
-  // Initialize LCD
+  // Initialize LCD and start its task on core 0
   lcdManager.begin();
+  lcdManager.startTask();
   lcdManager.updateScreen("Initializing...", "");
   Serial.println("LCD initialized");
 
@@ -100,9 +101,6 @@ void loop() {
   // Process any pending messages for the application
   ApplicationManager::getInstance().processMessages();
 
-  // Process any pending messages for the LCD
-  lcdManager.processQueue();
-
-  // NFC scanning is now handled by NFCManager in its own task
+  // LCD and NFC scanning are handled by their own tasks
   delay(100);
 }
