@@ -379,6 +379,15 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
         return false;
     }
 
+    // Verify spool matches if expected_spool_id is set
+    if (request.expected_spool_id[0] != '\0') {
+        if (strcmp(currentSpool.spool_id, request.expected_spool_id) != 0) {
+            Serial.printf("NFCManager: Write rejected: expected spool %s but found %s\n",
+                request.expected_spool_id, currentSpool.spool_id);
+            return false;
+        }
+    }
+
     opt_error_t err;
 
     switch (request.type) {
@@ -499,4 +508,13 @@ bool NFCManager::isDuplicateSpool(const uint8_t* uid, uint8_t uid_length) {
     }
 
     return memcmp(uid, lastSeenUid, uid_length) == 0;
+}
+
+void NFCManager::requestCurrentSpool() {
+    if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+        lastSeenValid = false;
+        memset(lastSeenUid, 0, sizeof(lastSeenUid));
+        lastSeenUidLength = 0;
+        xSemaphoreGive(tagMutex);
+    }
 }

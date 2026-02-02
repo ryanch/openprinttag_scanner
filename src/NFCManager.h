@@ -17,6 +17,7 @@ enum class NFCWriteType : uint8_t {
 struct NFCWriteRequest {
     uint32_t request_id;         // Unique ID for deduplication
     NFCWriteType type;
+    char expected_spool_id[64];  // Only write if this spool is present (empty = any)
     union {
         float grams_to_remove;
         uint8_t new_color[4];    // RGBA
@@ -40,6 +41,7 @@ public:
     void startScanTask();                            // Start FreeRTOS scan task
     bool enqueueWrite(const NFCWriteRequest& req);   // Queue a write request
     bool isRequestCompleted(uint32_t request_id);    // Check if request done
+    void requestCurrentSpool();                      // Clear dedup to resend current spool
 
 private:
     NFCManager() = default;

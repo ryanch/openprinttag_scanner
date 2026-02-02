@@ -65,8 +65,8 @@ void setup() {
   lcdManager.updateScreen("Initializing...", "");
   Serial.println("LCD initialized");
 
-  // Initialize ApplicationManager (message queue)
-  if (!ApplicationManager::getInstance().begin()) {
+  // Initialize ApplicationManager (message queue) with LCD reference
+  if (!ApplicationManager::getInstance().begin(&lcdManager)) {
     Serial.println("ApplicationManager init failed - halting");
     lcdManager.updateScreen("AppMgr FAILED", "");
     while (1) { delay(1000); }
