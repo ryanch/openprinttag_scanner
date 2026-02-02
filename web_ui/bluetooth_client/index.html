@@ -1,0 +1,375 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>OpenPrintTag Configurator</title>
+    <style>
+        /* Typography and Theme */
+        @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600;700&display=swap');
+
+        :root {
+            --prusa-orange: #E68112;
+            --prusa-black: #1a1a1a;
+            --prusa-dark-gray: #2c2c2c;
+            --prusa-medium-gray: #3a3a3a;
+            --prusa-light-gray: #b0b0b0;
+            --prusa-text: #ffffff;
+            --prusa-red: #d63031;
+            --prusa-green: #2ecc71;
+            --font-main: 'Exo 2', sans-serif;
+        }
+
+        body {
+            font-family: var(--font-main);
+            background-color: var(--prusa-black);
+            color: var(--prusa-text);
+            margin: 0;
+            padding: 20px;
+            display: flex;
+            justify-content: center;
+            align-items: flex-start;
+            min-height: 100vh;
+        }
+
+        /* Main Container */
+        .container {
+            background-color: var(--prusa-dark-gray);
+            border-radius: 8px;
+            padding: 2.5rem;
+            width: 100%;
+            max-width: 600px;
+            box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
+            border-top: 4px solid var(--prusa-orange);
+            opacity: 0;
+            transform: translateY(20px);
+            animation: fadeIn 0.5s ease-out forwards;
+        }
+        
+        @keyframes fadeIn {
+            to {
+                opacity: 1;
+                transform: translateY(0);
+            }
+        }
+
+        h1 {
+            color: var(--prusa-orange);
+            font-weight: 700;
+            margin-top: 0;
+            text-align: center;
+            letter-spacing: 1px;
+        }
+
+        /* Form Elements */
+        .form-group {
+            margin-bottom: 1.5rem;
+            opacity: 0;
+            animation: slideIn 0.5s forwards;
+        }
+        
+        @keyframes slideIn {
+            to { opacity: 1; transform: translateX(0); }
+        }
+
+        label {
+            display: block;
+            margin-bottom: 0.5rem;
+            font-weight: 600;
+            color: var(--prusa-light-gray);
+        }
+
+        input[type="text"],
+        input[type="password"],
+        input[type="number"] {
+            width: 100%;
+            padding: 12px;
+            background-color: var(--prusa-medium-gray);
+            border: 1px solid #555;
+            border-radius: 4px;
+            color: var(--prusa-text);
+            font-family: var(--font-main);
+            font-size: 1rem;
+            transition: all 0.2s ease-in-out;
+        }
+
+        input:focus {
+            outline: none;
+            border-color: var(--prusa-orange);
+            box-shadow: 0 0 0 2px var(--prusa-orange-t);
+        }
+
+        /* Buttons */
+        .button-group {
+            display: flex;
+            gap: 1rem;
+            margin-top: 2rem;
+            justify-content: flex-end;
+        }
+
+        button {
+            padding: 12px 24px;
+            border: none;
+            border-radius: 5px;
+            font-family: var(--font-main);
+            font-size: 1rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
+            position: relative;
+            overflow: hidden;
+            background-color: var(--prusa-orange);
+            color: var(--prusa-black);
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+        
+        button:hover {
+            box-shadow: 0 4px 15px rgba(230, 129, 18, 0.4);
+            transform: translateY(-2px);
+        }
+
+        button.secondary {
+            background-color: var(--prusa-medium-gray);
+            color: var(--prusa-text);
+        }
+        
+        button.secondary:hover {
+            background-color: #4a4a4a;
+            box-shadow: 0 4px 15px rgba(0,0,0, 0.3);
+        }
+
+        button:disabled {
+            background-color: #555;
+            color: #999;
+            cursor: not-allowed;
+            transform: none;
+            box-shadow: none;
+        }
+
+        /* Status and Logging */
+        #status-area {
+            margin-top: 1.5rem;
+            padding: 1rem;
+            background-color: var(--prusa-medium-gray);
+            border-radius: 4px;
+            font-family: monospace;
+            font-size: 0.85rem;
+            color: #ccc;
+            height: 100px;
+            overflow-y: auto;
+            display: none; /* Initially hidden */
+        }
+        
+        .status-message {
+            margin: 0;
+            padding-bottom: 5px;
+        }
+        
+        .status-error { color: var(--prusa-red); }
+        .status-success { color: var(--prusa-green); }
+
+        #config-form {
+            display: none; /* Hidden until connected */
+        }
+    </style>
+</head>
+<body>
+
+    <div class="container">
+        <h1>OpenPrintTag Configurator</h1>
+
+        <div id="connection-ui">
+            <p>Connect to your OpenPrintTag device to configure WiFi and PrusaLink settings.</p>
+            <div class="button-group" style="justify-content: center;">
+                <button id="connect-button">Connect to Device</button>
+            </div>
+        </div>
+
+        <form id="config-form">
+            <div class="form-group" style="animation-delay: 100ms;">
+                <label for="ssid">WiFi SSID</label>
+                <input type="text" id="ssid" name="ssid" required>
+            </div>
+            <div class="form-group" style="animation-delay: 200ms;">
+                <label for="wifi_pass">WiFi Password (leave blank to keep existing)</label>
+                <input type="password" id="wifi_pass" name="wifi_pass">
+            </div>
+            <div class="form-group" style="animation-delay: 300ms;">
+                <label for="prusa_link_url">PrusaLink URL</label>
+                <input type="text" id="prusa_link_url" name="prusa_link_url" placeholder="e.g., http://192.168.1.100">
+            </div>
+            <div class="form-group" style="animation-delay: 400ms;">
+                <label for="prusa_link_api_key">PrusaLink API Key</label>
+                <input type="password" id="prusa_link_api_key" name="prusa_link_api_key">
+            </div>
+            <div class="form-group" style="animation-delay: 500ms;">
+                <label for="poll_interval_ms">Poll Interval (ms)</label>
+                <input type="number" id="poll_interval_ms" name="poll_interval_ms" min="1000">
+            </div>
+
+            <div class="button-group">
+                <button type="submit" id="save-button">Save Configuration</button>
+            </div>
+        </form>
+
+        <div id="status-area"></div>
+    </div>
+
+    <script>
+        // DOM Elements
+        const connectButton = document.getElementById('connect-button');
+        const saveButton = document.getElementById('save-button');
+        const configForm = document.getElementById('config-form');
+        const connectionUI = document.getElementById('connection-ui');
+        const statusArea = document.getElementById('status-area');
+
+        // Bluetooth UUIDs
+        const SERVICE_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0001";
+        const CONFIG_READ_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0002";
+        const CONFIG_WRITE_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0003";
+
+        // State
+        let bleDevice;
+        let configWriteCharacteristic;
+        let configReadCharacteristic;
+        const textDecoder = new TextDecoder('utf-8');
+        const textEncoder = new TextEncoder();
+
+        function log(message, type = '') {
+            statusArea.style.display = 'block';
+            const p = document.createElement('p');
+            p.textContent = `> ${message}`;
+            p.className = `status-message ${type ? 'status-' + type : ''}`;
+            statusArea.appendChild(p);
+            statusArea.scrollTop = statusArea.scrollHeight;
+        }
+
+        async function handleConnect() {
+            try {
+                log('Requesting Bluetooth device...');
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [SERVICE_UUID] }],
+                    optionalServices: [SERVICE_UUID]
+                });
+
+                log(`Connecting to ${bleDevice.name}...`);
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+                const server = await bleDevice.gatt.connect();
+
+                log('Getting service...');
+                const service = await server.getPrimaryService(SERVICE_UUID);
+
+                log('Getting characteristics...');
+                configWriteCharacteristic = await service.getCharacteristic(CONFIG_WRITE_UUID);
+                configReadCharacteristic = await service.getCharacteristic(CONFIG_READ_UUID);
+
+                log('Connection successful.', 'success');
+                connectionUI.style.display = 'none';
+                configForm.style.display = 'block';
+
+                await loadConfig();
+
+            } catch (error) {
+                log(`Connection failed: ${error}`, 'error');
+            }
+        }
+
+        async function loadConfig() {
+            if (!configWriteCharacteristic || !configReadCharacteristic) {
+                return log('Characteristics not ready.', 'error');
+            }
+
+            try {
+                log('Sending read_config command...');
+                await configWriteCharacteristic.writeValue(textEncoder.encode('{"command":"read_config"}'));
+                
+                log('Reading configuration from device...');
+                const value = await configReadCharacteristic.readValue();
+                const configJson = textDecoder.decode(value);
+                const config = JSON.parse(configJson);
+                
+                log('Configuration loaded.', 'success');
+                
+                // Populate form
+                document.getElementById('ssid').value = config.ssid || '';
+                document.getElementById('prusa_link_url').value = config.prusa_link_url || '';
+                document.getElementById('prusa_link_api_key').value = config.prusa_link_api_key || '';
+                document.getElementById('poll_interval_ms').value = config.poll_interval_ms || 5000;
+                // Clear password fields for security
+                document.getElementById('wifi_pass').value = '';
+
+            } catch (error) {
+                log(`Failed to load config: ${error}`, 'error');
+            }
+        }
+
+        async function handleSave(event) {
+            event.preventDefault();
+            if (!configWriteCharacteristic) {
+                return log('Not connected.', 'error');
+            }
+
+            const ssid = document.getElementById('ssid').value;
+            const wifi_pass = document.getElementById('wifi_pass').value;
+            const prusa_link_url = document.getElementById('prusa_link_url').value;
+            const prusa_link_api_key = document.getElementById('prusa_link_api_key').value;
+            const poll_interval_ms = parseInt(document.getElementById('poll_interval_ms').value, 10);
+
+            const configPayload = {
+                command: "write_config",
+                ssid,
+                prusa_link_url,
+                prusa_link_api_key,
+                poll_interval_ms
+            };
+
+            // Only include wifi_pass if the user entered something
+            if (wifi_pass) {
+                configPayload.wifi_pass = wifi_pass;
+            }
+
+            try {
+                log('Saving configuration...');
+                saveButton.disabled = true;
+                saveButton.textContent = 'Saving...';
+                
+                await configWriteCharacteristic.writeValue(textEncoder.encode(JSON.stringify(configPayload)));
+
+                // The device writes the response back to the same characteristic
+                const responseValue = await configWriteCharacteristic.readValue();
+                const responseJson = textDecoder.decode(responseValue);
+                const response = JSON.parse(responseJson);
+
+                if (response.status === 'ok') {
+                    log('Configuration saved successfully.', 'success');
+                    // Clear password field after successful save
+                    document.getElementById('wifi_pass').value = '';
+                } else {
+                    throw new Error(response.error || 'Unknown error');
+                }
+
+            } catch (error) {
+                log(`Failed to save config: ${error}`, 'error');
+            } finally {
+                saveButton.disabled = false;
+                saveButton.textContent = 'Save Configuration';
+            }
+        }
+        
+        function onDisconnected() {
+            log('Device disconnected.', 'error');
+            connectionUI.style.display = 'block';
+            configForm.style.display = 'none';
+            bleDevice = null;
+            configWriteCharacteristic = null;
+            configReadCharacteristic = null;
+        }
+
+        // Event Listeners
+        connectButton.addEventListener('click', handleConnect);
+        configForm.addEventListener('submit', handleSave);
+
+    </script>
+</body>
+</html>
