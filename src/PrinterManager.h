@@ -4,6 +4,7 @@
 #include <cstdint>
 #include <freertos/FreeRTOS.h>
 #include <freertos/task.h>
+#include "IPrinterLinkStrategy.h"
 
 enum class PrinterState {
     IDLE,
@@ -17,6 +18,7 @@ public:
     void begin();
     void poll();
     void startPollingTask();
+    void setStrategy(IPrinterLinkStrategy* strategy);
 
 private:
     PrinterManager() = default;
@@ -34,6 +36,8 @@ private:
     int currentJobId = -1;
     float currentJobTotalFilamentG = 0.0f;
     float lastProgressPercent = 0.0f;
+
+    IPrinterLinkStrategy* strategy = nullptr;
 
     TaskHandle_t pollingTaskHandle = nullptr;
     static constexpr size_t POLLING_TASK_STACK_SIZE = 8192;

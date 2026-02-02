@@ -2,8 +2,6 @@
 #include "ConfigurationManager.h"
 #include "ApplicationManager.h"
 #include <Arduino.h>
-#include <HTTPClient.h>
-#include <ArduinoJson.h>
 
 PrinterManager& PrinterManager::getInstance() {
     static PrinterManager instance;
@@ -46,86 +44,38 @@ void PrinterManager::pollingTaskFunc(void* param) {
     }
 }
 
+void PrinterManager::setStrategy(IPrinterLinkStrategy* strat) {
+    strategy = strat;
+}
+
 void PrinterManager::poll() {
-    auto& config = ConfigurationManager::getInstance();
-    HTTPClient http;
-
-    // First, get quick status
-    String statusUrl = String(config.getPrusaLinkURL()) + "/api/v1/status";
-    http.begin(statusUrl);
-    http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
-
-    int statusCode = http.GET();
-    if (statusCode != 200) {
-        Serial.printf("PrinterManager: Status request failed: %d\n", statusCode);
-        http.end();
-
-        // If we were tracking and lost connection, treat as job disappeared
-        if (state == PrinterState::TRACKING) {
-            handleJobDisappeared();
-        }
+    if (!strategy) {
         return;
     }
 
-    String statusPayload = http.getString();
-    http.end();
+    strategy->update();
 
-    JsonDocument statusDoc;
-    DeserializationError statusErr = deserializeJson(statusDoc, statusPayload);
-    if (statusErr) {
-        Serial.printf("PrinterManager: Status JSON parse error: %s\n", statusErr.c_str());
+    // Check connection status
+    if (!strategy->isConnected()) {
+        if (state == PrinterState::TRACKING) {
+            handleJobDisappeared();
+        }
         return;
     }
 
     // Check if there's a job
-    JsonVariant jobVariant = statusDoc["job"];
-    bool hasJob = !jobVariant.isNull() && jobVariant["id"].is<int>();
-    int jobId = hasJob ? jobVariant["id"].as<int>() : -1;
-    float progress = hasJob ? jobVariant["progress"].as<float>() : 0.0f;
-
-    if (!hasJob) {
-        // No job present
+    if (!strategy->hasActiveJob()) {
         if (state == PrinterState::TRACKING) {
-            // Job disappeared without proper state change
             handleJobDisappeared();
         }
         return;
     }
 
-    // We have a job - get detailed job info
-    String jobUrl = String(config.getPrusaLinkURL()) + "/api/v1/job";
-    http.begin(jobUrl);
-    http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
-
-    int jobStatusCode = http.GET();
-    if (jobStatusCode != 200) {
-        Serial.printf("PrinterManager: Job request failed: %d\n", jobStatusCode);
-        http.end();
-        return;
-    }
-
-    String jobPayload = http.getString();
-    http.end();
-
-    JsonDocument jobDoc;
-    DeserializationError jobErr = deserializeJson(jobDoc, jobPayload);
-    if (jobErr) {
-        Serial.printf("PrinterManager: Job JSON parse error: %s\n", jobErr.c_str());
-        return;
-    }
-
-    String jobState = jobDoc["state"].as<String>();
-    float totalFilamentG = 0.0f;
-
-    // Extract filament usage from file metadata
-    JsonVariant fileMeta = jobDoc["file"]["meta"];
-    if (!fileMeta.isNull()) {
-        // PrusaLink uses "filament used [g]" key
-        JsonVariant filamentUsed = fileMeta["filament used [g]"];
-        if (!filamentUsed.isNull()) {
-            totalFilamentG = filamentUsed.as<float>();
-        }
-    }
+    // Get job info from strategy
+    int jobId = strategy->getJobId();
+    float progress = strategy->getProgress();
+    float totalFilamentG = strategy->getTotalFilamentGrams();
+    String jobState = strategy->getJobState();
 
     // State machine logic
     if (state == PrinterState::IDLE) {

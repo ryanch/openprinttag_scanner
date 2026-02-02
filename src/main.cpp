@@ -1,18 +1,20 @@
 #include <Wire.h>
-#include <LiquidCrystal_I2C.h>
 #include <WiFi.h>
 
 #include "ConfigurationManager.h"
 #include "ApplicationManager.h"
 #include "PrinterManager.h"
 #include "NFCManager.h"
+#include "PrusaLinkAPIStrategy.h"
+#include "StubPrinterLinkStrategy.h"
+#include "LCDManager.h"
 
 // LCD I2C pins
 #define LCD_SDA 23
 #define LCD_SCL 22
 
-// LCD at I2C address 0x27 (common for 1602), 16 chars, 2 lines
-LiquidCrystal_I2C lcd(0x27, 16, 2);
+// LCD Manager
+LCDManager lcdManager(0x27, 16, 2);
 
 void initWiFi() {
   auto& config = ConfigurationManager::getInstance();
@@ -20,9 +22,7 @@ void initWiFi() {
   Serial.print("Connecting to WiFi: ");
   Serial.println(config.getWiFiSSID());
 
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Connecting WiFi");
+  lcdManager.updateScreen("Connecting WiFi", "");
 
   WiFi.begin(config.getWiFiSSID(), config.getWiFiPassword());
 
@@ -38,19 +38,13 @@ void initWiFi() {
     Serial.print("WiFi connected! IP: ");
     Serial.println(WiFi.localIP());
 
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("WiFi OK");
-    lcd.setCursor(0, 1);
-    lcd.print(WiFi.localIP());
+    lcdManager.updateScreen("WiFi OK", WiFi.localIP().toString().c_str());
     delay(2000);
   } else {
     Serial.println();
     Serial.println("WiFi connection failed!");
 
-    lcd.clear();
-    lcd.setCursor(0, 0);
-    lcd.print("WiFi FAILED");
+    lcdManager.updateScreen("WiFi FAILED", "");
     delay(2000);
   }
 }
@@ -66,17 +60,14 @@ void setup() {
   Serial.println("I2C initialized");
 
   // Initialize LCD
-  lcd.init();
-  lcd.backlight();
-  lcd.setCursor(0, 0);
-  lcd.print("Initializing...");
+  lcdManager.begin();
+  lcdManager.updateScreen("Initializing...", "");
   Serial.println("LCD initialized");
 
   // Initialize ApplicationManager (message queue)
   if (!ApplicationManager::getInstance().begin()) {
     Serial.println("ApplicationManager init failed - halting");
-    lcd.clear();
-    lcd.print("AppMgr FAILED");
+    lcdManager.updateScreen("AppMgr FAILED", "");
     while (1) { delay(1000); }
   }
 
@@ -86,12 +77,14 @@ void setup() {
   // Initialize NFCManager
   if (!NFCManager::getInstance().begin()) {
     Serial.println("NFCManager init failed - halting");
-    lcd.clear();
-    lcd.print("NFC FAILED");
+    lcdManager.updateScreen("NFC FAILED", "");
     while (1) { delay(1000); }
   }
 
-  // Initialize and start PrinterManager
+  // Initialize and start PrinterManager with stub strategy for testing
+  // To use real PrusaLink API, replace StubPrinterLinkStrategy with PrusaLinkAPIStrategy
+  static StubPrinterLinkStrategy stubStrategy;
+  PrinterManager::getInstance().setStrategy(&stubStrategy);
   PrinterManager::getInstance().begin();
   PrinterManager::getInstance().startPollingTask();
 
@@ -99,15 +92,16 @@ void setup() {
   NFCManager::getInstance().startScanTask();
 
   // Ready
-  lcd.clear();
-  lcd.setCursor(0, 0);
-  lcd.print("Ready");
+  lcdManager.updateScreen("Ready", "");
   Serial.println("=== Setup complete ===");
 }
 
 void loop() {
-  // Process any pending messages
+  // Process any pending messages for the application
   ApplicationManager::getInstance().processMessages();
+
+  // Process any pending messages for the LCD
+  lcdManager.processQueue();
 
   // NFC scanning is now handled by NFCManager in its own task
   delay(100);
