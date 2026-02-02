@@ -2,6 +2,7 @@
 #include <WiFi.h>
 
 #include "ConfigurationManager.h"
+#include "BluetoothManager.h"
 #include "ApplicationManager.h"
 #include "PrinterManager.h"
 #include "NFCManager.h"
@@ -65,11 +66,25 @@ void setup() {
   lcdManager.updateScreen("Initializing...", "");
   Serial.println("LCD initialized");
 
+  // Initialize ConfigurationManager FIRST (loads NVS)
+  if (!ConfigurationManager::getInstance().begin()) {
+    Serial.println("ConfigurationManager init failed - halting");
+    lcdManager.updateScreen("Config FAILED", "");
+    while (1) { delay(1000); }
+  }
+
   // Initialize ApplicationManager (message queue) with LCD reference
   if (!ApplicationManager::getInstance().begin(&lcdManager)) {
     Serial.println("ApplicationManager init failed - halting");
     lcdManager.updateScreen("AppMgr FAILED", "");
     while (1) { delay(1000); }
+  }
+
+
+  // Initialize BluetoothManager BEFORE WiFi (they share the radio)
+  lcdManager.updateScreen("Starting BLE...", "");
+  if (!BluetoothManager::getInstance().begin()) {
+    Serial.println("BluetoothManager init failed - continuing without BLE");
   }
 
   // Connect to WiFi

@@ -150,8 +150,13 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
         msg.payload.spoolUpdated.success ? "true" : "false");
 
     if (lcdManager) {
-        lcdManager->updateScreen("Spool Updated",
-            msg.payload.spoolUpdated.success ? "Success" : "Failed!");
+        if (msg.payload.spoolUpdated.success) {
+            char line2[17];
+            snprintf(line2, sizeof(line2), "Remain: %.0fg", msg.payload.spoolUpdated.kg_remaining * 1000.0f);
+            lcdManager->updateScreen("Spool Updated!", line2);
+        } else {
+            lcdManager->updateScreen("Spool Update", "Failed!");
+        }
     }
 }
 

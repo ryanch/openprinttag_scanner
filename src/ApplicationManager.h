@@ -29,6 +29,7 @@ struct SpoolUpdatedPayload {
     char spool_id[64];           // Spool that was updated
     uint8_t update_type;         // NFCWriteType enum value
     bool success;                // Whether update succeeded
+    float kg_remaining;          // Remaining weight after update (kg)
 };
 
 struct AppMessage {

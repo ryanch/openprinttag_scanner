@@ -459,6 +459,13 @@ void NFCManager::sendSpoolUpdatedMessage(uint32_t request_id, NFCWriteType type,
     msg.payload.spoolUpdated.update_type = static_cast<uint8_t>(type);
     msg.payload.spoolUpdated.success = success;
 
+    // Get remaining weight from tag data
+    float remaining_grams = 0;
+    if (currentSpool.tag_data_valid) {
+        opt_get_remaining_weight(&currentSpool.tag_data, &remaining_grams);
+    }
+    msg.payload.spoolUpdated.kg_remaining = remaining_grams / 1000.0f;
+
     ApplicationManager::getInstance().sendMessage(msg);
 }
 
