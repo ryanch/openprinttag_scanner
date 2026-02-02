@@ -30,6 +30,9 @@ private:
     std::string _currentLine1;
     std::string _currentLine2;
     uint8_t _lcd_cols;
+    unsigned long _lastChangeTime;
+    bool _screenOff;
+    static const unsigned long SCREEN_TIMEOUT_MS = 120000; // 2 minutes
 };
 
 #endif // LCD_MANAGER_H
