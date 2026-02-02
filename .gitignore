@@ -4,3 +4,4 @@
 .vscode/launch.json
 .vscode/ipch
 specs
+src/local_settings.h
