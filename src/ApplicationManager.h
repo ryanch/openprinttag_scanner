@@ -9,7 +9,22 @@ enum class AppMessageType {
     PRINT_STARTED,
     PRINT_CANCELED,
     PRINT_FINISHED,
-    SPOOL_SCANNED
+    SPOOL_DETECTED,     // Full spool info parsed from NFC
+    SPOOL_UPDATED,      // Spool was written to successfully
+};
+
+struct SpoolDetectedPayload {
+    char spool_id[64];           // UID hex string
+    uint8_t material_type;       // OPT_MATERIAL_TYPE_PLA, etc.
+    float kg_remaining;          // Remaining weight in kg
+    uint8_t primary_color[4];    // RGBA color
+    char material_name[32];      // Material name string
+};
+
+struct SpoolUpdatedPayload {
+    char spool_id[64];           // Spool that was updated
+    uint8_t update_type;         // NFCWriteType enum value
+    bool success;                // Whether update succeeded
 };
 
 struct AppMessage {
@@ -26,9 +41,8 @@ struct AppMessage {
             int job_id;
             float filament_used_grams;
         } printFinished;
-        struct {
-            char spool_id[64];
-        } spoolScanned;
+        SpoolDetectedPayload spoolDetected;
+        SpoolUpdatedPayload spoolUpdated;
     } payload;
 };
 

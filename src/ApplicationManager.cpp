@@ -57,9 +57,18 @@ void ApplicationManager::processMessages() {
                     msg.payload.printFinished.filament_used_grams);
                 break;
 
-            case AppMessageType::SPOOL_SCANNED:
-                Serial.printf("EVENT: SpoolScanned - spool_id=%s\n",
-                    msg.payload.spoolScanned.spool_id);
+            case AppMessageType::SPOOL_DETECTED:
+                Serial.printf("EVENT: SpoolDetected - spool_id=%s, material_type=%u, kg_remaining=%.3f\n",
+                    msg.payload.spoolDetected.spool_id,
+                    msg.payload.spoolDetected.material_type,
+                    msg.payload.spoolDetected.kg_remaining);
+                break;
+
+            case AppMessageType::SPOOL_UPDATED:
+                Serial.printf("EVENT: SpoolUpdated - spool_id=%s, update_type=%u, success=%s\n",
+                    msg.payload.spoolUpdated.spool_id,
+                    msg.payload.spoolUpdated.update_type,
+                    msg.payload.spoolUpdated.success ? "true" : "false");
                 break;
         }
     }
