@@ -655,8 +655,18 @@
 
         // Relative Time Formatting
         function formatRelativeTime(timestamp) {
+            // Handle missing, invalid, or zero timestamps
+            if (!timestamp || timestamp <= 0) {
+                return 'Unknown';
+            }
+
             const now = Date.now() / 1000;
             const diff = now - timestamp;
+
+            // Handle future timestamps or unreasonably old ones (> 1 year)
+            if (diff < 0 || diff > 31536000) {
+                return 'Unknown';
+            }
 
             if (diff < 60) return 'Just now';
             if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
