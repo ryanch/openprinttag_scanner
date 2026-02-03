@@ -744,13 +744,15 @@
                 modalSave.disabled = true;
                 modalSave.textContent = 'Saving...';
 
+                console.log('Sending update_spool:', updatePayload);
                 await configWriteCharacteristic.writeValue(
                     textEncoder.encode(JSON.stringify(updatePayload))
                 );
 
-                // Read response
-                const responseValue = await configReadCharacteristic.readValue();
+                // Read response from write characteristic (where device puts status response)
+                const responseValue = await configWriteCharacteristic.readValue();
                 const responseJson = textDecoder.decode(responseValue);
+                console.log('update_spool response:', responseJson);
                 const response = JSON.parse(responseJson);
 
                 if (response.status === 'ok') {
@@ -907,8 +909,10 @@
                     textEncoder.encode(JSON.stringify(configPayload))
                 );
 
-                const responseValue = await configReadCharacteristic.readValue();
+                // Read response from write characteristic (where device puts status response)
+                const responseValue = await configWriteCharacteristic.readValue();
                 const responseJson = textDecoder.decode(responseValue);
+                console.log('write_config response:', responseJson);
                 const response = JSON.parse(responseJson);
 
                 if (response.status === 'ok') {

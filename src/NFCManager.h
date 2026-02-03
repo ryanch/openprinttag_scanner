@@ -38,6 +38,17 @@ struct CurrentSpoolState {
     bool tag_data_valid;
 };
 
+// Recent spool entry for history tracking (RAM only)
+struct RecentSpoolEntry {
+    char spool_id[64];
+    uint8_t material_type;
+    uint8_t color[4];            // RGBA
+    char manufacturer[64];
+    int grams_remaining;
+    unsigned long last_seen_ms;  // millis() timestamp
+    bool valid;
+};
+
 class NFCManager {
 public:
     static NFCManager& getInstance();
@@ -47,6 +58,10 @@ public:
     bool isRequestCompleted(uint32_t request_id);    // Check if request done
     void requestCurrentSpool();                      // Clear dedup to resend current spool
     const CurrentSpoolState& getCurrentSpoolState() const { return currentSpool; }
+
+    // Recent spools history (RAM only)
+    static constexpr size_t MAX_RECENT_SPOOLS = 10;
+    size_t getRecentSpools(RecentSpoolEntry* entries, size_t maxEntries);
 
 private:
     NFCManager() = default;
@@ -80,6 +95,11 @@ private:
     uint8_t lastSeenUid[7];
     uint8_t lastSeenUidLength = 0;
     bool lastSeenValid = false;
+
+    // Recent spools history (RAM only, most recent first)
+    RecentSpoolEntry recentSpools[MAX_RECENT_SPOOLS];
+    size_t recentSpoolsCount = 0;
+    void addToRecentSpools();
 
     // Write queue (FreeRTOS)
     QueueHandle_t writeQueue = nullptr;

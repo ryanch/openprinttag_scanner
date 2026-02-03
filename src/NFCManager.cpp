@@ -76,6 +76,8 @@ bool NFCManager::begin() {
     lastSeenValid = false;
     memset(completedRequests, 0, sizeof(completedRequests));
     completedRequestsIndex = 0;
+    memset(recentSpools, 0, sizeof(recentSpools));
+    recentSpoolsCount = 0;
 
     Serial.println("NFCManager: Initialized successfully");
     return true;
@@ -186,6 +188,9 @@ bool NFCManager::readAndParseTag(uint8_t* uid, uint8_t uid_length) {
 
     currentSpool.present = true;
     currentSpool.tag_data_valid = true;
+
+    // Add to recent spools history
+    addToRecentSpools();
 
     Serial.printf("NFCManager: Parsed spool %s\n", currentSpool.spool_id);
     return true;
@@ -554,4 +559,82 @@ void NFCManager::requestCurrentSpool() {
         lastSeenUidLength = 0;
         xSemaphoreGive(tagMutex);
     }
+}
+
+void NFCManager::addToRecentSpools() {
+    if (!currentSpool.tag_data_valid) {
+        return;
+    }
+
+    // Check if this spool already exists in recent list
+    int existingIndex = -1;
+    for (size_t i = 0; i < recentSpoolsCount; i++) {
+        if (strcmp(recentSpools[i].spool_id, currentSpool.spool_id) == 0) {
+            existingIndex = i;
+            break;
+        }
+    }
+
+    // Create new entry from current spool
+    RecentSpoolEntry newEntry;
+    memset(&newEntry, 0, sizeof(newEntry));
+    strncpy(newEntry.spool_id, currentSpool.spool_id, sizeof(newEntry.spool_id) - 1);
+
+    opt_get_material_type(&currentSpool.tag_data, &newEntry.material_type);
+    opt_get_primary_color(&currentSpool.tag_data, newEntry.color);
+
+    if (opt_get_brand_name(&currentSpool.tag_data, newEntry.manufacturer, sizeof(newEntry.manufacturer)) != OPT_OK) {
+        newEntry.manufacturer[0] = '\0';
+    }
+
+    float full_weight = 0.0f, consumed = 0.0f;
+    opt_get_actual_full_weight(&currentSpool.tag_data, &full_weight);
+    opt_get_consumed_weight(&currentSpool.tag_data, &consumed);
+    newEntry.grams_remaining = (int)(full_weight - consumed);
+
+    newEntry.last_seen_ms = millis();
+    newEntry.valid = true;
+
+    if (existingIndex >= 0) {
+        // Spool exists - shift entries to remove it from current position
+        for (size_t i = existingIndex; i > 0; i--) {
+            recentSpools[i] = recentSpools[i - 1];
+        }
+    } else {
+        // New spool - shift all entries down to make room
+        size_t shiftCount = (recentSpoolsCount < MAX_RECENT_SPOOLS) ? recentSpoolsCount : (MAX_RECENT_SPOOLS - 1);
+        for (size_t i = shiftCount; i > 0; i--) {
+            recentSpools[i] = recentSpools[i - 1];
+        }
+        if (recentSpoolsCount < MAX_RECENT_SPOOLS) {
+            recentSpoolsCount++;
+        }
+    }
+
+    // Place new entry at front
+    recentSpools[0] = newEntry;
+}
+
+size_t NFCManager::getRecentSpools(RecentSpoolEntry* entries, size_t maxEntries) {
+    if (tagMutex == nullptr) {
+        return 0;
+    }
+
+    if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return 0;
+    }
+
+    size_t count = 0;
+    for (size_t i = 0; i < recentSpoolsCount && count < maxEntries; i++) {
+        if (recentSpools[i].valid) {
+            // Skip the current spool if it matches
+            if (currentSpool.present && strcmp(recentSpools[i].spool_id, currentSpool.spool_id) == 0) {
+                continue;
+            }
+            entries[count++] = recentSpools[i];
+        }
+    }
+
+    xSemaphoreGive(tagMutex);
+    return count;
 }

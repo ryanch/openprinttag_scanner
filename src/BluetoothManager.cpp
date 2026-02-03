@@ -152,7 +152,22 @@ static void process_command(const char* json) {
             responseDoc["current"] = nullptr;
         }
 
-        responseDoc["recent"] = JsonArray();
+        // Get recent spools
+        JsonArray recentArray = responseDoc["recent"].to<JsonArray>();
+        RecentSpoolEntry recentEntries[NFCManager::MAX_RECENT_SPOOLS];
+        size_t recentCount = NFCManager::getInstance().getRecentSpools(recentEntries, NFCManager::MAX_RECENT_SPOOLS);
+        for (size_t i = 0; i < recentCount; i++) {
+            JsonObject recentObj = recentArray.add<JsonObject>();
+            recentObj["id"] = recentEntries[i].spool_id;
+            recentObj["type"] = materialTypeToString(recentEntries[i].material_type);
+            char colorHex[8];
+            snprintf(colorHex, sizeof(colorHex), "#%02X%02X%02X",
+                     recentEntries[i].color[0], recentEntries[i].color[1], recentEntries[i].color[2]);
+            recentObj["color"] = colorHex;
+            recentObj["manufacturer"] = recentEntries[i].manufacturer;
+            recentObj["grams_remaining"] = recentEntries[i].grams_remaining;
+            recentObj["last_seen"] = recentEntries[i].last_seen_ms / 1000;
+        }
 
         String response;
         serializeJson(responseDoc, response);
