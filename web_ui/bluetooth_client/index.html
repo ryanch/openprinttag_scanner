@@ -598,6 +598,37 @@
         const textDecoder = new TextDecoder('utf-8');
         const textEncoder = new TextEncoder();
 
+        // Command queue for serial BLE operations
+        const commandQueue = [];
+        let isProcessingQueue = false;
+
+        // Queue a command and process if not already processing
+        function enqueueCommand(commandFn) {
+            return new Promise((resolve, reject) => {
+                commandQueue.push({ execute: commandFn, resolve, reject });
+                processQueue();
+            });
+        }
+
+        // Process commands one at a time
+        async function processQueue() {
+            if (isProcessingQueue || commandQueue.length === 0) return;
+
+            isProcessingQueue = true;
+
+            while (commandQueue.length > 0) {
+                const { execute, resolve, reject } = commandQueue.shift();
+                try {
+                    const result = await execute();
+                    resolve(result);
+                } catch (error) {
+                    reject(error);
+                }
+            }
+
+            isProcessingQueue = false;
+        }
+
         // Logging
         function log(message, type = '', area = statusArea) {
             area.style.display = 'block';
@@ -744,16 +775,17 @@
                 modalSave.disabled = true;
                 modalSave.textContent = 'Saving...';
 
-                console.log('Sending update_spool:', updatePayload);
-                await configWriteCharacteristic.writeValue(
-                    textEncoder.encode(JSON.stringify(updatePayload))
-                );
+                const response = await enqueueCommand(async () => {
+                    console.log('Sending update_spool:', updatePayload);
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode(JSON.stringify(updatePayload))
+                    );
 
-                // Read response from write characteristic (where device puts status response)
-                const responseValue = await configWriteCharacteristic.readValue();
-                const responseJson = textDecoder.decode(responseValue);
-                console.log('update_spool response:', responseJson);
-                const response = JSON.parse(responseJson);
+                    const responseValue = await configWriteCharacteristic.readValue();
+                    const responseJson = textDecoder.decode(responseValue);
+                    console.log('update_spool response:', responseJson);
+                    return JSON.parse(responseJson);
+                });
 
                 if (response.status === 'ok') {
                     // Update local data
@@ -830,24 +862,48 @@
             if (!configWriteCharacteristic || !configReadCharacteristic) return;
 
             try {
-                await configWriteCharacteristic.writeValue(
-                    textEncoder.encode('{"command":"list_spools"}')
-                );
+                await enqueueCommand(async () => {
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode('{"command":"list_spools"}')
+                    );
 
-                const value = await configReadCharacteristic.readValue();
-                const responseJson = textDecoder.decode(value);
-                const response = JSON.parse(responseJson);
+                    const value = await configReadCharacteristic.readValue();
+                    const responseJson = textDecoder.decode(value);
+                    const response = JSON.parse(responseJson);
 
-                currentSpoolData = response.current || null;
-                recentSpoolsData = response.recent || [];
+                    // D) Current spool should always be updated (show/remove as appropriate)
+                    currentSpoolData = response.current || null;
+
+                    // Handle recently seen spools with merge logic
+                    const incomingRecent = response.recent || [];
+
+                    if (incomingRecent.length > 0) {
+                        // C) Merge incoming spools with existing, de-dupe by ID
+                        const spoolMap = new Map();
+
+                        // Add existing spools first
+                        recentSpoolsData.forEach(spool => {
+                            spoolMap.set(spool.id, spool);
+                        });
+
+                        // Update/add incoming spools (newer data wins)
+                        incomingRecent.forEach(spool => {
+                            spoolMap.set(spool.id, spool);
+                        });
+
+                        // Convert back to array, sorted by last_seen (most recent first)
+                        recentSpoolsData = Array.from(spoolMap.values())
+                            .sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
+                    }
+                    // B) If client sends no spools for recently seen, keep current ones visible
+                    // (do nothing - recentSpoolsData stays unchanged)
+                });
 
                 renderSpools();
             } catch (error) {
                 console.error('Failed to load spools:', error);
-                // Use empty state
-                currentSpoolData = null;
-                recentSpoolsData = [];
-                renderSpools();
+                // On error, keep existing data stable instead of clearing
+                // Only clear currentSpoolData since we don't know if a spool is present
             }
         }
 
@@ -855,13 +911,15 @@
             if (!configWriteCharacteristic || !configReadCharacteristic) return;
 
             try {
-                await configWriteCharacteristic.writeValue(
-                    textEncoder.encode('{"command":"read_config"}')
-                );
+                const config = await enqueueCommand(async () => {
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode('{"command":"read_config"}')
+                    );
 
-                const value = await configReadCharacteristic.readValue();
-                const configJson = textDecoder.decode(value);
-                const config = JSON.parse(configJson);
+                    const value = await configReadCharacteristic.readValue();
+                    const configJson = textDecoder.decode(value);
+                    return JSON.parse(configJson);
+                });
 
                 // Populate form
                 document.getElementById('ssid').value = config.ssid || '';
@@ -905,15 +963,16 @@
                 saveButton.disabled = true;
                 saveButton.textContent = 'Saving...';
 
-                await configWriteCharacteristic.writeValue(
-                    textEncoder.encode(JSON.stringify(configPayload))
-                );
+                const response = await enqueueCommand(async () => {
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode(JSON.stringify(configPayload))
+                    );
 
-                // Read response from write characteristic (where device puts status response)
-                const responseValue = await configWriteCharacteristic.readValue();
-                const responseJson = textDecoder.decode(responseValue);
-                console.log('write_config response:', responseJson);
-                const response = JSON.parse(responseJson);
+                    const responseValue = await configWriteCharacteristic.readValue();
+                    const responseJson = textDecoder.decode(responseValue);
+                    console.log('write_config response:', responseJson);
+                    return JSON.parse(responseJson);
+                });
 
                 if (response.status === 'ok') {
                     log('Configuration saved successfully.', 'success', settingsStatusArea);
