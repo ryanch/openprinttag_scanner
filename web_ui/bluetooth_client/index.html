@@ -593,6 +593,8 @@
         let configReadCharacteristic;
         let currentSpoolData = null;
         let recentSpoolsData = [];
+        let spoolPollInterval = null;
+        const SPOOL_POLL_INTERVAL_MS = 3000;
         const textDecoder = new TextDecoder('utf-8');
         const textEncoder = new TextEncoder();
 
@@ -802,8 +804,23 @@
                 await loadSpools();
                 await loadConfig();
 
+                // Start polling for spool updates
+                startSpoolPolling();
+
             } catch (error) {
                 log(`Connection failed: ${error}`, 'error');
+            }
+        }
+
+        function startSpoolPolling() {
+            stopSpoolPolling();
+            spoolPollInterval = setInterval(loadSpools, SPOOL_POLL_INTERVAL_MS);
+        }
+
+        function stopSpoolPolling() {
+            if (spoolPollInterval) {
+                clearInterval(spoolPollInterval);
+                spoolPollInterval = null;
             }
         }
 
@@ -910,6 +927,7 @@
         }
 
         function onDisconnected() {
+            stopSpoolPolling();
             log('Device disconnected.', 'error');
             connectionUI.style.display = 'block';
             appUI.style.display = 'none';
