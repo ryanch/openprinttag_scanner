@@ -11,7 +11,9 @@
 enum class NFCWriteType : uint8_t {
     REMOVE_WEIGHT,        // Subtract grams from spool
     CHANGE_COLOR,         // Set new primary color
-    CHANGE_FILAMENT_TYPE  // Set new material type
+    CHANGE_FILAMENT_TYPE, // Set new material type
+    SET_CONSUMED_WEIGHT,  // Set absolute consumed weight
+    SET_BRAND_NAME        // Set manufacturer name
 };
 
 struct NFCWriteRequest {
@@ -22,6 +24,8 @@ struct NFCWriteRequest {
         float grams_to_remove;
         uint8_t new_color[4];    // RGBA
         uint8_t new_material_type;
+        float consumed_weight;   // Absolute consumed weight in grams
+        char brand_name[64];     // Manufacturer name
     } data;
 };
 
@@ -42,6 +46,7 @@ public:
     bool enqueueWrite(const NFCWriteRequest& req);   // Queue a write request
     bool isRequestCompleted(uint32_t request_id);    // Check if request done
     void requestCurrentSpool();                      // Clear dedup to resend current spool
+    const CurrentSpoolState& getCurrentSpoolState() const { return currentSpool; }
 
 private:
     NFCManager() = default;

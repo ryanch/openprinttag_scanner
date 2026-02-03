@@ -440,6 +440,36 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
             break;
         }
 
+        case NFCWriteType::SET_CONSUMED_WEIGHT: {
+            err = opt_set_consumed_weight(&currentSpool.tag_data, request.data.consumed_weight);
+            if (err != OPT_OK) {
+                Serial.printf("NFCManager: Failed to set consumed weight: %s\n", opt_error_str(err));
+                return false;
+            }
+            err = opt_write_aux_region(&currentSpool.tag_data, &nfcHal);
+            if (err != OPT_OK) {
+                Serial.printf("NFCManager: Failed to write aux region: %s\n", opt_error_str(err));
+                return false;
+            }
+            Serial.printf("NFCManager: Set consumed weight to %.2f grams\n", request.data.consumed_weight);
+            break;
+        }
+
+        case NFCWriteType::SET_BRAND_NAME: {
+            err = opt_set_brand_name(&currentSpool.tag_data, request.data.brand_name);
+            if (err != OPT_OK) {
+                Serial.printf("NFCManager: Failed to set brand name: %s\n", opt_error_str(err));
+                return false;
+            }
+            err = opt_write_dirty_pages(&currentSpool.tag_data, &nfcHal);
+            if (err != OPT_OK) {
+                Serial.printf("NFCManager: Failed to write brand name: %s\n", opt_error_str(err));
+                return false;
+            }
+            Serial.printf("NFCManager: Set brand name to %s\n", request.data.brand_name);
+            break;
+        }
+
         default:
             Serial.printf("NFCManager: Unknown write type: %u\n", static_cast<uint8_t>(request.type));
             return false;

@@ -3,21 +3,25 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenPrintTag Configurator</title>
+    <title>OpenPrintTag</title>
     <style>
-        /* Typography and Theme */
+        /* Typography and Theme - Prusa Connect Aesthetic */
         @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600;700&display=swap');
 
         :root {
-            --prusa-orange: #E68112;
-            --prusa-black: #1a1a1a;
-            --prusa-dark-gray: #2c2c2c;
-            --prusa-medium-gray: #3a3a3a;
-            --prusa-light-gray: #b0b0b0;
-            --prusa-text: #ffffff;
+            --prusa-orange: #FA6831;
+            --prusa-black: #0a0a0a;
+            --prusa-dark-gray: #1a1a1a;
+            --prusa-medium-gray: #313131;
+            --prusa-light-gray: #707070;
+            --prusa-text: #efefef;
             --prusa-red: #d63031;
             --prusa-green: #2ecc71;
-            --font-main: 'Exo 2', sans-serif;
+            --font-main: Helvetica, 'Exo 2', sans-serif;
+        }
+
+        * {
+            box-sizing: border-box;
         }
 
         body {
@@ -36,16 +40,15 @@
         .container {
             background-color: var(--prusa-dark-gray);
             border-radius: 8px;
-            padding: 2.5rem;
             width: 100%;
             max-width: 600px;
             box-shadow: 0 10px 30px rgba(0, 0, 0, 0.3);
-            border-top: 4px solid var(--prusa-orange);
+            overflow: hidden;
             opacity: 0;
             transform: translateY(20px);
             animation: fadeIn 0.5s ease-out forwards;
         }
-        
+
         @keyframes fadeIn {
             to {
                 opacity: 1;
@@ -53,23 +56,86 @@
             }
         }
 
-        h1 {
+        /* Header */
+        .header {
+            background-color: var(--prusa-black);
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--prusa-medium-gray);
+        }
+
+        .header h1 {
             color: var(--prusa-orange);
             font-weight: 700;
-            margin-top: 0;
+            margin: 0;
+            font-size: 1.5rem;
+            letter-spacing: 0.5px;
+        }
+
+        /* Tab Navigation */
+        .tab-nav {
+            display: flex;
+            background-color: var(--prusa-black);
+            border-bottom: 1px solid var(--prusa-medium-gray);
+        }
+
+        .tab-btn {
+            flex: 1;
+            padding: 1rem;
+            background: none;
+            border: none;
+            color: var(--prusa-light-gray);
+            font-family: var(--font-main);
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            position: relative;
+            transition: color 0.2s;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
+        }
+
+        .tab-btn:hover {
+            color: var(--prusa-text);
+        }
+
+        .tab-btn.active {
+            color: var(--prusa-orange);
+        }
+
+        .tab-btn.active::after {
+            content: '';
+            position: absolute;
+            bottom: 0;
+            left: 0;
+            right: 0;
+            height: 3px;
+            background-color: var(--prusa-orange);
+        }
+
+        /* Tab Content */
+        .tab-content {
+            padding: 1.5rem;
+            display: none;
+        }
+
+        .tab-content.active {
+            display: block;
+        }
+
+        /* Connection UI */
+        #connection-ui {
+            padding: 2rem 1.5rem;
             text-align: center;
-            letter-spacing: 1px;
+        }
+
+        #connection-ui p {
+            color: var(--prusa-light-gray);
+            margin-bottom: 1.5rem;
         }
 
         /* Form Elements */
         .form-group {
-            margin-bottom: 1.5rem;
-            opacity: 0;
-            animation: slideIn 0.5s forwards;
-        }
-        
-        @keyframes slideIn {
-            to { opacity: 1; transform: translateX(0); }
+            margin-bottom: 1.25rem;
         }
 
         label {
@@ -77,15 +143,20 @@
             margin-bottom: 0.5rem;
             font-weight: 600;
             color: var(--prusa-light-gray);
+            font-size: 0.85rem;
+            text-transform: uppercase;
+            letter-spacing: 0.5px;
         }
 
         input[type="text"],
         input[type="password"],
-        input[type="number"] {
+        input[type="number"],
+        input[type="color"],
+        select {
             width: 100%;
             padding: 12px;
             background-color: var(--prusa-medium-gray);
-            border: 1px solid #555;
+            border: 1px solid #444;
             border-radius: 4px;
             color: var(--prusa-text);
             font-family: var(--font-main);
@@ -93,17 +164,28 @@
             transition: all 0.2s ease-in-out;
         }
 
-        input:focus {
+        input:focus,
+        select:focus {
             outline: none;
             border-color: var(--prusa-orange);
-            box-shadow: 0 0 0 2px var(--prusa-orange-t);
+            box-shadow: 0 0 0 2px rgba(250, 104, 49, 0.2);
+        }
+
+        input[type="color"] {
+            padding: 4px;
+            height: 44px;
+            cursor: pointer;
+        }
+
+        select {
+            cursor: pointer;
         }
 
         /* Buttons */
         .button-group {
             display: flex;
             gap: 1rem;
-            margin-top: 2rem;
+            margin-top: 1.5rem;
             justify-content: flex-end;
         }
 
@@ -112,117 +194,393 @@
             border: none;
             border-radius: 5px;
             font-family: var(--font-main);
-            font-size: 1rem;
+            font-size: 0.9rem;
             font-weight: 600;
             cursor: pointer;
-            transition: all 0.3s cubic-bezier(0.25, 0.8, 0.25, 1);
-            position: relative;
-            overflow: hidden;
+            transition: all 0.2s ease;
             background-color: var(--prusa-orange);
-            color: var(--prusa-black);
+            color: white;
             text-transform: uppercase;
             letter-spacing: 0.5px;
         }
-        
+
         button:hover {
-            box-shadow: 0 4px 15px rgba(230, 129, 18, 0.4);
-            transform: translateY(-2px);
+            background-color: #e55a24;
+            transform: translateY(-1px);
         }
 
         button.secondary {
             background-color: var(--prusa-medium-gray);
             color: var(--prusa-text);
         }
-        
+
         button.secondary:hover {
-            background-color: #4a4a4a;
-            box-shadow: 0 4px 15px rgba(0,0,0, 0.3);
+            background-color: #3a3a3a;
         }
 
         button:disabled {
-            background-color: #555;
-            color: #999;
+            background-color: #444;
+            color: #777;
             cursor: not-allowed;
             transform: none;
-            box-shadow: none;
         }
 
-        /* Status and Logging */
+        /* Status Area */
         #status-area {
-            margin-top: 1.5rem;
+            margin-top: 1rem;
             padding: 1rem;
             background-color: var(--prusa-medium-gray);
             border-radius: 4px;
             font-family: monospace;
-            font-size: 0.85rem;
-            color: #ccc;
-            height: 100px;
+            font-size: 0.8rem;
+            color: #aaa;
+            max-height: 120px;
             overflow-y: auto;
-            display: none; /* Initially hidden */
+            display: none;
         }
-        
+
         .status-message {
             margin: 0;
-            padding-bottom: 5px;
+            padding-bottom: 4px;
         }
-        
+
         .status-error { color: var(--prusa-red); }
         .status-success { color: var(--prusa-green); }
 
-        #config-form {
-            display: none; /* Hidden until connected */
+        /* Section Headers */
+        .section-header {
+            color: var(--prusa-light-gray);
+            font-size: 0.8rem;
+            font-weight: 600;
+            text-transform: uppercase;
+            letter-spacing: 1px;
+            margin-bottom: 1rem;
+            padding-bottom: 0.5rem;
+            border-bottom: 1px solid var(--prusa-medium-gray);
+        }
+
+        /* Spool Cards */
+        .spool-card {
+            background-color: var(--prusa-medium-gray);
+            border-radius: 6px;
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            display: flex;
+            align-items: center;
+            gap: 1rem;
+            transition: background-color 0.2s;
+        }
+
+        .spool-card:hover {
+            background-color: #3a3a3a;
+        }
+
+        .spool-card.current {
+            border-left: 4px solid var(--prusa-orange);
+        }
+
+        .spool-color {
+            width: 40px;
+            height: 40px;
+            border-radius: 50%;
+            flex-shrink: 0;
+            border: 2px solid rgba(255, 255, 255, 0.2);
+        }
+
+        .spool-info {
+            flex: 1;
+            min-width: 0;
+        }
+
+        .spool-type {
+            font-weight: 600;
+            font-size: 1rem;
+            margin-bottom: 0.25rem;
+        }
+
+        .spool-manufacturer {
+            color: var(--prusa-light-gray);
+            font-size: 0.85rem;
+        }
+
+        .spool-meta {
+            text-align: right;
+            flex-shrink: 0;
+        }
+
+        .spool-grams {
+            font-weight: 600;
+            font-size: 1rem;
+        }
+
+        .spool-time {
+            color: var(--prusa-light-gray);
+            font-size: 0.8rem;
+        }
+
+        .spool-edit-btn {
+            padding: 8px 12px;
+            font-size: 0.8rem;
+            margin-left: 0.5rem;
+        }
+
+        .empty-state {
+            text-align: center;
+            padding: 2rem;
+            color: var(--prusa-light-gray);
+        }
+
+        .empty-state-icon {
+            font-size: 3rem;
+            margin-bottom: 1rem;
+            opacity: 0.5;
+        }
+
+        /* Modal */
+        .modal-overlay {
+            position: fixed;
+            top: 0;
+            left: 0;
+            right: 0;
+            bottom: 0;
+            background-color: rgba(0, 0, 0, 0.8);
+            display: flex;
+            justify-content: center;
+            align-items: center;
+            z-index: 1000;
+            opacity: 0;
+            visibility: hidden;
+            transition: opacity 0.2s, visibility 0.2s;
+        }
+
+        .modal-overlay.active {
+            opacity: 1;
+            visibility: visible;
+        }
+
+        .modal {
+            background-color: var(--prusa-dark-gray);
+            border-radius: 8px;
+            width: 90%;
+            max-width: 400px;
+            max-height: 90vh;
+            overflow-y: auto;
+            transform: scale(0.9);
+            transition: transform 0.2s;
+        }
+
+        .modal-overlay.active .modal {
+            transform: scale(1);
+        }
+
+        .modal-header {
+            padding: 1.25rem 1.5rem;
+            border-bottom: 1px solid var(--prusa-medium-gray);
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .modal-header h2 {
+            margin: 0;
+            font-size: 1.1rem;
+            color: var(--prusa-text);
+        }
+
+        .modal-close {
+            background: none;
+            border: none;
+            color: var(--prusa-light-gray);
+            font-size: 1.5rem;
+            cursor: pointer;
+            padding: 0;
+            line-height: 1;
+        }
+
+        .modal-close:hover {
+            color: var(--prusa-text);
+            background: none;
+            transform: none;
+        }
+
+        .modal-body {
+            padding: 1.5rem;
+        }
+
+        .modal-footer {
+            padding: 1rem 1.5rem;
+            border-top: 1px solid var(--prusa-medium-gray);
+            display: flex;
+            gap: 0.75rem;
+            justify-content: flex-end;
+        }
+
+        /* Color preview in modal */
+        .color-preview-row {
+            display: flex;
+            gap: 1rem;
+            align-items: center;
+        }
+
+        .color-preview-row input[type="color"] {
+            width: 60px;
+        }
+
+        .color-preview-row input[type="text"] {
+            flex: 1;
         }
     </style>
 </head>
 <body>
 
     <div class="container">
-        <h1>OpenPrintTag Configurator</h1>
-
-        <div id="connection-ui">
-            <p>Connect to your OpenPrintTag device to configure WiFi and PrusaLink settings.</p>
-            <div class="button-group" style="justify-content: center;">
-                <button id="connect-button">Connect to Device</button>
-            </div>
+        <div class="header">
+            <h1>OpenPrintTag</h1>
         </div>
 
-        <form id="config-form">
-            <div class="form-group" style="animation-delay: 100ms;">
-                <label for="ssid">WiFi SSID</label>
-                <input type="text" id="ssid" name="ssid" required>
-            </div>
-            <div class="form-group" style="animation-delay: 200ms;">
-                <label for="wifi_pass">WiFi Password (leave blank to keep existing)</label>
-                <input type="password" id="wifi_pass" name="wifi_pass">
-            </div>
-            <div class="form-group" style="animation-delay: 300ms;">
-                <label for="prusa_link_url">PrusaLink URL</label>
-                <input type="text" id="prusa_link_url" name="prusa_link_url" placeholder="e.g., http://192.168.1.100">
-            </div>
-            <div class="form-group" style="animation-delay: 400ms;">
-                <label for="prusa_link_api_key">PrusaLink API Key</label>
-                <input type="password" id="prusa_link_api_key" name="prusa_link_api_key">
-            </div>
-            <div class="form-group" style="animation-delay: 500ms;">
-                <label for="poll_interval_ms">Poll Interval (ms)</label>
-                <input type="number" id="poll_interval_ms" name="poll_interval_ms" min="1000">
+        <!-- Connection UI (shown before BLE connection) -->
+        <div id="connection-ui">
+            <p>Connect to your OpenPrintTag device to view spools and configure settings.</p>
+            <button id="connect-button">Connect to Device</button>
+            <div id="status-area"></div>
+        </div>
+
+        <!-- Main App UI (shown after BLE connection) -->
+        <div id="app-ui" style="display: none;">
+            <!-- Tab Navigation -->
+            <nav class="tab-nav">
+                <button class="tab-btn active" data-tab="spools">Spools</button>
+                <button class="tab-btn" data-tab="settings">Settings</button>
+            </nav>
+
+            <!-- Spools Tab -->
+            <div id="tab-spools" class="tab-content active">
+                <div class="section-header">Current Spool</div>
+                <div id="current-spool-container">
+                    <div class="empty-state">
+                        <div class="empty-state-icon">&#128451;</div>
+                        <p>No spool detected.<br>Place a tagged spool on the reader.</p>
+                    </div>
+                </div>
+
+                <div class="section-header" style="margin-top: 1.5rem;">Recently Seen</div>
+                <div id="recent-spools-container">
+                    <div class="empty-state">
+                        <p>No recent spools.</p>
+                    </div>
+                </div>
             </div>
 
-            <div class="button-group">
-                <button type="submit" id="save-button">Save Configuration</button>
-            </div>
-        </form>
+            <!-- Settings Tab -->
+            <div id="tab-settings" class="tab-content">
+                <form id="config-form">
+                    <div class="form-group">
+                        <label for="ssid">WiFi SSID</label>
+                        <input type="text" id="ssid" name="ssid" required>
+                    </div>
+                    <div class="form-group">
+                        <label for="wifi_pass">WiFi Password (leave blank to keep existing)</label>
+                        <input type="password" id="wifi_pass" name="wifi_pass">
+                    </div>
+                    <div class="form-group">
+                        <label for="prusa_link_url">PrusaLink URL</label>
+                        <input type="text" id="prusa_link_url" name="prusa_link_url" placeholder="e.g., http://192.168.1.100">
+                    </div>
+                    <div class="form-group">
+                        <label for="prusa_link_api_key">PrusaLink API Key</label>
+                        <input type="password" id="prusa_link_api_key" name="prusa_link_api_key">
+                    </div>
+                    <div class="form-group">
+                        <label for="poll_interval_ms">Poll Interval (ms)</label>
+                        <input type="number" id="poll_interval_ms" name="poll_interval_ms" min="1000">
+                    </div>
 
-        <div id="status-area"></div>
+                    <div class="button-group">
+                        <button type="submit" id="save-button">Save Configuration</button>
+                    </div>
+                </form>
+
+                <div id="settings-status-area" class="status-area" style="margin-top: 1rem; padding: 1rem; background-color: var(--prusa-medium-gray); border-radius: 4px; font-family: monospace; font-size: 0.8rem; color: #aaa; max-height: 120px; overflow-y: auto; display: none;"></div>
+            </div>
+        </div>
+    </div>
+
+    <!-- Edit Spool Modal -->
+    <div id="edit-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Edit Spool</h2>
+                <button class="modal-close" id="modal-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="edit-spool-id">
+                <div class="form-group">
+                    <label for="edit-type">Material Type</label>
+                    <select id="edit-type">
+                        <option value="PLA">PLA</option>
+                        <option value="PETG">PETG</option>
+                        <option value="ABS">ABS</option>
+                        <option value="ASA">ASA</option>
+                        <option value="TPU">TPU</option>
+                        <option value="PC">PC</option>
+                        <option value="Nylon">Nylon</option>
+                        <option value="PVA">PVA</option>
+                        <option value="HIPS">HIPS</option>
+                        <option value="Other">Other</option>
+                    </select>
+                </div>
+                <div class="form-group">
+                    <label for="edit-color">Color</label>
+                    <div class="color-preview-row">
+                        <input type="color" id="edit-color" value="#FF5733">
+                        <input type="text" id="edit-color-hex" placeholder="#FF5733" maxlength="7">
+                    </div>
+                </div>
+                <div class="form-group">
+                    <label for="edit-manufacturer">Manufacturer</label>
+                    <input type="text" id="edit-manufacturer" placeholder="e.g., Prusament">
+                </div>
+                <div class="form-group">
+                    <label for="edit-grams">Grams Remaining</label>
+                    <input type="number" id="edit-grams" min="0" max="5000" placeholder="750">
+                </div>
+            </div>
+            <div class="modal-footer">
+                <button class="secondary" id="modal-cancel">Cancel</button>
+                <button id="modal-save">Save to Tag</button>
+            </div>
+        </div>
     </div>
 
     <script>
         // DOM Elements
         const connectButton = document.getElementById('connect-button');
-        const saveButton = document.getElementById('save-button');
-        const configForm = document.getElementById('config-form');
         const connectionUI = document.getElementById('connection-ui');
+        const appUI = document.getElementById('app-ui');
         const statusArea = document.getElementById('status-area');
+        const settingsStatusArea = document.getElementById('settings-status-area');
+        const configForm = document.getElementById('config-form');
+        const saveButton = document.getElementById('save-button');
+
+        // Tab elements
+        const tabButtons = document.querySelectorAll('.tab-btn');
+        const tabContents = document.querySelectorAll('.tab-content');
+
+        // Spool containers
+        const currentSpoolContainer = document.getElementById('current-spool-container');
+        const recentSpoolsContainer = document.getElementById('recent-spools-container');
+
+        // Modal elements
+        const editModal = document.getElementById('edit-modal');
+        const modalClose = document.getElementById('modal-close');
+        const modalCancel = document.getElementById('modal-cancel');
+        const modalSave = document.getElementById('modal-save');
+        const editSpoolId = document.getElementById('edit-spool-id');
+        const editType = document.getElementById('edit-type');
+        const editColor = document.getElementById('edit-color');
+        const editColorHex = document.getElementById('edit-color-hex');
+        const editManufacturer = document.getElementById('edit-manufacturer');
+        const editGrams = document.getElementById('edit-grams');
 
         // Bluetooth UUIDs
         const SERVICE_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0001";
@@ -233,18 +591,188 @@
         let bleDevice;
         let configWriteCharacteristic;
         let configReadCharacteristic;
+        let currentSpoolData = null;
+        let recentSpoolsData = [];
         const textDecoder = new TextDecoder('utf-8');
         const textEncoder = new TextEncoder();
 
-        function log(message, type = '') {
-            statusArea.style.display = 'block';
+        // Logging
+        function log(message, type = '', area = statusArea) {
+            area.style.display = 'block';
             const p = document.createElement('p');
             p.textContent = `> ${message}`;
             p.className = `status-message ${type ? 'status-' + type : ''}`;
-            statusArea.appendChild(p);
-            statusArea.scrollTop = statusArea.scrollHeight;
+            area.appendChild(p);
+            area.scrollTop = area.scrollHeight;
         }
 
+        // Tab Navigation
+        tabButtons.forEach(btn => {
+            btn.addEventListener('click', () => {
+                const tabId = btn.dataset.tab;
+
+                tabButtons.forEach(b => b.classList.remove('active'));
+                tabContents.forEach(c => c.classList.remove('active'));
+
+                btn.classList.add('active');
+                document.getElementById(`tab-${tabId}`).classList.add('active');
+            });
+        });
+
+        // Relative Time Formatting
+        function formatRelativeTime(timestamp) {
+            const now = Date.now() / 1000;
+            const diff = now - timestamp;
+
+            if (diff < 60) return 'Just now';
+            if (diff < 3600) return `${Math.floor(diff / 60)}m ago`;
+            if (diff < 86400) return `${Math.floor(diff / 3600)}h ago`;
+            if (diff < 604800) return `${Math.floor(diff / 86400)}d ago`;
+            return `${Math.floor(diff / 604800)}w ago`;
+        }
+
+        // Spool Card Rendering
+        function renderSpoolCard(spool, isCurrent = false) {
+            const card = document.createElement('div');
+            card.className = `spool-card${isCurrent ? ' current' : ''}`;
+
+            const timeDisplay = isCurrent ? 'In range' : formatRelativeTime(spool.last_seen);
+
+            card.innerHTML = `
+                <div class="spool-color" style="background-color: ${spool.color || '#888'}"></div>
+                <div class="spool-info">
+                    <div class="spool-type">${spool.type || 'Unknown'}</div>
+                    <div class="spool-manufacturer">${spool.manufacturer || 'Unknown manufacturer'}</div>
+                </div>
+                <div class="spool-meta">
+                    <div class="spool-grams">${spool.grams_remaining || '?'}g</div>
+                    <div class="spool-time">${timeDisplay}</div>
+                </div>
+                ${isCurrent ? `<button class="spool-edit-btn" data-spool-id="${spool.id}">Edit</button>` : ''}
+            `;
+
+            if (isCurrent) {
+                const editBtn = card.querySelector('.spool-edit-btn');
+                editBtn.addEventListener('click', () => openEditModal(spool));
+            }
+
+            return card;
+        }
+
+        function renderSpools() {
+            // Render current spool
+            currentSpoolContainer.innerHTML = '';
+            if (currentSpoolData) {
+                currentSpoolContainer.appendChild(renderSpoolCard(currentSpoolData, true));
+            } else {
+                currentSpoolContainer.innerHTML = `
+                    <div class="empty-state">
+                        <div class="empty-state-icon">&#128451;</div>
+                        <p>No spool detected.<br>Place a tagged spool on the reader.</p>
+                    </div>
+                `;
+            }
+
+            // Render recent spools
+            recentSpoolsContainer.innerHTML = '';
+            if (recentSpoolsData.length > 0) {
+                recentSpoolsData.forEach(spool => {
+                    recentSpoolsContainer.appendChild(renderSpoolCard(spool, false));
+                });
+            } else {
+                recentSpoolsContainer.innerHTML = `
+                    <div class="empty-state">
+                        <p>No recent spools.</p>
+                    </div>
+                `;
+            }
+        }
+
+        // Modal Functions
+        function openEditModal(spool) {
+            editSpoolId.value = spool.id;
+            editType.value = spool.type || 'PLA';
+            editColor.value = spool.color || '#888888';
+            editColorHex.value = spool.color || '#888888';
+            editManufacturer.value = spool.manufacturer || '';
+            editGrams.value = spool.grams_remaining || '';
+
+            editModal.classList.add('active');
+        }
+
+        function closeEditModal() {
+            editModal.classList.remove('active');
+        }
+
+        // Sync color inputs
+        editColor.addEventListener('input', () => {
+            editColorHex.value = editColor.value;
+        });
+
+        editColorHex.addEventListener('input', () => {
+            if (/^#[0-9A-Fa-f]{6}$/.test(editColorHex.value)) {
+                editColor.value = editColorHex.value;
+            }
+        });
+
+        // Modal event listeners
+        modalClose.addEventListener('click', closeEditModal);
+        modalCancel.addEventListener('click', closeEditModal);
+        editModal.addEventListener('click', (e) => {
+            if (e.target === editModal) closeEditModal();
+        });
+
+        // Save spool to NFC tag
+        modalSave.addEventListener('click', async () => {
+            if (!configWriteCharacteristic) {
+                alert('Not connected to device.');
+                return;
+            }
+
+            const updatePayload = {
+                command: 'update_spool',
+                id: editSpoolId.value,
+                type: editType.value,
+                color: editColor.value,
+                manufacturer: editManufacturer.value,
+                grams_remaining: parseInt(editGrams.value, 10) || 0
+            };
+
+            try {
+                modalSave.disabled = true;
+                modalSave.textContent = 'Saving...';
+
+                await configWriteCharacteristic.writeValue(
+                    textEncoder.encode(JSON.stringify(updatePayload))
+                );
+
+                // Read response
+                const responseValue = await configReadCharacteristic.readValue();
+                const responseJson = textDecoder.decode(responseValue);
+                const response = JSON.parse(responseJson);
+
+                if (response.status === 'ok') {
+                    // Update local data
+                    if (currentSpoolData && currentSpoolData.id === editSpoolId.value) {
+                        currentSpoolData.type = editType.value;
+                        currentSpoolData.color = editColor.value;
+                        currentSpoolData.manufacturer = editManufacturer.value;
+                        currentSpoolData.grams_remaining = parseInt(editGrams.value, 10) || 0;
+                    }
+                    renderSpools();
+                    closeEditModal();
+                } else {
+                    alert(response.error || 'Failed to save spool.');
+                }
+            } catch (error) {
+                alert(`Error saving spool: ${error}`);
+            } finally {
+                modalSave.disabled = false;
+                modalSave.textContent = 'Save to Tag';
+            }
+        });
+
+        // BLE Connection
         async function handleConnect() {
             try {
                 log('Requesting Bluetooth device...');
@@ -265,9 +793,13 @@
                 configReadCharacteristic = await service.getCharacteristic(CONFIG_READ_UUID);
 
                 log('Connection successful.', 'success');
-                connectionUI.style.display = 'none';
-                configForm.style.display = 'block';
 
+                // Show app UI
+                connectionUI.style.display = 'none';
+                appUI.style.display = 'block';
+
+                // Load data
+                await loadSpools();
                 await loadConfig();
 
             } catch (error) {
@@ -275,39 +807,60 @@
             }
         }
 
-        async function loadConfig() {
-            if (!configWriteCharacteristic || !configReadCharacteristic) {
-                return log('Characteristics not ready.', 'error');
-            }
+        async function loadSpools() {
+            if (!configWriteCharacteristic || !configReadCharacteristic) return;
 
             try {
-                log('Sending read_config command...');
-                await configWriteCharacteristic.writeValue(textEncoder.encode('{"command":"read_config"}'));
-                
-                log('Reading configuration from device...');
+                await configWriteCharacteristic.writeValue(
+                    textEncoder.encode('{"command":"list_spools"}')
+                );
+
+                const value = await configReadCharacteristic.readValue();
+                const responseJson = textDecoder.decode(value);
+                const response = JSON.parse(responseJson);
+
+                currentSpoolData = response.current || null;
+                recentSpoolsData = response.recent || [];
+
+                renderSpools();
+            } catch (error) {
+                console.error('Failed to load spools:', error);
+                // Use empty state
+                currentSpoolData = null;
+                recentSpoolsData = [];
+                renderSpools();
+            }
+        }
+
+        async function loadConfig() {
+            if (!configWriteCharacteristic || !configReadCharacteristic) return;
+
+            try {
+                await configWriteCharacteristic.writeValue(
+                    textEncoder.encode('{"command":"read_config"}')
+                );
+
                 const value = await configReadCharacteristic.readValue();
                 const configJson = textDecoder.decode(value);
                 const config = JSON.parse(configJson);
-                
-                log('Configuration loaded.', 'success');
-                
+
                 // Populate form
                 document.getElementById('ssid').value = config.ssid || '';
                 document.getElementById('prusa_link_url').value = config.prusa_link_url || '';
                 document.getElementById('prusa_link_api_key').value = config.prusa_link_api_key || '';
                 document.getElementById('poll_interval_ms').value = config.poll_interval_ms || 5000;
-                // Clear password fields for security
                 document.getElementById('wifi_pass').value = '';
 
             } catch (error) {
-                log(`Failed to load config: ${error}`, 'error');
+                console.error('Failed to load config:', error);
             }
         }
 
         async function handleSave(event) {
             event.preventDefault();
             if (!configWriteCharacteristic) {
-                return log('Not connected.', 'error');
+                log('Not connected.', 'error', settingsStatusArea);
+                return;
             }
 
             const ssid = document.getElementById('ssid').value;
@@ -317,59 +870,59 @@
             const poll_interval_ms = parseInt(document.getElementById('poll_interval_ms').value, 10);
 
             const configPayload = {
-                command: "write_config",
+                command: 'write_config',
                 ssid,
                 prusa_link_url,
                 prusa_link_api_key,
                 poll_interval_ms
             };
 
-            // Only include wifi_pass if the user entered something
             if (wifi_pass) {
                 configPayload.wifi_pass = wifi_pass;
             }
 
             try {
-                log('Saving configuration...');
+                log('Saving configuration...', '', settingsStatusArea);
                 saveButton.disabled = true;
                 saveButton.textContent = 'Saving...';
-                
-                await configWriteCharacteristic.writeValue(textEncoder.encode(JSON.stringify(configPayload)));
 
-                // The device writes the response back to the same characteristic
-                const responseValue = await configWriteCharacteristic.readValue();
+                await configWriteCharacteristic.writeValue(
+                    textEncoder.encode(JSON.stringify(configPayload))
+                );
+
+                const responseValue = await configReadCharacteristic.readValue();
                 const responseJson = textDecoder.decode(responseValue);
                 const response = JSON.parse(responseJson);
 
                 if (response.status === 'ok') {
-                    log('Configuration saved successfully.', 'success');
-                    // Clear password field after successful save
+                    log('Configuration saved successfully.', 'success', settingsStatusArea);
                     document.getElementById('wifi_pass').value = '';
                 } else {
                     throw new Error(response.error || 'Unknown error');
                 }
 
             } catch (error) {
-                log(`Failed to save config: ${error}`, 'error');
+                log(`Failed to save config: ${error}`, 'error', settingsStatusArea);
             } finally {
                 saveButton.disabled = false;
                 saveButton.textContent = 'Save Configuration';
             }
         }
-        
+
         function onDisconnected() {
             log('Device disconnected.', 'error');
             connectionUI.style.display = 'block';
-            configForm.style.display = 'none';
+            appUI.style.display = 'none';
             bleDevice = null;
             configWriteCharacteristic = null;
             configReadCharacteristic = null;
+            currentSpoolData = null;
+            recentSpoolsData = [];
         }
 
         // Event Listeners
         connectButton.addEventListener('click', handleConnect);
         configForm.addEventListener('submit', handleSave);
-
     </script>
 </body>
 </html>
