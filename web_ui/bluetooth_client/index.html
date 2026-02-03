@@ -24,6 +24,7 @@
             box-sizing: border-box;
         }
 
+
         body {
             font-family: var(--font-main);
             background-color: var(--prusa-black);
@@ -435,7 +436,7 @@
 
     <div class="container">
         <div class="header">
-            <h1>OpenPrintTag</h1>
+            <h1>OpenPrintTag Scanner</h1>
         </div>
 
         <!-- Connection UI (shown before BLE connection) -->
@@ -878,22 +879,7 @@
                     const incomingRecent = response.recent || [];
 
                     if (incomingRecent.length > 0) {
-                        // C) Merge incoming spools with existing, de-dupe by ID
-                        const spoolMap = new Map();
-
-                        // Add existing spools first
-                        recentSpoolsData.forEach(spool => {
-                            spoolMap.set(spool.id, spool);
-                        });
-
-                        // Update/add incoming spools (newer data wins)
-                        incomingRecent.forEach(spool => {
-                            spoolMap.set(spool.id, spool);
-                        });
-
-                        // Convert back to array, sorted by last_seen (most recent first)
-                        recentSpoolsData = Array.from(spoolMap.values())
-                            .sort((a, b) => (b.last_seen || 0) - (a.last_seen || 0));
+                        recentSpoolsData = incomingRecent;
                     }
                     // B) If client sends no spools for recently seen, keep current ones visible
                     // (do nothing - recentSpoolsData stays unchanged)
