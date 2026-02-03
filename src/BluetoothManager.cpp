@@ -175,7 +175,7 @@ static void process_command(const char* json) {
             s_config_read_char->setValue(response.c_str());
         }
         snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-        Serial.printf("%s: list_spools completed\n", TAG);
+        //Serial.printf("%s: list_spools completed\n", TAG);
     }
     else if (strcmp(command, "update_spool") == 0) {
         const CurrentSpoolState& spool = NFCManager::getInstance().getCurrentSpoolState();
@@ -310,7 +310,7 @@ class WriteCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic* pCharacteristic) override {
         std::string value = pCharacteristic->getValue();
         if (value.length() > 0) {
-            Serial.printf("%s: Write received, len=%d\n", TAG, value.length());
+            //Serial.printf("%s: Write received, len=%d\n", TAG, value.length());
             process_command(value.c_str());
         }
     }
