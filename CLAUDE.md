@@ -1,9 +1,4 @@
-in the page here: web_ui/bluetooth_client/index.html
-
-their is a background thread that is polling for spool updates
-
-but also the user can save settings, and edit spools.
-
-The user sees errors if they try to do an action while other actions are taking place.
-
-update the index.html page so that it has a queue of commands, and does them serially instead of all at once. 
+* This project is an arduino project using platformio on an ESP32 with 2MB of flash.
+* Be conscise in your responses.
+* Don't try to build the proeject. Ask user to build.
+* When making changes double check for thread saftey.
