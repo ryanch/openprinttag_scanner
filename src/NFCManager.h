@@ -5,7 +5,8 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
-#include <Adafruit_PN532.h>
+#include <PN5180.h>
+#include <PN5180ISO15693.h>
 #include "openprinttag_lib.h"
 
 enum class NFCWriteType : uint8_t {
@@ -32,7 +33,7 @@ struct NFCWriteRequest {
 struct CurrentSpoolState {
     bool present;
     char spool_id[64];
-    uint8_t uid[7];
+    uint8_t uid[8];              // ISO15693 uses 8-byte UID
     uint8_t uid_length;
     opt_tag_t tag_data;          // Cached openprinttag data
     bool tag_data_valid;
@@ -69,7 +70,7 @@ private:
     NFCManager& operator=(const NFCManager&) = delete;
 
     // Hardware
-    Adafruit_PN532* nfc = nullptr;
+    PN5180ISO15693* nfc = nullptr;
 
     // HAL for openprinttag
     opt_nfc_hal_t nfcHal;
@@ -92,7 +93,7 @@ private:
 
     // State
     CurrentSpoolState currentSpool;
-    uint8_t lastSeenUid[7];
+    uint8_t lastSeenUid[8];      // ISO15693 uses 8-byte UID
     uint8_t lastSeenUidLength = 0;
     bool lastSeenValid = false;
 
@@ -114,11 +115,10 @@ private:
     // Task handle
     TaskHandle_t scanTaskHandle = nullptr;
 
-    // Pin definitions
-    static constexpr int PN532_SCK = 14;
-    static constexpr int PN532_MISO = 27;
-    static constexpr int PN532_MOSI = 26;
-    static constexpr int PN532_SS = 25;
+    // PN5180 control pins (uses hardware SPI: GPIO 18=SCK, 19=MISO, 23=MOSI)
+    static constexpr int PN5180_NSS  = 5;   // SPI chip select
+    static constexpr int PN5180_BUSY = 16;  // Busy signal
+    static constexpr int PN5180_RST  = 17;  // Reset
 };
 
 #endif // NFC_MANAGER_H

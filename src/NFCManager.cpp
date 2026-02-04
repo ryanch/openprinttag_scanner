@@ -4,22 +4,20 @@
 #include <cstring>
 #include <time.h>
 
-// Static HAL callback functions
+// Store UID for addressed ISO15693 commands
+static uint8_t currentUid[8];
+
+// Static HAL callback functions for PN5180 ISO15693
 static opt_error_t halReadPage(void* ctx, uint8_t page, uint8_t* buffer) {
-    Adafruit_PN532* nfc = static_cast<Adafruit_PN532*>(ctx);
-    if (nfc->ntag2xx_ReadPage(page, buffer)) {
-        return OPT_OK;
-    }
-    return OPT_ERR_NFC_READ;
+    PN5180ISO15693* nfc = static_cast<PN5180ISO15693*>(ctx);
+    ISO15693ErrorCode err = nfc->readSingleBlock(currentUid, page, buffer, 4);
+    return (err == ISO15693_EC_OK) ? OPT_OK : OPT_ERR_NFC_READ;
 }
 
 static opt_error_t halWritePage(void* ctx, uint8_t page, const uint8_t* data) {
-    Adafruit_PN532* nfc = static_cast<Adafruit_PN532*>(ctx);
-    // Cast away const - Adafruit library doesn't modify the data but doesn't use const
-    if (nfc->ntag2xx_WritePage(page, const_cast<uint8_t*>(data))) {
-        return OPT_OK;
-    }
-    return OPT_ERR_NFC_WRITE;
+    PN5180ISO15693* nfc = static_cast<PN5180ISO15693*>(ctx);
+    ISO15693ErrorCode err = nfc->writeSingleBlock(currentUid, page, const_cast<uint8_t*>(data), 4);
+    return (err == ISO15693_EC_OK) ? OPT_OK : OPT_ERR_NFC_WRITE;
 }
 
 NFCManager& NFCManager::getInstance() {
@@ -28,22 +26,24 @@ NFCManager& NFCManager::getInstance() {
 }
 
 bool NFCManager::begin() {
-    // Create Adafruit_PN532 instance with software SPI
-    nfc = new Adafruit_PN532(PN532_SCK, PN532_MISO, PN532_MOSI, PN532_SS);
+    // Create PN5180ISO15693 instance (uses hardware SPI)
+    nfc = new PN5180ISO15693(PN5180_NSS, PN5180_BUSY, PN5180_RST);
 
-    Serial.println("NFCManager: Starting PN532...");
+    Serial.println("NFCManager: Starting PN5180...");
     nfc->begin();
+    nfc->reset();
 
-    uint32_t versiondata = nfc->getFirmwareVersion();
-    if (!versiondata) {
-        Serial.println("NFCManager: PN532 not found");
+    // Read firmware version
+    uint8_t firmwareVersion[2];
+    nfc->readEEprom(PN5180_FIRMWARE_VERSION, firmwareVersion, 2);
+    Serial.printf("NFCManager: PN5180 firmware: %d.%d\n",
+                  firmwareVersion[1], firmwareVersion[0]);
+
+    // Setup RF for ISO15693
+    if (!nfc->setupRF()) {
+        Serial.println("NFCManager: Failed to setup RF");
         return false;
     }
-
-    Serial.printf("NFCManager: PN532 firmware version: %08X\n", versiondata);
-
-    // Configure PN532 to read RFID tags
-    nfc->SAMConfig();
 
     // Set up HAL for openprinttag
     nfcHal.read_page = halReadPage;
@@ -104,21 +104,28 @@ void NFCManager::scanTaskFunc(void* param) {
 
 void NFCManager::scanLoop() {
     while (true) {
-        uint8_t uid[7];
-        uint8_t uidLength;
+        uint8_t uid[8];
 
-        // Wait for an NFC tag with 100ms timeout
-        if (nfc->readPassiveTargetID(PN532_MIFARE_ISO14443A, uid, &uidLength, 100)) {
+        // Setup RF field for each scan
+        nfc->reset();
+        nfc->setupRF();
+
+        // ISO15693 inventory to detect tag
+        ISO15693ErrorCode err = nfc->getInventory(uid);
+        if (err == ISO15693_EC_OK) {
+            // Store UID for addressed read/write commands
+            memcpy(currentUid, uid, 8);
+
             // Check if this is the same spool we already processed
-            if (!isDuplicateSpool(uid, uidLength)) {
+            if (!isDuplicateSpool(uid, 8)) {
                 // Take mutex for tag operations
                 if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                    if (readAndParseTag(uid, uidLength)) {
+                    if (readAndParseTag(uid, 8)) {
                         sendSpoolDetectedMessage();
 
                         // Update last seen UID
-                        memcpy(lastSeenUid, uid, uidLength);
-                        lastSeenUidLength = uidLength;
+                        memcpy(lastSeenUid, uid, 8);
+                        lastSeenUidLength = 8;
                         lastSeenValid = true;
                     }
                     xSemaphoreGive(tagMutex);
