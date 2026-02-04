@@ -10,6 +10,7 @@
 #include "esp_mac.h"
 #include "esp_bt.h"
 #include "esp_bt_main.h"
+#include <time.h>
 
 static const char* TAG = "BluetoothManager";
 
@@ -147,7 +148,7 @@ static void process_command(const char* json) {
             opt_get_consumed_weight(&spool.tag_data, &consumed);
             current["grams_remaining"] = (int)(full_weight - consumed);
 
-            current["last_seen"] = (unsigned long)(millis() / 1000);
+            current["last_seen"] = time(nullptr);
         } else {
             responseDoc["current"] = nullptr;
         }
@@ -166,7 +167,7 @@ static void process_command(const char* json) {
             recentObj["color"] = colorHex;
             recentObj["manufacturer"] = recentEntries[i].manufacturer;
             recentObj["grams_remaining"] = recentEntries[i].grams_remaining;
-            recentObj["last_seen"] = recentEntries[i].last_seen_ms / 1000;
+            recentObj["last_seen"] = recentEntries[i].last_seen;
         }
 
         String response;

@@ -45,7 +45,7 @@ struct RecentSpoolEntry {
     uint8_t color[4];            // RGBA
     char manufacturer[64];
     int grams_remaining;
-    unsigned long last_seen_ms;  // millis() timestamp
+    time_t last_seen;  // Unix timestamp (seconds)
     bool valid;
 };
 

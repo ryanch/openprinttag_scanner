@@ -1,5 +1,6 @@
 #include <Wire.h>
 #include <WiFi.h>
+#include <time.h>
 
 #include "ConfigurationManager.h"
 #include "BluetoothManager.h"
@@ -40,6 +41,18 @@ void initWiFi() {
     Serial.println(WiFi.localIP());
 
     lcdManager.updateScreen("WiFi OK", WiFi.localIP().toString().c_str());
+
+    Serial.println("Setting up NTP...");
+    configTime(0, 0, "pool.ntp.org");
+    struct tm timeinfo;
+    if(!getLocalTime(&timeinfo)){
+      Serial.println("Failed to obtain time");
+      lcdManager.updateScreen("NTP FAILED", "");
+    } else {
+      Serial.println("Time obtained");
+      //lcdManager.updateScreen("NTP OK", "");
+    }
+
     delay(2000);
   } else {
     Serial.println();

@@ -2,6 +2,7 @@
 #include "ApplicationManager.h"
 #include <Arduino.h>
 #include <cstring>
+#include <time.h>
 
 // Static HAL callback functions
 static opt_error_t halReadPage(void* ctx, uint8_t page, uint8_t* buffer) {
@@ -592,7 +593,7 @@ void NFCManager::addToRecentSpools() {
     opt_get_consumed_weight(&currentSpool.tag_data, &consumed);
     newEntry.grams_remaining = (int)(full_weight - consumed);
 
-    newEntry.last_seen_ms = millis();
+    newEntry.last_seen = time(nullptr);
     newEntry.valid = true;
 
     if (existingIndex >= 0) {

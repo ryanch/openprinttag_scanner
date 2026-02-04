@@ -657,6 +657,7 @@
         function formatRelativeTime(timestamp) {
             // Handle missing, invalid, or zero timestamps
             if (!timestamp || timestamp <= 0) {
+                console.log("no time stamp")
                 return 'Unknown';
             }
 
@@ -665,6 +666,7 @@
 
             // Handle future timestamps or unreasonably old ones (> 1 year)
             if (diff < 0 || diff > 31536000) {
+                console.log("timestamp is not valid: " + timestamp);
                 return 'Unknown';
             }
 
