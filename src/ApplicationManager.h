@@ -2,8 +2,13 @@
 #define APPLICATION_MANAGER_H
 
 #include <cstdint>
-#include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
+
+#ifdef NATIVE_TEST
+  #include "platform/NativePlatform.h"
+#else
+  #include <freertos/FreeRTOS.h>
+  #include <freertos/queue.h>
+#endif
 
 class LCDManager;
 
@@ -58,6 +63,22 @@ public:
     bool begin(LCDManager* lcd = nullptr);
     bool sendMessage(const AppMessage& msg, uint32_t waitMs = 0);
     void processMessages();
+
+    // Public for testing
+    void handleMessage(const AppMessage& msg);
+    AppState getState() const { return currentState; }
+    const char* getStartingSpoolId() const { return startingSpoolId; }
+    int getCurrentJobId() const { return currentJobId; }
+    bool hasSpoolChangedDuringPrint() const { return spoolChangedDuringPrint; }
+#ifdef NATIVE_TEST
+    void resetForTest() {
+        currentState = AppState::IDLE;
+        startingSpoolId[0] = '\0';
+        currentJobId = 0;
+        spoolChangedDuringPrint = false;
+        lastDisplayedSpoolId[0] = '\0';
+    }
+#endif
 
 private:
     ApplicationManager() = default;

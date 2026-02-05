@@ -1,7 +1,12 @@
 #include "ApplicationManager.h"
-#include "NFCManager.h"
-#include "LCDManager.h"
-#include <Arduino.h>
+#ifndef NATIVE_TEST
+  #include "NFCManager.h"
+  #include "LCDManager.h"
+  #include <Arduino.h>
+#else
+  #include "platform/NativePlatform.h"
+  #include "FakeLCDManager.h"
+#endif
 #include <cstring>
 
 ApplicationManager& ApplicationManager::getInstance() {
@@ -44,27 +49,31 @@ void ApplicationManager::processMessages() {
 
     AppMessage msg;
     while (xQueueReceive(messageQueue, &msg, 0) == pdTRUE) {
-        switch (msg.type) {
-            case AppMessageType::PRINT_STARTED:
-                handlePrintStarted(msg);
-                break;
+        handleMessage(msg);
+    }
+}
 
-            case AppMessageType::PRINT_CANCELED:
-                handlePrintCanceled(msg);
-                break;
+void ApplicationManager::handleMessage(const AppMessage& msg) {
+    switch (msg.type) {
+        case AppMessageType::PRINT_STARTED:
+            handlePrintStarted(msg);
+            break;
 
-            case AppMessageType::PRINT_FINISHED:
-                handlePrintFinished(msg);
-                break;
+        case AppMessageType::PRINT_CANCELED:
+            handlePrintCanceled(msg);
+            break;
 
-            case AppMessageType::SPOOL_DETECTED:
-                handleSpoolDetected(msg);
-                break;
+        case AppMessageType::PRINT_FINISHED:
+            handlePrintFinished(msg);
+            break;
 
-            case AppMessageType::SPOOL_UPDATED:
-                handleSpoolUpdated(msg);
-                break;
-        }
+        case AppMessageType::SPOOL_DETECTED:
+            handleSpoolDetected(msg);
+            break;
+
+        case AppMessageType::SPOOL_UPDATED:
+            handleSpoolUpdated(msg);
+            break;
     }
 }
 
@@ -72,8 +81,10 @@ void ApplicationManager::handlePrintStarted(const AppMessage& msg) {
     Serial.printf("EVENT: PrintStarted - job_id=%d\n",
         msg.payload.printStarted.job_id);
 
+#ifndef NATIVE_TEST
     // Request fresh spool detection
     NFCManager::getInstance().requestCurrentSpool();
+#endif
 
     // Transition to monitoring state
     currentState = AppState::MONITORING_PRINT;
@@ -137,7 +148,7 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
 
         char line1[17];
         char line2[17];
-        snprintf(line1, sizeof(line1), "Type: %s", msg.payload.spoolDetected.material_name);
+        snprintf(line1, sizeof(line1), "Type: %.10s", msg.payload.spoolDetected.material_name);
         snprintf(line2, sizeof(line2), "Remain: %.0fg", msg.payload.spoolDetected.kg_remaining * 1000.0f);
         lcdManager->updateScreen(line1, line2);
     }
@@ -160,7 +171,7 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
     }
 }
 
-void ApplicationManager::finishPrint(float gramsUsed, bool canceled) {
+void ApplicationManager::finishPrint(float gramsUsed, bool /*canceled*/) {
     if (spoolChangedDuringPrint) {
         Serial.println("ApplicationManager: Spool changed during print - not updating weight");
         if (lcdManager) {
@@ -185,6 +196,7 @@ void ApplicationManager::finishPrint(float gramsUsed, bool canceled) {
             lcdManager->updateScreen("Updating spool..", "");
         }
 
+#ifndef NATIVE_TEST
         // Enqueue write request with expected spool ID
         NFCWriteRequest request;
         request.request_id = millis();  // Simple unique ID
@@ -194,6 +206,7 @@ void ApplicationManager::finishPrint(float gramsUsed, bool canceled) {
         request.data.grams_to_remove = gramsUsed;
 
         NFCManager::getInstance().enqueueWrite(request);
+#endif
     } else {
         Serial.println("ApplicationManager: No filament used - not updating spool");
         if (lcdManager) {
