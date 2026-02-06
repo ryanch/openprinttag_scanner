@@ -4,6 +4,7 @@
 #include "platform/NativePlatform.h"
 #include "FakeLCDManager.h"
 #include "test_helpers.h"
+#include "TestNFCManager.h"
 
 // Include ApplicationManager implementation directly (unity build)
 #include "ApplicationManager.cpp"
@@ -19,6 +20,7 @@ void setup_test() {
     if (g_app) delete g_app;
     g_lcd = new LCDManager();
     g_app = new TestableApplicationManager(g_lcd);
+    NFCManager::getInstance().reset();
 }
 
 void teardown_test() {
@@ -75,6 +77,14 @@ int test_complete_print_cycle() {
     TEST_ASSERT_EQ(g_app->getState(), AppState::IDLE);
     TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Updating spool");
 
+    // Verify NFC write was enqueued with correct data
+    auto& nfcMgr = NFCManager::getInstance();
+    TEST_ASSERT_EQ(nfcMgr.getWriteCount(), 1);
+    TEST_ASSERT(nfcMgr.hasWriteForSpool("SPOOL001"));
+    const auto& req = nfcMgr.getWriteRequests()[0];
+    TEST_ASSERT_EQ(req.type, NFCWriteType::REMOVE_WEIGHT);
+    TEST_ASSERT_EQ(req.data.grams_to_remove, 50.0f);
+
     // 5. Spool update confirmed (normally from NFC manager)
     g_app->injectMessage(createSpoolUpdated("SPOOL001", true, 0.800f));
     TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Spool Updated");
@@ -102,6 +112,9 @@ int test_spool_swap_during_print() {
     // Print finishes
     g_app->injectMessage(createPrintFinished(456, 30.0f));
     TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Spool changed");
+
+    // Verify no NFC write was enqueued due to spool swap
+    TEST_ASSERT_EQ(NFCManager::getInstance().getWriteCount(), 0);
 
     teardown_test();
     return 0;

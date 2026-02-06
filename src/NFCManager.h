@@ -1,54 +1,11 @@
 #ifndef NFC_MANAGER_H
 #define NFC_MANAGER_H
 
-#include <cstdint>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/semphr.h>
-#include <PN5180.h>
-#include <PN5180ISO15693.h>
-#include "openprinttag_lib.h"
-
-enum class NFCWriteType : uint8_t {
-    REMOVE_WEIGHT,        // Subtract grams from spool
-    CHANGE_COLOR,         // Set new primary color
-    CHANGE_FILAMENT_TYPE, // Set new material type
-    SET_CONSUMED_WEIGHT,  // Set absolute consumed weight
-    SET_BRAND_NAME        // Set manufacturer name
-};
-
-struct NFCWriteRequest {
-    uint32_t request_id;         // Unique ID for deduplication
-    NFCWriteType type;
-    char expected_spool_id[64];  // Only write if this spool is present (empty = any)
-    union {
-        float grams_to_remove;
-        uint8_t new_color[4];    // RGBA
-        uint8_t new_material_type;
-        float consumed_weight;   // Absolute consumed weight in grams
-        char brand_name[64];     // Manufacturer name
-    } data;
-};
-
-struct CurrentSpoolState {
-    bool present;
-    char spool_id[64];
-    uint8_t uid[8];              // ISO15693 uses 8-byte UID
-    uint8_t uid_length;
-    opt_tag_t tag_data;          // Cached openprinttag data
-    bool tag_data_valid;
-};
-
-// Recent spool entry for history tracking (RAM only)
-struct RecentSpoolEntry {
-    char spool_id[64];
-    uint8_t material_type;
-    uint8_t color[4];            // RGBA
-    char manufacturer[64];
-    int grams_remaining;
-    time_t last_seen;  // Unix timestamp (seconds)
-    bool valid;
-};
+#include "NFCTypes.h"
+#include "NFCConnectionI.h"
 
 class NFCManager {
 public:
@@ -60,6 +17,9 @@ public:
     void requestCurrentSpool();                      // Clear dedup to resend current spool
     const CurrentSpoolState& getCurrentSpoolState() const { return currentSpool; }
 
+    // Dependency injection for testing
+    void setConnection(NFCConnectionI* conn) { connection_ = conn; }
+
     // Recent spools history (RAM only)
     static constexpr size_t MAX_RECENT_SPOOLS = 10;
     size_t getRecentSpools(RecentSpoolEntry* entries, size_t maxEntries);
@@ -69,11 +29,9 @@ private:
     NFCManager(const NFCManager&) = delete;
     NFCManager& operator=(const NFCManager&) = delete;
 
-    // Hardware
-    PN5180ISO15693* nfc = nullptr;
-
-    // HAL for openprinttag
-    opt_nfc_hal_t nfcHal;
+    // Hardware connection (injected or created internally)
+    NFCConnectionI* connection_ = nullptr;
+    bool ownsConnection_ = false;
 
     // Scan task
     static void scanTaskFunc(void* param);
@@ -114,11 +72,6 @@ private:
 
     // Task handle
     TaskHandle_t scanTaskHandle = nullptr;
-
-    // PN5180 control pins (uses hardware SPI: GPIO 18=SCK, 19=MISO, 23=MOSI)
-    static constexpr int PN5180_NSS  = 5;   // SPI chip select
-    static constexpr int PN5180_BUSY = 16;  // Busy signal
-    static constexpr int PN5180_RST  = 17;  // Reset
 };
 
 #endif // NFC_MANAGER_H

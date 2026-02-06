@@ -1,11 +1,13 @@
 #include "ApplicationManager.h"
 #ifndef NATIVE_TEST
+  #include "NFCTypes.h"
   #include "NFCManager.h"
   #include "LCDManager.h"
   #include <Arduino.h>
 #else
   #include "platform/NativePlatform.h"
   #include "FakeLCDManager.h"
+  #include "TestNFCManager.h"
 #endif
 #include <cstring>
 
@@ -81,10 +83,8 @@ void ApplicationManager::handlePrintStarted(const AppMessage& msg) {
     Serial.printf("EVENT: PrintStarted - job_id=%d\n",
         msg.payload.printStarted.job_id);
 
-#ifndef NATIVE_TEST
     // Request fresh spool detection
     NFCManager::getInstance().requestCurrentSpool();
-#endif
 
     // Transition to monitoring state
     currentState = AppState::MONITORING_PRINT;
@@ -196,7 +196,6 @@ void ApplicationManager::finishPrint(float gramsUsed, bool /*canceled*/) {
             lcdManager->updateScreen("Updating spool..", "");
         }
 
-#ifndef NATIVE_TEST
         // Enqueue write request with expected spool ID
         NFCWriteRequest request;
         request.request_id = millis();  // Simple unique ID
@@ -206,7 +205,6 @@ void ApplicationManager::finishPrint(float gramsUsed, bool /*canceled*/) {
         request.data.grams_to_remove = gramsUsed;
 
         NFCManager::getInstance().enqueueWrite(request);
-#endif
     } else {
         Serial.println("ApplicationManager: No filament used - not updating spool");
         if (lcdManager) {

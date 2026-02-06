@@ -1,24 +1,9 @@
 #include "NFCManager.h"
 #include "ApplicationManager.h"
+#include "HardwareNFCConnection.h"
 #include <Arduino.h>
 #include <cstring>
 #include <time.h>
-
-// Store UID for addressed ISO15693 commands
-static uint8_t currentUid[8];
-
-// Static HAL callback functions for PN5180 ISO15693
-static opt_error_t halReadPage(void* ctx, uint8_t page, uint8_t* buffer) {
-    PN5180ISO15693* nfc = static_cast<PN5180ISO15693*>(ctx);
-    ISO15693ErrorCode err = nfc->readSingleBlock(currentUid, page, buffer, 4);
-    return (err == ISO15693_EC_OK) ? OPT_OK : OPT_ERR_NFC_READ;
-}
-
-static opt_error_t halWritePage(void* ctx, uint8_t page, const uint8_t* data) {
-    PN5180ISO15693* nfc = static_cast<PN5180ISO15693*>(ctx);
-    ISO15693ErrorCode err = nfc->writeSingleBlock(currentUid, page, const_cast<uint8_t*>(data), 4);
-    return (err == ISO15693_EC_OK) ? OPT_OK : OPT_ERR_NFC_WRITE;
-}
 
 NFCManager& NFCManager::getInstance() {
     static NFCManager instance;
@@ -26,30 +11,16 @@ NFCManager& NFCManager::getInstance() {
 }
 
 bool NFCManager::begin() {
-    // Create PN5180ISO15693 instance (uses hardware SPI)
-    nfc = new PN5180ISO15693(PN5180_NSS, PN5180_BUSY, PN5180_RST);
-
-    Serial.println("NFCManager: Starting PN5180...");
-    nfc->begin();
-    nfc->reset();
-
-    // Read firmware version
-    uint8_t firmwareVersion[2];
-    nfc->readEEprom(PN5180_FIRMWARE_VERSION, firmwareVersion, 2);
-    Serial.printf("NFCManager: PN5180 firmware: %d.%d\n",
-                  firmwareVersion[1], firmwareVersion[0]);
-
-    // Setup RF for ISO15693
-    if (!nfc->setupRF()) {
-        Serial.println("NFCManager: Failed to setup RF");
-        return false;
+    // Create hardware connection if none was injected
+    if (connection_ == nullptr) {
+        connection_ = new HardwareNFCConnection();
+        ownsConnection_ = true;
     }
 
-    // Set up HAL for openprinttag
-    nfcHal.read_page = halReadPage;
-    nfcHal.write_page = halWritePage;
-    nfcHal.is_present = nullptr;
-    nfcHal.user_ctx = nfc;
+    if (!connection_->begin()) {
+        Serial.println("NFCManager: Failed to initialize connection");
+        return false;
+    }
 
     // Create FreeRTOS primitives
     writeQueue = xQueueCreate(8, sizeof(NFCWriteRequest));
@@ -105,27 +76,27 @@ void NFCManager::scanTaskFunc(void* param) {
 void NFCManager::scanLoop() {
     while (true) {
         uint8_t uid[8];
+        uint8_t uidLength = 0;
 
         // Setup RF field for each scan
-        nfc->reset();
-        nfc->setupRF();
+        connection_->reset();
+        connection_->setupRF();
 
-        // ISO15693 inventory to detect tag
-        ISO15693ErrorCode err = nfc->getInventory(uid);
-        if (err == ISO15693_EC_OK) {
+        // Detect tag
+        if (connection_->detectTag(uid, &uidLength)) {
             // Store UID for addressed read/write commands
-            memcpy(currentUid, uid, 8);
+            connection_->setCurrentUid(uid, uidLength);
 
             // Check if this is the same spool we already processed
-            if (!isDuplicateSpool(uid, 8)) {
+            if (!isDuplicateSpool(uid, uidLength)) {
                 // Take mutex for tag operations
                 if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                    if (readAndParseTag(uid, 8)) {
+                    if (readAndParseTag(uid, uidLength)) {
                         sendSpoolDetectedMessage();
 
                         // Update last seen UID
-                        memcpy(lastSeenUid, uid, 8);
-                        lastSeenUidLength = 8;
+                        memcpy(lastSeenUid, uid, uidLength);
+                        lastSeenUidLength = uidLength;
                         lastSeenValid = true;
                     }
                     xSemaphoreGive(tagMutex);
@@ -156,7 +127,8 @@ bool NFCManager::readAndParseTag(uint8_t* uid, uint8_t uid_length) {
     // Start with fewer pages since different NTAG variants have different sizes
     // NTAG213: 45 pages, NTAG215: 135 pages, NTAG216: 231 pages
     Serial.println("NFCManager: Reading tag data...");
-    opt_error_t err = opt_read_from_nfc(&currentSpool.tag_data, &nfcHal, 4, 41);  // NTAG213 user pages
+    opt_nfc_hal_t* hal = connection_->getHal();
+    opt_error_t err = opt_read_from_nfc(&currentSpool.tag_data, hal, 4, 41);  // NTAG213 user pages
     if (err != OPT_OK) {
         Serial.printf("NFCManager: Failed to read tag data: %s\n", opt_error_str(err));
         Serial.println("NFCManager: Attempting to format as new spool...");
@@ -247,7 +219,8 @@ bool NFCManager::formatNewSpool() {
 
     Serial.println("NFCManager: Writing to NFC tag...");
     // Write to NFC tag
-    err = opt_write_to_nfc(&currentSpool.tag_data, &nfcHal);
+    opt_nfc_hal_t* hal = connection_->getHal();
+    err = opt_write_to_nfc(&currentSpool.tag_data, hal);
     if (err != OPT_OK) {
         Serial.printf("NFCManager: Failed to write formatted tag: %s\n", opt_error_str(err));
         return false;
@@ -260,7 +233,7 @@ bool NFCManager::formatNewSpool() {
         // Give the tag time to settle after write
         delay(50 * (retry + 1));  // Increasing delay: 50ms, 100ms, 150ms
 
-        err = opt_read_from_nfc(&currentSpool.tag_data, &nfcHal, 4, 41);
+        err = opt_read_from_nfc(&currentSpool.tag_data, hal, 4, 41);
         if (err == OPT_OK) {
             err = opt_parse_ndef(&currentSpool.tag_data);
             if (err == OPT_OK) {
@@ -402,6 +375,7 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
     }
 
     opt_error_t err;
+    opt_nfc_hal_t* hal = connection_->getHal();
 
     switch (request.type) {
         case NFCWriteType::REMOVE_WEIGHT: {
@@ -412,7 +386,7 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
                 return false;
             }
             // Write aux region (usage tracking)
-            err = opt_write_aux_region(&currentSpool.tag_data, &nfcHal);
+            err = opt_write_aux_region(&currentSpool.tag_data, hal);
             if (err != OPT_OK) {
                 Serial.printf("NFCManager: Failed to write aux region: %s\n", opt_error_str(err));
                 return false;
@@ -427,7 +401,7 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
                 Serial.printf("NFCManager: Failed to set color: %s\n", opt_error_str(err));
                 return false;
             }
-            err = opt_write_dirty_pages(&currentSpool.tag_data, &nfcHal);
+            err = opt_write_dirty_pages(&currentSpool.tag_data, hal);
             if (err != OPT_OK) {
                 Serial.printf("NFCManager: Failed to write color: %s\n", opt_error_str(err));
                 return false;
@@ -444,7 +418,7 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
                 Serial.printf("NFCManager: Failed to set material type: %s\n", opt_error_str(err));
                 return false;
             }
-            err = opt_write_dirty_pages(&currentSpool.tag_data, &nfcHal);
+            err = opt_write_dirty_pages(&currentSpool.tag_data, hal);
             if (err != OPT_OK) {
                 Serial.printf("NFCManager: Failed to write material type: %s\n", opt_error_str(err));
                 return false;
@@ -459,7 +433,7 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
                 Serial.printf("NFCManager: Failed to set consumed weight: %s\n", opt_error_str(err));
                 return false;
             }
-            err = opt_write_aux_region(&currentSpool.tag_data, &nfcHal);
+            err = opt_write_aux_region(&currentSpool.tag_data, hal);
             if (err != OPT_OK) {
                 Serial.printf("NFCManager: Failed to write aux region: %s\n", opt_error_str(err));
                 return false;
@@ -474,7 +448,7 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
                 Serial.printf("NFCManager: Failed to set brand name: %s\n", opt_error_str(err));
                 return false;
             }
-            err = opt_write_dirty_pages(&currentSpool.tag_data, &nfcHal);
+            err = opt_write_dirty_pages(&currentSpool.tag_data, hal);
             if (err != OPT_OK) {
                 Serial.printf("NFCManager: Failed to write brand name: %s\n", opt_error_str(err));
                 return false;
