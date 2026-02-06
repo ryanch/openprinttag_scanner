@@ -1,7 +1,13 @@
 #include "NFCManager.h"
-#include "ApplicationManager.h"
-#include "HardwareNFCConnection.h"
-#include <Arduino.h>
+#ifndef NATIVE_TEST
+  #include "ApplicationManager.h"
+  #include "HardwareNFCConnection.h"
+  #include <Arduino.h>
+#else
+  #include "platform/NativePlatform.h"
+  #include "FakeLCDManager.h"
+  #include "StubApplicationManager.h"
+#endif
 #include <cstring>
 #include <time.h>
 
@@ -13,8 +19,14 @@ NFCManager& NFCManager::getInstance() {
 bool NFCManager::begin() {
     // Create hardware connection if none was injected
     if (connection_ == nullptr) {
+#ifndef NATIVE_TEST
         connection_ = new HardwareNFCConnection();
         ownsConnection_ = true;
+#else
+        // In native tests, connection must be injected via setConnection()
+        Serial.println("NFCManager: No connection injected for native test");
+        return false;
+#endif
     }
 
     if (!connection_->begin()) {
@@ -595,6 +607,40 @@ void NFCManager::addToRecentSpools() {
 
     // Place new entry at front
     recentSpools[0] = newEntry;
+}
+
+bool NFCManager::scanOnce() {
+    uint8_t uid[8];
+    uint8_t uidLength = 0;
+    bool result = false;
+
+    connection_->reset();
+    connection_->setupRF();
+
+    if (connection_->detectTag(uid, &uidLength)) {
+        connection_->setCurrentUid(uid, uidLength);
+
+        if (!isDuplicateSpool(uid, uidLength)) {
+            if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                if (readAndParseTag(uid, uidLength)) {
+                    sendSpoolDetectedMessage();
+                    memcpy(lastSeenUid, uid, uidLength);
+                    lastSeenUidLength = uidLength;
+                    lastSeenValid = true;
+                    result = true;
+                }
+                xSemaphoreGive(tagMutex);
+            }
+        }
+        processWriteQueue();
+    } else {
+        if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            currentSpool.present = false;
+            lastSeenValid = false;
+            xSemaphoreGive(tagMutex);
+        }
+    }
+    return result;
 }
 
 size_t NFCManager::getRecentSpools(RecentSpoolEntry* entries, size_t maxEntries) {

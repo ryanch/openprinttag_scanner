@@ -7,3 +7,6 @@ specs
 src/local_settings.h
 temp
 test/native/test_runner
+test/native/cbor_native.o
+test/native/openprinttag_lib.o
+test/native/test_nfc_read_runner

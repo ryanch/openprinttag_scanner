@@ -1,9 +1,13 @@
 #ifndef NFC_MANAGER_H
 #define NFC_MANAGER_H
 
-#include <freertos/FreeRTOS.h>
-#include <freertos/queue.h>
-#include <freertos/semphr.h>
+#ifdef NATIVE_TEST
+  #include "platform/NativePlatform.h"
+#else
+  #include <freertos/FreeRTOS.h>
+  #include <freertos/queue.h>
+  #include <freertos/semphr.h>
+#endif
 #include "NFCTypes.h"
 #include "NFCConnectionI.h"
 
@@ -15,6 +19,7 @@ public:
     bool enqueueWrite(const NFCWriteRequest& req);   // Queue a write request
     bool isRequestCompleted(uint32_t request_id);    // Check if request done
     void requestCurrentSpool();                      // Clear dedup to resend current spool
+    bool scanOnce();                                 // Single scan cycle (for testing)
     const CurrentSpoolState& getCurrentSpoolState() const { return currentSpool; }
 
     // Dependency injection for testing

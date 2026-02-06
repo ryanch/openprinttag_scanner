@@ -103,6 +103,22 @@ inline BaseType_t xSemaphoreGive(SemaphoreHandle_t sem) {
     return pdTRUE;
 }
 
+// FreeRTOS task stubs
+inline void vTaskDelay(TickType_t ticks) { (void)ticks; }
+inline BaseType_t xTaskCreatePinnedToCore(
+    void (*taskFunc)(void*), const char* name, uint32_t stackSize,
+    void* param, UBaseType_t priority, TaskHandle_t* handle, int core) {
+    (void)taskFunc; (void)name; (void)stackSize; (void)param;
+    (void)priority; (void)handle; (void)core;
+    return pdPASS;
+}
+
+// FreeRTOS queue additional stubs
+inline BaseType_t xQueuePeek(QueueHandle_t queue, void* item, TickType_t wait) {
+    (void)queue; (void)item; (void)wait;
+    return pdFALSE;
+}
+
 // Arduino timing functions
 inline unsigned long millis() {
     static auto start = std::chrono::steady_clock::now();
