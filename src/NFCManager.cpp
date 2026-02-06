@@ -143,28 +143,16 @@ bool NFCManager::readAndParseTag(uint8_t* uid, uint8_t uid_length) {
     opt_error_t err = opt_read_from_nfc(&currentSpool.tag_data, hal, 4, 41);  // NTAG213 user pages
     if (err != OPT_OK) {
         Serial.printf("NFCManager: Failed to read tag data: %s\n", opt_error_str(err));
-        Serial.println("NFCManager: Attempting to format as new spool...");
-        // Try to format as new spool
-        if (formatNewSpool()) {
-            Serial.println("NFCManager: Formatted blank tag as new spool");
-        } else {
-            Serial.println("NFCManager: Format failed, giving up");
-            return false;
-        }
-    } else {
+        return false;
+    }
+
+    {
         Serial.println("NFCManager: Read successful, parsing NDEF...");
         // Parse NDEF structure
         err = opt_parse_ndef(&currentSpool.tag_data);
         if (err != OPT_OK) {
             Serial.printf("NFCManager: Failed to parse NDEF: %s\n", opt_error_str(err));
-            Serial.println("NFCManager: Attempting to format as new spool...");
-            // Try to format as new spool
-            if (formatNewSpool()) {
-                Serial.println("NFCManager: Formatted tag as new spool after parse failure");
-            } else {
-                Serial.println("NFCManager: Format failed, giving up");
-                return false;
-            }
+            return false;
         }
     }
 
