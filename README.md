@@ -25,28 +25,40 @@ The device can be configured via a web interface served over Bluetooth Low Energ
 # Hardware Setup
 
 ## Hardware Needed
-*   NFC Reader/Writer: [Adafruit PN532](https://a.co/d/1DlqSIC)
+*   NFC Reader/Writer: PN5180 NFC module (ISO 15693)
 *   LCD Screen: [16x2 I2C LCD](https://a.co/d/dryhwvd) (only 1 needed)
 *   ESP32: [ESP32 DevKitC V4](https://a.co/d/gW3zBIJ) (only 1 needed)
 
 ## Hardware Configuration
 Connect the components to the ESP32 as follows:
 
-**16x2 I2C LCD:**
+**16x2 I2C LCD (I2C):**
 *   **GND:** GND
 *   **VCC:** 5V
 *   **SDA:** GPIO 23
 *   **SCL:** GPIO 22
 
-**Adafruit PN532 NFC Reader (SPI configuration):**
-*   **VCC:** 5V
-*   **GND:** GND
-*   **SCK:** GPIO 14
-*   **MISO:** GPIO 27
-*   **MOSI:** GPIO 26
-*   **SS (CS):** GPIO 25
+**PN5180 NFC Module (SPI, right side of ESP32 top to bottom, skipping D12):**
+
+| PN5180 Pin | ESP32 Pin | Direction | Notes |
+|------------|-----------|-----------|-------|
+| RST        | D13       | Output    | Hardware reset (active low) |
+| *(skip)*   | *D12*     | *—*       | *Strapping pin, skip* |
+| NSS        | D14       | Output    | SPI chip select (active low) |
+| MOSI       | D27       | Output    | SPI data to PN5180 |
+| MISO       | D26       | Input     | SPI data from PN5180 |
+| SCK        | D25       | Output    | SPI clock |
+| BUSY       | D33       | Input     | SPI flow control |
+| GPIO       | D32       | Input     | Card detection (future use) |
+| IRQ        | D35       | Input     | Interrupt, active HIGH (input-only pin, no pull-up) |
+| AUX        | D34       | Input     | Auxiliary monitoring (input-only pin, no pull-up) |
+| REQ        | —         | —         | **Not connected.** Only needed for PN5180 firmware updates. |
+| VIN        | 5V        | Power     | |
+| GND        | GND       | Power     | |
+
+> **Note:** D35 and D34 are input-only pins on the ESP32 (no internal pull-up). D12 is a strapping pin and is skipped.
 
 # Specs Referenced:
 *   Python Example: https://github.com/prusa3d/OpenPrintTag/blob/main/utils/rec_update.py
-*   NFC Scanner: https://github.com/adafruit/Adafruit-PN532?utm_source=platformio&utm_medium=piohome
+*   PN5180 Datasheet: https://www.nxp.com/docs/en/data-sheet/PN5180A0xx-C3.pdf
 *   PrusaLink API Docs: https://hexdocs.pm/prusa_link/PrusaLink.Api.html

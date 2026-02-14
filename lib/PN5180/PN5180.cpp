@@ -39,10 +39,14 @@
 
 uint8_t PN5180::readBuffer[508];
 
-PN5180::PN5180(uint8_t SSpin, uint8_t BUSYpin, uint8_t RSTpin) {
+PN5180::PN5180(uint8_t SSpin, uint8_t BUSYpin, uint8_t RSTpin,
+               int8_t SCKpin, int8_t MISOpin, int8_t MOSIpin) {
   PN5180_NSS = SSpin;
   PN5180_BUSY = BUSYpin;
   PN5180_RST = RSTpin;
+  PN5180_SCK = SCKpin;
+  PN5180_MISO = MISOpin;
+  PN5180_MOSI = MOSIpin;
 
   /*
    * 11.4.1 Physical Host Interface
@@ -62,12 +66,16 @@ void PN5180::begin() {
   digitalWrite(PN5180_NSS, HIGH); // disable
   digitalWrite(PN5180_RST, HIGH); // no reset
 
-  SPI.begin();
+  if (PN5180_SCK >= 0 && PN5180_MISO >= 0 && PN5180_MOSI >= 0) {
+    SPI.begin(PN5180_SCK, PN5180_MISO, PN5180_MOSI);
+  } else {
+    SPI.begin();
+  }
   PN5180DEBUG(F("SPI pinout: "));
-  PN5180DEBUG(F("SS=")); PN5180DEBUG(SS);
-  PN5180DEBUG(F(", MOSI=")); PN5180DEBUG(MOSI);
-  PN5180DEBUG(F(", MISO=")); PN5180DEBUG(MISO);
-  PN5180DEBUG(F(", SCK=")); PN5180DEBUG(SCK);
+  PN5180DEBUG(F("SS=")); PN5180DEBUG(PN5180_NSS);
+  PN5180DEBUG(F(", MOSI=")); PN5180DEBUG(PN5180_MOSI);
+  PN5180DEBUG(F(", MISO=")); PN5180DEBUG(PN5180_MISO);
+  PN5180DEBUG(F(", SCK=")); PN5180DEBUG(PN5180_SCK);
   PN5180DEBUG("\n");
 }
 

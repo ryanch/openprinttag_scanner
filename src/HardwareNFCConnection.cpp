@@ -24,7 +24,13 @@ opt_error_t HardwareNFCConnection::halWritePage(void* ctx, uint8_t page, const u
 }
 
 bool HardwareNFCConnection::begin() {
-    nfc_ = new PN5180ISO15693(PN5180_NSS, PN5180_BUSY, PN5180_RST);
+    // Configure additional input pins for future use
+    pinMode(PN5180_IRQ, INPUT);    // Interrupt (active HIGH)
+    pinMode(PN5180_GPIO, INPUT);   // Card detection
+    pinMode(PN5180_AUX, INPUT);    // Auxiliary/monitoring
+
+    nfc_ = new PN5180ISO15693(PN5180_NSS, PN5180_BUSY, PN5180_RST,
+                               PN5180_SCK, PN5180_MISO, PN5180_MOSI);
 
     Serial.println("HardwareNFCConnection: Starting PN5180...");
     nfc_->begin();
