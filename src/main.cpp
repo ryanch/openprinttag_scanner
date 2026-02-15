@@ -116,13 +116,33 @@ void setup() {
   static PrusaLinkAPIStrategy printerStrategy;
   PrinterManager::getInstance().setStrategy(&printerStrategy);
   PrinterManager::getInstance().begin();
+
+  // One synchronous check before polling task starts (no race condition)
+  printerStrategy.update();
+
   PrinterManager::getInstance().startPollingTask();
 
   // Start NFC scan task
   NFCManager::getInstance().startScanTask();
 
-  // Ready
-  lcdManager.updateScreen("Ready", "");
+  // Build status screen
+  auto& config = ConfigurationManager::getInstance();
+
+  char bleInd = BluetoothManager::getInstance().isAdvertising() ? '+' : '!';
+
+  char wifiInd;
+  if (strlen(config.getWiFiSSID()) == 0) wifiInd = '?';
+  else wifiInd = (WiFi.status() == WL_CONNECTED) ? '+' : '!';
+
+  char prusaInd;
+  if (strlen(config.getPrusaLinkURL()) == 0) prusaInd = '?';
+  else prusaInd = printerStrategy.isConnected() ? '+' : '!';
+
+  char line1[17], line2[17];
+  snprintf(line1, sizeof(line1), "Status NFC+ BLE%c", bleInd);
+  snprintf(line2, sizeof(line2), "PrusaLink%c Wifi%c", prusaInd, wifiInd);
+  lcdManager.updateScreen(line1, line2);
+
   Serial.println("=== Setup complete ===");
 }
 
