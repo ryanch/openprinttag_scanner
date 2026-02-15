@@ -112,8 +112,9 @@ void setup() {
 
   // Initialize and start PrinterManager with stub strategy for testing
   // To use real PrusaLink API, replace StubPrinterLinkStrategy with PrusaLinkAPIStrategy
-  static StubPrinterLinkStrategy stubStrategy;
-  PrinterManager::getInstance().setStrategy(&stubStrategy);
+  //static StubPrinterLinkStrategy printerStrategy;
+  static PrusaLinkAPIStrategy printerStrategy;
+  PrinterManager::getInstance().setStrategy(&printerStrategy);
   PrinterManager::getInstance().begin();
   PrinterManager::getInstance().startPollingTask();
 
