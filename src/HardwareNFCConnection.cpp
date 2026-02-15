@@ -34,7 +34,40 @@ bool HardwareNFCConnection::begin() {
 
     Serial.println("HardwareNFCConnection: Starting PN5180...");
     nfc_->begin();
-    nfc_->reset();
+    Serial.println("HardwareNFCConnection: SPI begin done, resetting...");
+    Serial.printf("HardwareNFCConnection: BUSY pin=%d before reset\n", digitalRead(PN5180_BUSY));
+
+    // Manual reset with debug (PN5180::reset() has no timeout)
+    digitalWrite(PN5180_RST, LOW);
+    delay(10);
+    digitalWrite(PN5180_RST, HIGH);
+    Serial.println("HardwareNFCConnection: RST pin released, waiting for boot...");
+
+    // Wait for BUSY to go LOW with timeout (chip boots with RF subsystem)
+    unsigned long start = millis();
+    while (digitalRead(PN5180_BUSY) == HIGH) {
+        if (millis() - start > 2000) {
+            Serial.println("HardwareNFCConnection: TIMEOUT waiting for BUSY LOW after reset!");
+            break;
+        }
+        delay(1);
+    }
+    Serial.printf("HardwareNFCConnection: BUSY went LOW after %lums\n", millis() - start);
+
+    // Wait for IDLE IRQ with timeout
+    start = millis();
+    uint32_t irqStatus = 0;
+    while (0 == (irqStatus & (1 << 2))) {  // IDLE_IRQ_STAT
+        nfc_->readRegister(IRQ_STATUS, &irqStatus);
+        if (millis() - start > 2000) {
+            Serial.printf("HardwareNFCConnection: TIMEOUT waiting for IDLE IRQ! IRQ=0x%08lX\n", irqStatus);
+            break;
+        }
+        delay(1);
+    }
+    Serial.printf("HardwareNFCConnection: IDLE IRQ after %lums, IRQ=0x%08lX\n", millis() - start, irqStatus);
+    nfc_->clearIRQStatus(0xffffffff);
+    Serial.println("HardwareNFCConnection: Reset complete");
 
     // Read firmware version
     uint8_t firmwareVersion[2];
@@ -65,21 +98,42 @@ void HardwareNFCConnection::reset() {
 }
 
 bool HardwareNFCConnection::setupRF() {
-    if (nfc_) {
-        return nfc_->setupRF();
-    }
-    return false;
+    if (!nfc_) return false;
+
+    // Don't use nfc_->setupRF() — its Idle command kills the RF field.
+    // Instead: load config, turn on RF, let field stabilize.
+    // sendData() inside getInventory() handles Transceive mode setup.
+    if (!nfc_->loadRFConfig(0x0d, 0x8d)) return false;
+    if (!nfc_->setRF_on()) return false;
+
+    return true;
 }
 
 bool HardwareNFCConnection::detectTag(uint8_t* uid, uint8_t* uidLength) {
     if (!nfc_) {
+        Serial.println("HardwareNFC: detectTag() called but nfc_ is null!");
         return false;
     }
 
     ISO15693ErrorCode err = nfc_->getInventory(uid);
     if (err == ISO15693_EC_OK) {
+        // Reject phantom detections (all-zero UID = tag not fully powered)
+        bool allZero = true;
+        for (int i = 0; i < 8; i++) {
+            if (uid[i] != 0) { allZero = false; break; }
+        }
+        if (allZero) return false;
+
         *uidLength = 8;  // ISO15693 uses 8-byte UID
         return true;
+    }
+
+    // Log non-OK errors periodically (not every poll to avoid spam)
+    static uint32_t errCount = 0;
+    errCount++;
+    if (errCount % 200 == 1) {
+        Serial.printf("HardwareNFC: getInventory err=%d (%s) [count=%lu]\n",
+                      (int)err, nfc_->strerror(err), errCount);
     }
     return false;
 }
@@ -90,4 +144,68 @@ void HardwareNFCConnection::setCurrentUid(const uint8_t* uid, uint8_t length) {
 
 opt_nfc_hal_t* HardwareNFCConnection::getHal() {
     return &hal_;
+}
+
+void HardwareNFCConnection::logDiagnostics() {
+    if (!nfc_) {
+        Serial.println("HardwareNFC DIAG: nfc_ is null!");
+        return;
+    }
+
+    uint32_t irqStatus, rfStatus, sysStatus;
+    nfc_->readRegister(IRQ_STATUS, &irqStatus);
+    nfc_->readRegister(RF_STATUS, &rfStatus);
+    nfc_->readRegister(SYSTEM_STATUS, &sysStatus);
+
+    uint8_t transceiverState = (rfStatus >> 24) & 0x07;
+    bool rfFieldOn = (rfStatus & 0x01);  // TX_RF_STATUS bit
+    bool extFieldDet = (rfStatus & 0x02);  // RF_DET_STATUS bit
+
+    Serial.printf("HardwareNFC DIAG: IRQ=0x%08lX RF=0x%08lX SYS=0x%08lX\n",
+                  irqStatus, rfStatus, sysStatus);
+    Serial.printf("HardwareNFC DIAG: RF_field=%s ext_field=%s transceiver=%u\n",
+                  rfFieldOn ? "ON" : "OFF",
+                  extFieldDet ? "YES" : "NO",
+                  transceiverState);
+
+    // Step-by-step RF activation test
+    Serial.println("HardwareNFC DIAG: --- RF activation test ---");
+
+    // Step 1: Reset and check
+    nfc_->reset();
+    nfc_->readRegister(RF_STATUS, &rfStatus);
+    Serial.printf("HardwareNFC DIAG: After reset: RF=0x%08lX field=%s\n",
+                  rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+    // Step 2: Load RF config
+    nfc_->loadRFConfig(0x0d, 0x8d);
+    nfc_->readRegister(RF_STATUS, &rfStatus);
+    Serial.printf("HardwareNFC DIAG: After loadRFConfig: RF=0x%08lX field=%s\n",
+                  rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+    // Step 3: Turn RF on
+    nfc_->setRF_on();
+    nfc_->readRegister(RF_STATUS, &rfStatus);
+    nfc_->readRegister(IRQ_STATUS, &irqStatus);
+    Serial.printf("HardwareNFC DIAG: After setRF_on: RF=0x%08lX IRQ=0x%08lX field=%s\n",
+                  rfStatus, irqStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+    // Step 4: Wait and check again
+    delay(50);
+    nfc_->readRegister(RF_STATUS, &rfStatus);
+    Serial.printf("HardwareNFC DIAG: After 50ms wait: RF=0x%08lX field=%s\n",
+                  rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+    // Step 5: Set transceive (like setupRF does) and check
+    nfc_->writeRegisterWithAndMask(SYSTEM_CONFIG, 0xfffffff8);  // Idle
+    nfc_->readRegister(RF_STATUS, &rfStatus);
+    Serial.printf("HardwareNFC DIAG: After Idle cmd: RF=0x%08lX field=%s\n",
+                  rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+    nfc_->writeRegisterWithOrMask(SYSTEM_CONFIG, 0x00000003);  // Transceive
+    nfc_->readRegister(RF_STATUS, &rfStatus);
+    Serial.printf("HardwareNFC DIAG: After Transceive cmd: RF=0x%08lX field=%s\n",
+                  rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+    Serial.println("HardwareNFC DIAG: --- end test ---");
 }

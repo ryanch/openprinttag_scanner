@@ -86,32 +86,79 @@ void NFCManager::scanTaskFunc(void* param) {
 }
 
 void NFCManager::scanLoop() {
+    uint32_t scanCount = 0;
+    uint32_t detectCount = 0;
+    uint32_t failCount = 0;
+
+    Serial.println("NFCManager: scanLoop() started, polling every 50ms");
+
+    // Initial reset + RF setup
+    connection_->reset();
+    connection_->setupRF();
+
+    // One-time startup diagnostic
+    static_cast<HardwareNFCConnection*>(connection_)->logDiagnostics();
+
     while (true) {
         uint8_t uid[8];
         uint8_t uidLength = 0;
+        scanCount++;
 
-        // Setup RF field for each scan
+        // Log heartbeat every 200 scans (~10 seconds)
+        if (scanCount % 200 == 0) {
+            Serial.printf("NFCManager: heartbeat scan=%lu detected=%lu failed=%lu\n",
+                          scanCount, detectCount, failCount);
+        }
+
+        // Re-arm RF field for each scan (reset + setupRF).
+        // The reset is needed to clear transceiver state between scans.
         connection_->reset();
-        connection_->setupRF();
+        if (!connection_->setupRF()) {
+            if (failCount++ % 200 == 0) {
+                Serial.println("NFCManager: setupRF() failed");
+            }
+            vTaskDelay(pdMS_TO_TICKS(50));
+            continue;
+        }
+
+        // Give tag time to power up from RF field before sending inventory.
+        // ISO15693 tags need ~5-10ms to charge from the RF field.
+        vTaskDelay(pdMS_TO_TICKS(10));
 
         // Detect tag
         if (connection_->detectTag(uid, &uidLength)) {
+            detectCount++;
+            // Log UID on first detection
+            if (!lastSeenValid || memcmp(uid, lastSeenUid, uidLength) != 0) {
+                Serial.printf("NFCManager: Tag detected! UID=");
+                for (uint8_t i = 0; i < uidLength; i++) {
+                    Serial.printf("%02X", uid[i]);
+                }
+                Serial.println();
+            }
+
             // Store UID for addressed read/write commands
             connection_->setCurrentUid(uid, uidLength);
 
             // Check if this is the same spool we already processed
             if (!isDuplicateSpool(uid, uidLength)) {
+                Serial.println("NFCManager: New spool, reading tag...");
                 // Take mutex for tag operations
                 if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                     if (readAndParseTag(uid, uidLength)) {
+                        Serial.println("NFCManager: Tag parsed, sending message");
                         sendSpoolDetectedMessage();
 
                         // Update last seen UID
                         memcpy(lastSeenUid, uid, uidLength);
                         lastSeenUidLength = uidLength;
                         lastSeenValid = true;
+                    } else {
+                        Serial.println("NFCManager: readAndParseTag() failed");
                     }
                     xSemaphoreGive(tagMutex);
+                } else {
+                    Serial.println("NFCManager: Could not acquire tagMutex");
                 }
             }
 
@@ -120,6 +167,9 @@ void NFCManager::scanLoop() {
         } else {
             // No tag detected - clear state
             if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+                if (lastSeenValid) {
+                    Serial.println("NFCManager: Tag removed");
+                }
                 currentSpool.present = false;
                 lastSeenValid = false;
                 xSemaphoreGive(tagMutex);
@@ -136,11 +186,11 @@ bool NFCManager::readAndParseTag(uint8_t* uid, uint8_t uid_length) {
     opt_init(&currentSpool.tag_data);
 
     // Try to read tag data from NFC
-    // Start with fewer pages since different NTAG variants have different sizes
-    // NTAG213: 45 pages, NTAG215: 135 pages, NTAG216: 231 pages
+    // OpenPrintTag uses ISO15693 (NFC-V) tags, designed for ICODE SLIX2 320B
+    // Read blocks 4-41 covering the NDEF + OPT payload region
     Serial.println("NFCManager: Reading tag data...");
     opt_nfc_hal_t* hal = connection_->getHal();
-    opt_error_t err = opt_read_from_nfc(&currentSpool.tag_data, hal, 4, 41);  // NTAG213 user pages
+    opt_error_t err = opt_read_from_nfc(&currentSpool.tag_data, hal, 4, 41);
     if (err != OPT_OK) {
         Serial.printf("NFCManager: Failed to read tag data: %s\n", opt_error_str(err));
         return false;

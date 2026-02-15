@@ -18,6 +18,9 @@ public:
     void setCurrentUid(const uint8_t* uid, uint8_t length) override;
     opt_nfc_hal_t* getHal() override;
 
+    // Diagnostics: log RF_STATUS, IRQ_STATUS, SYSTEM_STATUS registers
+    void logDiagnostics();
+
 private:
     PN5180ISO15693* nfc_ = nullptr;
     opt_nfc_hal_t hal_;
