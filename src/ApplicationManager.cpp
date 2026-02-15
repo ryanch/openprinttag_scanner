@@ -151,6 +151,8 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
         snprintf(line1, sizeof(line1), "Type: %.10s", msg.payload.spoolDetected.material_name);
         snprintf(line2, sizeof(line2), "Remain: %.0fg", msg.payload.spoolDetected.kg_remaining * 1000.0f);
         lcdManager->updateScreen(line1, line2);
+    } else if (lcdManager) {
+        Serial.printf("ApplicationManager: Skipping LCD update for already displayed spool %s\n", msg.payload.spoolDetected.spool_id);
     }
 }
 

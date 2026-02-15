@@ -97,7 +97,9 @@ void NFCManager::scanLoop() {
     connection_->setupRF();
 
     // One-time startup diagnostic
+#ifndef NATIVE_TEST
     static_cast<HardwareNFCConnection*>(connection_)->logDiagnostics();
+#endif
 
     while (true) {
         uint8_t uid[8];
@@ -147,6 +149,7 @@ void NFCManager::scanLoop() {
                 if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                     if (readAndParseTag(uid, uidLength)) {
                         Serial.println("NFCManager: Tag parsed, sending message");
+                        currentSpool.blank_tag_present = false;
                         sendSpoolDetectedMessage();
 
                         // Update last seen UID
@@ -154,7 +157,22 @@ void NFCManager::scanLoop() {
                         lastSeenUidLength = uidLength;
                         lastSeenValid = true;
                     } else {
-                        Serial.println("NFCManager: readAndParseTag() failed");
+                        Serial.println("NFCManager: readAndParseTag() failed - treating as blank tag");
+                        // Store UID so UI can reference it
+                        for (uint8_t i = 0; i < uidLength && i < 31; i++) {
+                            sprintf(currentSpool.spool_id + (i * 2), "%02X", uid[i]);
+                        }
+                        currentSpool.spool_id[uidLength * 2] = '\0';
+                        memcpy(currentSpool.uid, uid, uidLength);
+                        currentSpool.uid_length = uidLength;
+                        currentSpool.present = true;
+                        currentSpool.tag_data_valid = false;
+                        currentSpool.blank_tag_present = true;
+
+                        // Mark as seen so we don't re-read every 50ms
+                        memcpy(lastSeenUid, uid, uidLength);
+                        lastSeenUidLength = uidLength;
+                        lastSeenValid = true;
                     }
                     xSemaphoreGive(tagMutex);
                 } else {
@@ -171,6 +189,7 @@ void NFCManager::scanLoop() {
                     Serial.println("NFCManager: Tag removed");
                 }
                 currentSpool.present = false;
+                currentSpool.blank_tag_present = false;
                 lastSeenValid = false;
                 xSemaphoreGive(tagMutex);
             }
@@ -230,7 +249,7 @@ bool NFCManager::formatNewSpool() {
     Serial.println("NFCManager: formatNewSpool() called");
 
     // Format as empty tag with aux region for usage tracking
-    // NTAG213 has 144 bytes of user data (pages 4-39), use smaller size for compatibility
+    // ISO15693 ICODE SLIX2 has 320 bytes, use 144 bytes with 32-byte aux region
     opt_error_t err = opt_format_empty_tag(&currentSpool.tag_data, 144, 32);
     if (err != OPT_OK) {
         Serial.printf("NFCManager: Failed to format empty tag: %s\n", opt_error_str(err));
@@ -252,9 +271,9 @@ bool NFCManager::formatNewSpool() {
         return false;
     }
 
-    // Set primary color to black (RGBA)
-    uint8_t black[4] = {0, 0, 0, 255};
-    err = opt_set_primary_color(&currentSpool.tag_data, black);
+    // Set primary color to white (RGBA)
+    uint8_t white[4] = {255, 255, 255, 255};
+    err = opt_set_primary_color(&currentSpool.tag_data, white);
     if (err != OPT_OK) {
         Serial.printf("NFCManager: Failed to set color: %s\n", opt_error_str(err));
         return false;
@@ -264,6 +283,13 @@ bool NFCManager::formatNewSpool() {
     err = opt_set_consumed_weight(&currentSpool.tag_data, 0.0f);
     if (err != OPT_OK) {
         Serial.printf("NFCManager: Failed to set consumed weight: %s\n", opt_error_str(err));
+        return false;
+    }
+
+    // Set brand name
+    err = opt_set_brand_name(&currentSpool.tag_data, "Unknown");
+    if (err != OPT_OK) {
+        Serial.printf("NFCManager: Failed to set brand name: %s\n", opt_error_str(err));
         return false;
     }
 
@@ -411,6 +437,26 @@ void NFCManager::processWriteQueue() {
 }
 
 bool NFCManager::executeWrite(const NFCWriteRequest& request) {
+    // Handle FORMAT_NEW before the tag_data_valid check (blank tags aren't valid yet)
+    if (request.type == NFCWriteType::FORMAT_NEW) {
+        if (request.expected_spool_id[0] != '\0' &&
+            strcmp(currentSpool.spool_id, request.expected_spool_id) != 0) {
+            Serial.println("NFCManager: FORMAT_NEW rejected - UID mismatch");
+            return false;
+        }
+        if (!currentSpool.blank_tag_present) {
+            Serial.println("NFCManager: FORMAT_NEW rejected - not a blank tag");
+            return false;
+        }
+        bool ok = formatNewSpool();
+        if (ok) {
+            currentSpool.blank_tag_present = false;
+            addToRecentSpools();
+            sendSpoolDetectedMessage();
+        }
+        return ok;
+    }
+
     if (!currentSpool.tag_data_valid) {
         return false;
     }
@@ -661,11 +707,26 @@ bool NFCManager::scanOnce() {
         if (!isDuplicateSpool(uid, uidLength)) {
             if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 if (readAndParseTag(uid, uidLength)) {
+                    currentSpool.blank_tag_present = false;
                     sendSpoolDetectedMessage();
                     memcpy(lastSeenUid, uid, uidLength);
                     lastSeenUidLength = uidLength;
                     lastSeenValid = true;
                     result = true;
+                } else {
+                    // Blank tag detected
+                    for (uint8_t i = 0; i < uidLength && i < 31; i++) {
+                        sprintf(currentSpool.spool_id + (i * 2), "%02X", uid[i]);
+                    }
+                    currentSpool.spool_id[uidLength * 2] = '\0';
+                    memcpy(currentSpool.uid, uid, uidLength);
+                    currentSpool.uid_length = uidLength;
+                    currentSpool.present = true;
+                    currentSpool.tag_data_valid = false;
+                    currentSpool.blank_tag_present = true;
+                    memcpy(lastSeenUid, uid, uidLength);
+                    lastSeenUidLength = uidLength;
+                    lastSeenValid = true;
                 }
                 xSemaphoreGive(tagMutex);
             }
@@ -674,6 +735,7 @@ bool NFCManager::scanOnce() {
     } else {
         if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
             currentSpool.present = false;
+            currentSpool.blank_tag_present = false;
             lastSeenValid = false;
             xSemaphoreGive(tagMutex);
         }

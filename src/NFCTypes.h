@@ -8,6 +8,7 @@
 
 struct CurrentSpoolState {
     bool present;
+    bool blank_tag_present;
     char spool_id[64];
     uint8_t uid[8];              // ISO15693 uses 8-byte UID
     uint8_t uid_length;

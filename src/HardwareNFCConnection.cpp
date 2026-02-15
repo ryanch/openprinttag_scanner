@@ -100,11 +100,17 @@ void HardwareNFCConnection::reset() {
 bool HardwareNFCConnection::setupRF() {
     if (!nfc_) return false;
 
-    // Don't use nfc_->setupRF() — its Idle command kills the RF field.
-    // Instead: load config, turn on RF, let field stabilize.
-    // sendData() inside getInventory() handles Transceive mode setup.
     if (!nfc_->loadRFConfig(0x0d, 0x8d)) return false;
     if (!nfc_->setRF_on()) return false;
+
+    // not sure this is true, taking out:
+    // This sequence is critical. After turning the RF field on, the PN5180
+    // must be explicitly put into the Idle state and then the Transceive
+    // state. This prepares the chip's internal state machine to handle
+    // subsequent data transmission commands reliably. Omitting this leads
+    // to intermittent failures on subsequent tag reads.
+    //nfc_->writeRegisterWithAndMask(SYSTEM_CONFIG, 0xfffffff8);  // Idle/StopCom
+    //nfc_->writeRegisterWithOrMask(SYSTEM_CONFIG, 0x00000003);   // Transceive
 
     return true;
 }

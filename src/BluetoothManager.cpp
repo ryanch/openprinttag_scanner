@@ -149,6 +149,10 @@ static void process_command(const char* json) {
             current["grams_remaining"] = (int)(full_weight - consumed);
 
             current["last_seen"] = time(nullptr);
+        } else if (spool.present && spool.blank_tag_present) {
+            JsonObject current = responseDoc["current"].to<JsonObject>();
+            current["id"] = spool.spool_id;
+            current["blank"] = true;
         } else {
             responseDoc["current"] = nullptr;
         }
@@ -181,9 +185,28 @@ static void process_command(const char* json) {
     else if (strcmp(command, "update_spool") == 0) {
         const CurrentSpoolState& spool = NFCManager::getInstance().getCurrentSpoolState();
 
-        if (!spool.present || !spool.tag_data_valid) {
+        if (!spool.present) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
             Serial.printf("%s: update_spool failed - no tag present\n", TAG);
+        } else if (spool.blank_tag_present) {
+            // Blank tag — enqueue FORMAT_NEW
+            const char* requestedId = doc["id"] | "";
+            if (requestedId[0] != '\0' && strcmp(requestedId, spool.spool_id) != 0) {
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
+                Serial.printf("%s: update_spool (format) failed - ID mismatch\n", TAG);
+            } else {
+                NFCWriteRequest req;
+                memset(&req, 0, sizeof(req));
+                req.request_id = ++s_request_id_counter;
+                req.type = NFCWriteType::FORMAT_NEW;
+                strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
+                NFCManager::getInstance().enqueueWrite(req);
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
+                Serial.printf("%s: update_spool - enqueued FORMAT_NEW for blank tag\n", TAG);
+            }
+        } else if (!spool.tag_data_valid) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
+            Serial.printf("%s: update_spool failed - tag data not valid\n", TAG);
         } else {
             // Verify spool ID matches
             const char* requestedId = doc["id"] | "";

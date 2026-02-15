@@ -430,6 +430,32 @@
         .color-preview-row input[type="text"] {
             flex: 1;
         }
+
+        /* Format Spool Card */
+        .format-spool-card {
+            background-color: var(--prusa-medium-gray);
+            border-radius: 6px;
+            padding: 1.5rem;
+            margin-bottom: 0.75rem;
+            border-left: 4px solid var(--prusa-orange);
+            text-align: center;
+        }
+
+        .format-spool-card .format-uid {
+            color: var(--prusa-light-gray);
+            font-family: monospace;
+            font-size: 0.85rem;
+            margin-bottom: 0.5rem;
+        }
+
+        .format-spool-card .format-label {
+            font-weight: 600;
+            margin-bottom: 1rem;
+        }
+
+        .format-spool-card button {
+            min-width: 160px;
+        }
     </style>
 </head>
 <body>
@@ -708,7 +734,18 @@
         function renderSpools() {
             // Render current spool
             currentSpoolContainer.innerHTML = '';
-            if (currentSpoolData) {
+            if (currentSpoolData && currentSpoolData.blank) {
+                // Blank tag detected — show format button
+                const card = document.createElement('div');
+                card.className = 'format-spool-card';
+                card.innerHTML = `
+                    <div class="format-label">Blank Tag Detected</div>
+                    <div class="format-uid">UID: ${currentSpoolData.id}</div>
+                    <button id="format-spool-btn">Format Spool</button>
+                `;
+                currentSpoolContainer.appendChild(card);
+                document.getElementById('format-spool-btn').addEventListener('click', handleFormatSpool);
+            } else if (currentSpoolData) {
                 currentSpoolContainer.appendChild(renderSpoolCard(currentSpoolData, true));
             } else {
                 currentSpoolContainer.innerHTML = `
@@ -820,6 +857,48 @@
                 modalSave.textContent = 'Save to Tag';
             }
         });
+
+        // Format blank spool
+        async function handleFormatSpool() {
+            if (!configWriteCharacteristic || !currentSpoolData || !currentSpoolData.blank) return;
+
+            const btn = document.getElementById('format-spool-btn');
+            const uid = currentSpoolData.id;
+
+            try {
+                btn.disabled = true;
+                btn.textContent = 'Formatting...';
+
+                const response = await enqueueCommand(async () => {
+                    const payload = {
+                        command: 'update_spool',
+                        id: uid,
+                        type: 'PLA',
+                        color: '#FFFFFF',
+                        manufacturer: 'Unknown',
+                        grams_remaining: 1000
+                    };
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode(JSON.stringify(payload))
+                    );
+                    const responseValue = await configWriteCharacteristic.readValue();
+                    return JSON.parse(textDecoder.decode(responseValue));
+                });
+
+                if (response.status === 'ok') {
+                    // Wait briefly for NFC write to complete, then refresh
+                    setTimeout(() => loadSpools(), 2000);
+                } else {
+                    alert(response.error || 'Failed to format spool.');
+                    btn.disabled = false;
+                    btn.textContent = 'Format Spool';
+                }
+            } catch (error) {
+                alert(`Error formatting spool: ${error}`);
+                btn.disabled = false;
+                btn.textContent = 'Format Spool';
+            }
+        }
 
         // BLE Connection
         async function handleConnect() {

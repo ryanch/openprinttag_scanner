@@ -11,7 +11,8 @@ enum class NFCWriteType : uint8_t {
     CHANGE_COLOR,         // Set new primary color
     CHANGE_FILAMENT_TYPE, // Set new material type
     SET_CONSUMED_WEIGHT,  // Set absolute consumed weight
-    SET_BRAND_NAME        // Set manufacturer name
+    SET_BRAND_NAME,       // Set manufacturer name
+    FORMAT_NEW            // Format a blank tag with defaults
 };
 
 struct NFCWriteRequest {
