@@ -1,7 +1,7 @@
 #ifndef TEST_NFC_MANAGER_H
 #define TEST_NFC_MANAGER_H
 
-#include "NFCWriteTypes.h"
+#include "NFCTypes.h"
 #include <vector>
 #include <cstring>
 
@@ -21,6 +21,11 @@ public:
 
     void requestCurrentSpool() {
         requestCurrentSpoolCalled_ = true;
+    }
+
+    bool getCurrentSpoolState(CurrentSpoolState& out) {
+        out = currentSpool_;
+        return true;
     }
 
     // Test inspection methods
@@ -48,9 +53,10 @@ public:
     }
 
 private:
-    NFCManager() = default;
+    NFCManager() { memset(&currentSpool_, 0, sizeof(currentSpool_)); }
     std::vector<NFCWriteRequest> writeRequests_;
     bool requestCurrentSpoolCalled_ = false;
+    CurrentSpoolState currentSpool_;
 };
 
 #endif // TEST_NFC_MANAGER_H

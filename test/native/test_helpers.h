@@ -4,12 +4,6 @@
 #include "ApplicationManager.h"
 #include <cstring>
 
-// Material type constants (from openprinttag_lib)
-#define OPT_MATERIAL_TYPE_PLA 1
-#define OPT_MATERIAL_TYPE_ABS 2
-#define OPT_MATERIAL_TYPE_PETG 3
-#define OPT_MATERIAL_TYPE_TPU 4
-
 // Message factory functions
 inline AppMessage createSpoolDetected(const char* spoolId, uint8_t materialType,
                                        float kgRemaining, const char* materialName = "PLA") {

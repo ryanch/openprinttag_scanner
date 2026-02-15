@@ -111,7 +111,14 @@ static void process_command(const char* json) {
         }
     }
     else if (strcmp(command, "list_spools") == 0) {
-        const CurrentSpoolState& spool = NFCManager::getInstance().getCurrentSpoolState();
+        CurrentSpoolState spool;
+        if (!NFCManager::getInstance().getCurrentSpoolState(spool)) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
+            if (s_config_write_char) {
+                s_config_write_char->setValue(s_response_buffer);
+            }
+            return;
+        }
         JsonDocument responseDoc;
 
         if (spool.present && spool.tag_data_valid) {
@@ -183,7 +190,14 @@ static void process_command(const char* json) {
         //Serial.printf("%s: list_spools completed\n", TAG);
     }
     else if (strcmp(command, "update_spool") == 0) {
-        const CurrentSpoolState& spool = NFCManager::getInstance().getCurrentSpoolState();
+        CurrentSpoolState spool;
+        if (!NFCManager::getInstance().getCurrentSpoolState(spool)) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
+            if (s_config_write_char) {
+                s_config_write_char->setValue(s_response_buffer);
+            }
+            return;
+        }
 
         if (!spool.present) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");

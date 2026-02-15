@@ -20,7 +20,7 @@ public:
     bool isRequestCompleted(uint32_t request_id);    // Check if request done
     void requestCurrentSpool();                      // Clear dedup to resend current spool
     bool scanOnce();                                 // Single scan cycle (for testing)
-    const CurrentSpoolState& getCurrentSpoolState() const { return currentSpool; }
+    bool getCurrentSpoolState(CurrentSpoolState& out);
 
     // Dependency injection for testing
     void setConnection(NFCConnectionI* conn) { connection_ = conn; }
