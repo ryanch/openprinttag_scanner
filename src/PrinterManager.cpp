@@ -95,8 +95,13 @@ void PrinterManager::poll() {
         // Update progress for potential cancel estimation
         lastProgressPercent = progress;
 
+        // Update stored filament if API still reports it (may become 0 once finished)
+        if (totalFilamentG > 0) {
+            currentJobTotalFilamentG = totalFilamentG;
+        }
+
         if (jobState == "FINISHED") {
-            handleJobFinished(jobId, totalFilamentG);
+            handleJobFinished(jobId, currentJobTotalFilamentG);
         } else if (jobState == "STOPPED" || jobState == "ERROR") {
             handleJobCanceled(jobId, progress);
         }
