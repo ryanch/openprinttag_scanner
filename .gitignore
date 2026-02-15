@@ -10,3 +10,5 @@ test/native/test_runner
 test/native/cbor_native.o
 test/native/openprinttag_lib.o
 test/native/test_nfc_read_runner
+test/build/test_openprinttag
+test/build

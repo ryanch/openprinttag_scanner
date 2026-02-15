@@ -23,7 +23,7 @@ extern "C" {
  * Constants
  *============================================================================*/
 
-#define OPT_MAX_TAG_SIZE        924     /* NTAG216 max user data */
+#define OPT_MAX_TAG_SIZE        924     /* Max supported tag size */
 #define OPT_PAGE_SIZE           4       /* NTAG page size */
 #define OPT_MAX_STRING_LEN      32      /* Max string field length */
 #define OPT_MIME_TYPE           "application/vnd.openprinttag"
@@ -296,7 +296,7 @@ opt_error_t opt_format_empty_tag(opt_tag_t *tag, uint16_t size, uint16_t aux_siz
  *
  * @param tag        Tag context to read into
  * @param hal        NFC hardware abstraction layer
- * @param start_page First page to read (typically 4 for user data)
+ * @param start_page First page to read (typically 0 for ISO 15693)
  * @param num_pages  Number of pages to read
  * @return OPT_OK on success
  */

@@ -11,6 +11,13 @@
 #include <cstring>
 #include <time.h>
 
+
+//#define DUMP_TAGS_TO_CONSOLE
+
+#ifdef DUMP_TAGS_TO_CONSOLE
+    #include <base64.hpp>
+#endif
+
 NFCManager& NFCManager::getInstance() {
     static NFCManager instance;
     return instance;
@@ -204,16 +211,18 @@ bool NFCManager::readAndParseTag(uint8_t* uid, uint8_t uid_length) {
     // Initialize openprinttag context
     opt_init(&currentSpool.tag_data);
 
+
     // Try to read tag data from NFC
     // OpenPrintTag uses ISO15693 (NFC-V) tags, designed for ICODE SLIX2 320B
     // Read blocks 4-41 covering the NDEF + OPT payload region
     Serial.println("NFCManager: Reading tag data...");
     opt_nfc_hal_t* hal = connection_->getHal();
-    opt_error_t err = opt_read_from_nfc(&currentSpool.tag_data, hal, 4, 41);
+    opt_error_t err = opt_read_from_nfc(&currentSpool.tag_data, hal, 0, 78);
     if (err != OPT_OK) {
         Serial.printf("NFCManager: Failed to read tag data: %s\n", opt_error_str(err));
         return false;
     }
+    //memcpy(currentSpool.raw_tag_data, currentSpool.tag_data.data, sizeof(currentSpool.raw_tag_data));
 
     {
         Serial.println("NFCManager: Read successful, parsing NDEF...");
@@ -242,6 +251,23 @@ bool NFCManager::readAndParseTag(uint8_t* uid, uint8_t uid_length) {
     addToRecentSpools();
 
     Serial.printf("NFCManager: Parsed spool %s\n", currentSpool.spool_id);
+
+
+    #ifdef DUMP_TAGS_TO_CONSOLE
+
+        size_t encoded_max_len = ((sizeof(currentSpool.tag_data.data) + 2) / 3) * 4 + 1;
+        char* base64_output_buffer = new char[encoded_max_len];
+
+        // Perform base64 encoding
+        unsigned int encoded_len = encode_base64(currentSpool.tag_data.data, sizeof(currentSpool.tag_data.data), (unsigned char*)base64_output_buffer);
+        base64_output_buffer[encoded_len] = '\0'; // Null-terminate the string
+
+        Serial.println("NFCManager: Spool data:");
+        Serial.println(base64_output_buffer);
+
+    #endif
+
+
     return true;
 }
 
@@ -249,8 +275,8 @@ bool NFCManager::formatNewSpool() {
     Serial.println("NFCManager: formatNewSpool() called");
 
     // Format as empty tag with aux region for usage tracking
-    // ISO15693 ICODE SLIX2 has 320 bytes, use 144 bytes with 32-byte aux region
-    opt_error_t err = opt_format_empty_tag(&currentSpool.tag_data, 144, 32);
+    // ISO15693 ICODE SLIX2 has 320 bytes, use 312 bytes with 32-byte aux region
+    opt_error_t err = opt_format_empty_tag(&currentSpool.tag_data, 312, 32);
     if (err != OPT_OK) {
         Serial.printf("NFCManager: Failed to format empty tag: %s\n", opt_error_str(err));
         return false;
@@ -309,7 +335,7 @@ bool NFCManager::formatNewSpool() {
         // Give the tag time to settle after write
         delay(50 * (retry + 1));  // Increasing delay: 50ms, 100ms, 150ms
 
-        err = opt_read_from_nfc(&currentSpool.tag_data, hal, 4, 41);
+        err = opt_read_from_nfc(&currentSpool.tag_data, hal, 0, 78);
         if (err == OPT_OK) {
             err = opt_parse_ndef(&currentSpool.tag_data);
             if (err == OPT_OK) {

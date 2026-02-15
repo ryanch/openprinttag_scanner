@@ -72,7 +72,7 @@ typedef struct {
 
 static opt_error_t mock_read_page(void *ctx, uint8_t page, uint8_t *buffer) {
     mock_nfc_t *nfc = (mock_nfc_t *)ctx;
-    uint16_t offset = (page - 4) * OPT_PAGE_SIZE;
+    uint16_t offset = page * OPT_PAGE_SIZE;
 
     if (offset + OPT_PAGE_SIZE > nfc->size) {
         return OPT_ERR_NFC_READ;
@@ -84,7 +84,7 @@ static opt_error_t mock_read_page(void *ctx, uint8_t page, uint8_t *buffer) {
 
 static opt_error_t mock_write_page(void *ctx, uint8_t page, const uint8_t *data) {
     mock_nfc_t *nfc = (mock_nfc_t *)ctx;
-    uint16_t offset = (page - 4) * OPT_PAGE_SIZE;
+    uint16_t offset = page * OPT_PAGE_SIZE;
 
     if (nfc->simulate_disconnect && nfc->pages_written >= nfc->disconnect_after_page) {
         return OPT_ERR_NFC_DISCONNECTED;
@@ -383,7 +383,7 @@ static int test_mock_nfc_read_write(void) {
     /* Create a new tag and read from mock */
     opt_tag_t tag2;
     opt_init(&tag2);
-    err = opt_read_from_nfc(&tag2, &hal, 4, 135);  /* 540/4 = 135 pages */
+    err = opt_read_from_nfc(&tag2, &hal, 0, 135);  /* 540/4 = 135 pages */
     TEST_ASSERT_EQUAL(OPT_OK, err);
 
     /* Verify the data was read correctly */
@@ -438,8 +438,8 @@ static int test_incremental_write(void) {
     opt_error_t err = opt_write_start(&tag, &state);
     TEST_ASSERT_EQUAL(OPT_OK, err);
     TEST_ASSERT_EQUAL(false, state.completed);
-    TEST_ASSERT_EQUAL(4, state.start_page);
-    TEST_ASSERT_EQUAL(4, state.current_page);
+    TEST_ASSERT_EQUAL(0, state.start_page);
+    TEST_ASSERT_EQUAL(0, state.current_page);
 
     /* Write incrementally */
     while (!state.completed) {

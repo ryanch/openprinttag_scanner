@@ -720,30 +720,60 @@ opt_error_t opt_format_empty_tag(opt_tag_t *tag, uint16_t size, uint16_t aux_siz
     /* Capability Container (4 bytes) */
     tag->data[offset++] = OPT_CC_MAGIC;  /* Magic */
     tag->data[offset++] = 0x40;          /* Version 1.0, read access */
-    tag->data[offset++] = (size - 4) / 8;/* Data size / 8 */
+    tag->data[offset++] = size / 8;      /* Data size / 8 */
     tag->data[offset++] = 0x01;          /* Read/write access */
 
     /* NDEF TLV */
     tag->data[offset++] = OPT_TLV_NDEF;
 
     /* Calculate payload size */
-    /* NDEF header: flags(1) + type_len(1) + payload_len(1-4) + type(28) */
-    /* Meta region: CBOR map with aux_offset field */
-    /*   BF(1) + key(1) + value(1-3) + FF(1) = 4-6 bytes, use 8 for safety */
-    /* Main region: remaining space minus aux */
-    /* Aux region: aux_size bytes */
-
-    uint16_t ndef_header_size = 1 + 1 + 1 + OPT_MIME_TYPE_LEN;  /* Short record */
     uint16_t meta_size = 12;  /* Meta region: needs space for main_offset and aux_offset */
-    uint16_t available = size - offset - 2 - ndef_header_size - 1;  /* -2 for TLV len, -1 for terminator */
 
     if (aux_size > 0 && aux_size < 16) aux_size = 16;  /* Minimum aux size */
-    uint16_t main_size = available - meta_size - aux_size;
 
+    /* Determine whether we need short or long NDEF record format.
+     * We need to account for the NDEF header size which depends on payload length,
+     * and the TLV length which depends on ndef_total. Solve iteratively. */
+
+    /* First estimate with short record (SR=1): header = flags(1) + type_len(1) + payload_len(1) + type(28) = 31 */
+    uint16_t ndef_header_size = 1 + 1 + 1 + OPT_MIME_TYPE_LEN;
+    /* Estimate available space assuming 1-byte TLV length */
+    uint16_t available = size - (uint16_t)offset - 1 - ndef_header_size - 1;  /* -1 TLV len, -1 terminator */
+    uint16_t main_size = available - meta_size - aux_size;
     uint16_t payload_size = meta_size + main_size + aux_size;
 
+    bool use_long_record = (payload_size > 255);
+    uint16_t ndef_total;
+
+    if (use_long_record) {
+        /* Long record: flags(1) + type_len(1) + payload_len(4) + type(28) = 34 */
+        ndef_header_size = 1 + 1 + 4 + OPT_MIME_TYPE_LEN;
+    }
+
+    /* Recalculate with correct header size, assuming 3-byte TLV as upper bound */
+    available = size - (uint16_t)offset - 3 - ndef_header_size - 1;
+    main_size = available - meta_size - aux_size;
+    payload_size = meta_size + main_size + aux_size;
+    ndef_total = ndef_header_size + payload_size;
+
+    /* Now check if 1-byte TLV length suffices; if so, reclaim the 2 bytes */
+    if (ndef_total <= 254) {
+        available += 2;
+        main_size = available - meta_size - aux_size;
+        payload_size = meta_size + main_size + aux_size;
+        ndef_total = ndef_header_size + payload_size;
+    }
+
+    /* Re-check long record with final payload */
+    use_long_record = (payload_size > 255);
+    if (use_long_record) {
+        ndef_header_size = 1 + 1 + 4 + OPT_MIME_TYPE_LEN;
+    } else {
+        ndef_header_size = 1 + 1 + 1 + OPT_MIME_TYPE_LEN;
+    }
+    ndef_total = ndef_header_size + payload_size;
+
     /* TLV length */
-    uint16_t ndef_total = ndef_header_size + payload_size;
     if (ndef_total <= 254) {
         tag->data[offset++] = (uint8_t)ndef_total;
     } else {
@@ -753,9 +783,18 @@ opt_error_t opt_format_empty_tag(opt_tag_t *tag, uint16_t size, uint16_t aux_siz
     }
 
     /* NDEF record header */
-    tag->data[offset++] = 0xD2;  /* MB=1, ME=1, CF=0, SR=1, IL=0, TNF=2 (media) */
-    tag->data[offset++] = OPT_MIME_TYPE_LEN;
-    tag->data[offset++] = (uint8_t)payload_size;
+    if (use_long_record) {
+        tag->data[offset++] = 0xC2;  /* MB=1, ME=1, CF=0, SR=0, IL=0, TNF=2 (media) */
+        tag->data[offset++] = OPT_MIME_TYPE_LEN;
+        tag->data[offset++] = (uint8_t)(payload_size >> 24);
+        tag->data[offset++] = (uint8_t)(payload_size >> 16);
+        tag->data[offset++] = (uint8_t)(payload_size >> 8);
+        tag->data[offset++] = (uint8_t)(payload_size & 0xFF);
+    } else {
+        tag->data[offset++] = 0xD2;  /* MB=1, ME=1, CF=0, SR=1, IL=0, TNF=2 (media) */
+        tag->data[offset++] = OPT_MIME_TYPE_LEN;
+        tag->data[offset++] = (uint8_t)payload_size;
+    }
     memcpy(tag->data + offset, OPT_MIME_TYPE, OPT_MIME_TYPE_LEN);
     offset += OPT_MIME_TYPE_LEN;
 
@@ -823,8 +862,7 @@ opt_error_t opt_read_from_nfc(opt_tag_t *tag, const opt_nfc_hal_t *hal,
     }
 
     /* Read pages into tag->data */
-    uint16_t byte_offset = (start_page - 4) * OPT_PAGE_SIZE;  /* Offset from page 4 */
-    if (start_page < 4) byte_offset = 0;
+    uint16_t byte_offset = start_page * OPT_PAGE_SIZE;
 
     for (uint8_t i = 0; i < num_pages; i++) {
         uint16_t data_offset = byte_offset + (i * OPT_PAGE_SIZE);
@@ -851,7 +889,7 @@ opt_error_t opt_write_to_nfc(opt_tag_t *tag, const opt_nfc_hal_t *hal) {
     uint8_t num_pages = (tag->data_size + OPT_PAGE_SIZE - 1) / OPT_PAGE_SIZE;
 
     for (uint8_t i = 0; i < num_pages; i++) {
-        uint8_t page = 4 + i;  /* Start at page 4 */
+        uint8_t page = i;
         opt_error_t err = hal->write_page(hal->user_ctx, page, tag->data + (i * OPT_PAGE_SIZE));
         if (err != OPT_OK) return err;
     }
@@ -872,7 +910,7 @@ opt_error_t opt_write_dirty_pages(opt_tag_t *tag, const opt_nfc_hal_t *hal) {
         uint8_t bit_idx = i % 8;
 
         if (tag->dirty_pages[byte_idx] & (1 << bit_idx)) {
-            uint8_t page = 4 + i;
+            uint8_t page = i;
             opt_error_t err = hal->write_page(hal->user_ctx, page, tag->data + (i * OPT_PAGE_SIZE));
             if (err != OPT_OK) return err;
         }
@@ -894,7 +932,7 @@ opt_error_t opt_write_aux_region(opt_tag_t *tag, const opt_nfc_hal_t *hal) {
     uint8_t end_page = (aux_end + OPT_PAGE_SIZE - 1) / OPT_PAGE_SIZE;
 
     for (uint8_t i = start_page; i < end_page; i++) {
-        uint8_t page = 4 + i;
+        uint8_t page = i;
         opt_error_t err = hal->write_page(hal->user_ctx, page, tag->data + (i * OPT_PAGE_SIZE));
         if (err != OPT_OK) return err;
     }
@@ -1387,9 +1425,9 @@ opt_error_t opt_write_start(opt_tag_t *tag, opt_write_state_t *state) {
         return OPT_ERR_INVALID_PARAM;
     }
 
-    state->start_page = 4;  /* User data starts at page 4 */
-    state->current_page = 4;
-    state->end_page = 4 + ((tag->data_size + OPT_PAGE_SIZE - 1) / OPT_PAGE_SIZE);
+    state->start_page = 0;
+    state->current_page = 0;
+    state->end_page = (tag->data_size + OPT_PAGE_SIZE - 1) / OPT_PAGE_SIZE;
     state->completed = false;
 
     return OPT_OK;
@@ -1411,7 +1449,7 @@ opt_error_t opt_write_continue(opt_tag_t *tag, const opt_nfc_hal_t *hal,
     }
 
     /* Write one page */
-    uint16_t data_offset = (state->current_page - 4) * OPT_PAGE_SIZE;
+    uint16_t data_offset = state->current_page * OPT_PAGE_SIZE;
     opt_error_t err = hal->write_page(hal->user_ctx, state->current_page,
                                       tag->data + data_offset);
     if (err != OPT_OK) {
