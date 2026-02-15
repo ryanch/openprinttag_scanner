@@ -9,7 +9,7 @@ The device can be configured via a web interface served over Bluetooth Low Energ
 ## How to configure
 1.  On first boot, or when WiFi is not configured, the device will start a BLE service.
 2.  Connect to the device named "OpenPrintTag" from your computer or phone.
-3.  Once connected, you can access a web interface to:
+3.  Once connected, you can access a web interface at https://ryanch.github.io/openprinttag_scanner/ to:
     *   Configure WiFi SSID and password.
     *   Set the IP address and API key for your PrusaLink-compatible printer.
 
