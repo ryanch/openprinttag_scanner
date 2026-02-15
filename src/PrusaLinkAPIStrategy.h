@@ -15,12 +15,18 @@ public:
     bool isConnected() const override { return connected; }
 
 private:
+    float fetchFilamentFromBgcode(const String& downloadRef);
+
     bool connected = false;
     bool hasJob = false;
     int jobId = -1;
     float progress = 0.0f;
     float totalFilamentG = 0.0f;
     String jobState = "";
+
+    // Cache bgcode filament fetch (one attempt per job)
+    int bgcodeFilamentJobId = -1;
+    float bgcodeFilamentG = 0.0f;
 };
 
 #endif // PRUSA_LINK_API_STRATEGY_H

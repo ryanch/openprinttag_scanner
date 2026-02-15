@@ -16,9 +16,14 @@ APP_FLOW_TARGET = test_runner
 NFC_READ_SRCS = test_nfc_read.cpp NativePlatform.cpp
 NFC_READ_TARGET = test_nfc_read_runner
 
-all: $(APP_FLOW_TARGET) $(NFC_READ_TARGET)
+# Bgcode parser tests
+BGCODE_SRCS = test_bgcode_parser.cpp NativePlatform.cpp
+BGCODE_TARGET = test_bgcode_parser
+
+all: $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET)
 	./$(APP_FLOW_TARGET)
 	./$(NFC_READ_TARGET)
+	./$(BGCODE_TARGET)
 
 # Compile C library objects
 openprinttag_lib.o: ../../lib/openprinttag/openprinttag_lib.c
@@ -33,13 +38,19 @@ $(APP_FLOW_TARGET): $(APP_FLOW_SRCS)
 $(NFC_READ_TARGET): $(NFC_READ_SRCS) $(OPT_OBJS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(NFC_READ_SRCS) $(OPT_OBJS) -o $(NFC_READ_TARGET)
 
+$(BGCODE_TARGET): $(BGCODE_SRCS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(BGCODE_SRCS) -o $(BGCODE_TARGET)
+
 run-app-flow: $(APP_FLOW_TARGET)
 	./$(APP_FLOW_TARGET)
 
 run-nfc-read: $(NFC_READ_TARGET)
 	./$(NFC_READ_TARGET)
 
-clean:
-	rm -f $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(OPT_OBJS)
+run-bgcode: $(BGCODE_TARGET)
+	./$(BGCODE_TARGET)
 
-.PHONY: all clean run-app-flow run-nfc-read
+clean:
+	rm -f $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(OPT_OBJS)
+
+.PHONY: all clean run-app-flow run-nfc-read run-bgcode

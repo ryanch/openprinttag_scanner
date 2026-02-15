@@ -200,6 +200,41 @@ int test_duplicate_spool_detection() {
     return 0;
 }
 
+// Test: Job disappeared at high progress sends PRINT_FINISHED with total filament
+// This simulates the fixed PrinterManager behavior where a job vanishing at >=95%
+// is treated as completed, sending PRINT_FINISHED with the full filament amount
+int test_high_progress_disappearance_deducts_filament() {
+    setup_test();
+
+    // 1. Spool detected
+    g_app->injectMessage(createSpoolDetected("SPOOL_HP", OPT_MATERIAL_TYPE_PLA, 0.500f, "PLA"));
+
+    // 2. Print starts
+    g_app->injectMessage(createPrintStarted(999));
+    TEST_ASSERT_EQ(g_app->getState(), AppState::MONITORING_PRINT);
+
+    // 3. Spool captured during print
+    g_app->injectMessage(createSpoolDetected("SPOOL_HP", OPT_MATERIAL_TYPE_PLA, 0.500f, "PLA"));
+    TEST_ASSERT(strcmp(g_app->getStartingSpoolId(), "SPOOL_HP") == 0);
+
+    // 4. Job disappears at high progress — PrinterManager now sends PRINT_FINISHED
+    //    with total filament (e.g. 75g) instead of PRINT_CANCELED with 0g
+    g_app->injectMessage(createPrintFinished(999, 75.0f));
+    TEST_ASSERT_EQ(g_app->getState(), AppState::IDLE);
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Updating spool");
+
+    // Verify NFC write was enqueued with correct filament amount
+    auto& nfcMgr = NFCManager::getInstance();
+    TEST_ASSERT_EQ(nfcMgr.getWriteCount(), 1);
+    TEST_ASSERT(nfcMgr.hasWriteForSpool("SPOOL_HP"));
+    const auto& req = nfcMgr.getWriteRequests()[0];
+    TEST_ASSERT_EQ(req.type, NFCWriteType::REMOVE_WEIGHT);
+    TEST_ASSERT_EQ(req.data.grams_to_remove, 75.0f);
+
+    teardown_test();
+    return 0;
+}
+
 int main() {
     int passed = 0, failed = 0, total = 0;
 
@@ -214,6 +249,7 @@ int main() {
     RUN_TEST(test_zero_filament_used);
     RUN_TEST(test_spool_update_failure);
     RUN_TEST(test_duplicate_spool_detection);
+    RUN_TEST(test_high_progress_disappearance_deducts_filament);
 
     printf("\n=== Results: %d/%d passed ===\n", passed, total);
 

@@ -120,6 +120,10 @@ void PrinterManager::handleJobDetected(int jobId, float totalFilamentG) {
     msg.payload.printStarted.job_id = jobId;
     ApplicationManager::getInstance().sendMessage(msg);
 
+    if (totalFilamentG <= 0) {
+        Serial.printf("PrinterManager: WARNING - No filament data from API for job %d\n", jobId);
+    }
+
     Serial.printf("PrinterManager: Now tracking job %d (total filament: %.2fg)\n",
         jobId, totalFilamentG);
 }
@@ -159,19 +163,26 @@ void PrinterManager::handleJobCanceled(int jobId, float progressPercent) {
 }
 
 void PrinterManager::handleJobDisappeared() {
-    float estimatedFilament = (lastProgressPercent / 100.0f) * currentJobTotalFilamentG;
+    if (lastProgressPercent >= 95.0f) {
+        // High progress — almost certainly a completed print
+        Serial.printf("PrinterManager: Job %d disappeared at %.1f%% - treating as finished (filament: %.2fg)\n",
+            currentJobId, lastProgressPercent, currentJobTotalFilamentG);
+        handleJobFinished(currentJobId, currentJobTotalFilamentG);
+    } else {
+        float estimatedFilament = (lastProgressPercent / 100.0f) * currentJobTotalFilamentG;
 
-    AppMessage msg;
-    msg.type = AppMessageType::PRINT_CANCELED;
-    msg.payload.printCanceled.job_id = currentJobId;
-    msg.payload.printCanceled.est_filament_used_grams = estimatedFilament;
-    ApplicationManager::getInstance().sendMessage(msg);
+        AppMessage msg;
+        msg.type = AppMessageType::PRINT_CANCELED;
+        msg.payload.printCanceled.job_id = currentJobId;
+        msg.payload.printCanceled.est_filament_used_grams = estimatedFilament;
+        ApplicationManager::getInstance().sendMessage(msg);
 
-    Serial.printf("PrinterManager: Job %d disappeared (est filament: %.2fg)\n",
-        currentJobId, estimatedFilament);
+        Serial.printf("PrinterManager: Job %d disappeared at %.1f%% (est filament: %.2fg)\n",
+            currentJobId, lastProgressPercent, estimatedFilament);
 
-    state = PrinterState::IDLE;
-    currentJobId = -1;
-    currentJobTotalFilamentG = 0.0f;
-    lastProgressPercent = 0.0f;
+        state = PrinterState::IDLE;
+        currentJobId = -1;
+        currentJobTotalFilamentG = 0.0f;
+        lastProgressPercent = 0.0f;
+    }
 }
