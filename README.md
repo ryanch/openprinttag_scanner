@@ -6,6 +6,8 @@ This project is an ESP32-based NFC scanner and writer designed to work with 3D p
 
 The device can be configured via a web interface served over Bluetooth Low Energy (BLE), allowing you to set up WiFi and printer credentials without recompiling the firmware.
 
+More details available on the printables website: https://www.printables.com/model/1581648-openprinttag-scanner 
+
 ## How to configure
 1.  On first boot, or when WiFi is not configured, the device will start a BLE service.
 2.  Connect to the device named "OpenPrintTag" from your computer or phone.
@@ -14,7 +16,7 @@ The device can be configured via a web interface served over Bluetooth Low Energ
     *   Set the IP address and API key for your PrusaLink-compatible printer.
 
 ## Functionality
-*   **NFC Tag Reading/Writing:** Reads and writes data to NFC tags (NTAG213/215/216) formatted according to the OpenPrintTag specification.
+*   **NFC Tag Reading/Writing:** Reads and writes data to NFC tags formatted according to the OpenPrintTag specification.
 *   **Printer Integration:** Communicates with PrusaLink and OctoPrint to:
     *   Notify the printer when a spool has been selected.
     *   Automatically subtract filament weight from the tag after a print is completed.
