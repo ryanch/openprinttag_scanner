@@ -18,6 +18,7 @@ enum class AppMessageType {
     PRINT_FINISHED,
     SPOOL_DETECTED,     // Full spool info parsed from NFC
     SPOOL_UPDATED,      // Spool was written to successfully
+    BLANK_TAG_DETECTED, // Tag present but not OpenPrintTag format
 };
 
 enum class AppState { IDLE, MONITORING_PRINT };
@@ -37,6 +38,10 @@ struct SpoolUpdatedPayload {
     float kg_remaining;          // Remaining weight after update (kg)
 };
 
+struct BlankTagPayload {
+    char spool_id[64];           // UID hex string
+};
+
 struct AppMessage {
     AppMessageType type;
     union {
@@ -53,6 +58,7 @@ struct AppMessage {
         } printFinished;
         SpoolDetectedPayload spoolDetected;
         SpoolUpdatedPayload spoolUpdated;
+        BlankTagPayload blankTag;
     } payload;
 };
 
@@ -77,6 +83,7 @@ public:
         currentJobId = 0;
         spoolChangedDuringPrint = false;
         lastDisplayedSpoolId[0] = '\0';
+        lastDisplayedBlankId[0] = '\0';
     }
 #endif
 
@@ -97,6 +104,7 @@ private:
     int currentJobId = 0;
     bool spoolChangedDuringPrint = false;
     char lastDisplayedSpoolId[64] = {0};
+    char lastDisplayedBlankId[64] = {0};
 
     // Handlers
     void handlePrintStarted(const AppMessage& msg);
@@ -104,6 +112,7 @@ private:
     void handlePrintFinished(const AppMessage& msg);
     void handleSpoolDetected(const AppMessage& msg);
     void handleSpoolUpdated(const AppMessage& msg);
+    void handleBlankTagDetected(const AppMessage& msg);
     void finishPrint(float gramsUsed, bool canceled);
 };
 

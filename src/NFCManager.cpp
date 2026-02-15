@@ -176,6 +176,9 @@ void NFCManager::scanLoop() {
                         currentSpool.tag_data_valid = false;
                         currentSpool.blank_tag_present = true;
 
+                        // Notify ApplicationManager so LCD updates
+                        sendBlankTagMessage();
+
                         // Mark as seen so we don't re-read every 50ms
                         memcpy(lastSeenUid, uid, uidLength);
                         lastSeenUidLength = uidLength;
@@ -408,6 +411,16 @@ void NFCManager::sendSpoolDetectedMessage() {
             msg.payload.spoolDetected.material_name[0] = '\0';
         }
     }
+
+    ApplicationManager::getInstance().sendMessage(msg);
+}
+
+void NFCManager::sendBlankTagMessage() {
+    AppMessage msg;
+    msg.type = AppMessageType::BLANK_TAG_DETECTED;
+    strncpy(msg.payload.blankTag.spool_id, currentSpool.spool_id,
+            sizeof(msg.payload.blankTag.spool_id) - 1);
+    msg.payload.blankTag.spool_id[sizeof(msg.payload.blankTag.spool_id) - 1] = '\0';
 
     ApplicationManager::getInstance().sendMessage(msg);
 }

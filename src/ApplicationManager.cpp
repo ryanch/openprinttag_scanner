@@ -76,6 +76,10 @@ void ApplicationManager::handleMessage(const AppMessage& msg) {
         case AppMessageType::SPOOL_UPDATED:
             handleSpoolUpdated(msg);
             break;
+
+        case AppMessageType::BLANK_TAG_DETECTED:
+            handleBlankTagDetected(msg);
+            break;
     }
 }
 
@@ -145,6 +149,7 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
     if (lcdManager && strcmp(lastDisplayedSpoolId, msg.payload.spoolDetected.spool_id) != 0) {
         strncpy(lastDisplayedSpoolId, msg.payload.spoolDetected.spool_id, sizeof(lastDisplayedSpoolId) - 1);
         lastDisplayedSpoolId[sizeof(lastDisplayedSpoolId) - 1] = '\0';
+        lastDisplayedBlankId[0] = '\0';  // Clear so blank tag re-displays if swapped
 
         char line1[17];
         char line2[17];
@@ -170,6 +175,19 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
         } else {
             lcdManager->updateScreen("Spool Update", "Failed!");
         }
+    }
+}
+
+void ApplicationManager::handleBlankTagDetected(const AppMessage& msg) {
+    Serial.printf("EVENT: BlankTagDetected - spool_id=%s\n",
+        msg.payload.blankTag.spool_id);
+
+    if (lcdManager && strcmp(lastDisplayedBlankId, msg.payload.blankTag.spool_id) != 0) {
+        strncpy(lastDisplayedBlankId, msg.payload.blankTag.spool_id, sizeof(lastDisplayedBlankId) - 1);
+        lastDisplayedBlankId[sizeof(lastDisplayedBlankId) - 1] = '\0';
+        lastDisplayedSpoolId[0] = '\0';  // Clear so valid spool re-displays if swapped
+
+        lcdManager->updateScreen("Unknown Tag", "Use app to setup");
     }
 }
 

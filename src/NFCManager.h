@@ -46,6 +46,7 @@ private:
     bool readAndParseTag(uint8_t* uid, uint8_t uid_length);
     bool formatNewSpool();
     void sendSpoolDetectedMessage();
+    void sendBlankTagMessage();
     void processWriteQueue();
     bool executeWrite(const NFCWriteRequest& request);
     void sendSpoolUpdatedMessage(uint32_t request_id, NFCWriteType type, bool success);
