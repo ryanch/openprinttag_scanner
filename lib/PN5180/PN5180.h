@@ -126,7 +126,7 @@ public:
    * Helper functions
    */
 public:
-  void reset();
+  bool reset();
 
   uint32_t getIRQStatus();
   bool clearIRQStatus(uint32_t irqMask);

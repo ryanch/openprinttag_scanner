@@ -423,7 +423,15 @@ bool PN5180::setRF_on() {
   transceiveCommand(cmd, 2);
   SPI.endTransaction();
 
-  while (0 == (TX_RFON_IRQ_STAT & getIRQStatus())); // wait for RF field to set up
+  {
+    unsigned long t = millis();
+    while (0 == (TX_RFON_IRQ_STAT & getIRQStatus())) { // wait for RF field to set up
+      if (millis() - t > 500) {
+        PN5180DEBUG(F("TIMEOUT waiting for TX_RFON_IRQ\n"));
+        return false;
+      }
+    }
+  }
   clearIRQStatus(TX_RFON_IRQ_STAT);
   return true;
 }
@@ -442,7 +450,15 @@ bool PN5180::setRF_off() {
   transceiveCommand(cmd, 2);
   SPI.endTransaction();
 
-  while (0 == (TX_RFOFF_IRQ_STAT & getIRQStatus())); // wait for RF field to shut down
+  {
+    unsigned long t = millis();
+    while (0 == (TX_RFOFF_IRQ_STAT & getIRQStatus())) { // wait for RF field to shut down
+      if (millis() - t > 500) {
+        PN5180DEBUG(F("TIMEOUT waiting for TX_RFOFF_IRQ\n"));
+        return false;
+      }
+    }
+  }
   clearIRQStatus(TX_RFOFF_IRQ_STAT);
   return true;
 }
@@ -496,7 +512,15 @@ bool PN5180::transceiveCommand(uint8_t *sendBuffer, size_t sendBufferLen, uint8_
 #endif
 
   // 0.
-  while (LOW != digitalRead(PN5180_BUSY)); // wait until busy is low
+  {
+    unsigned long t = millis();
+    while (LOW != digitalRead(PN5180_BUSY)) { // wait until busy is low
+      if (millis() - t > 1000) {
+        PN5180DEBUG(F("TIMEOUT waiting for BUSY LOW (pre-send)\n"));
+        return false;
+      }
+    }
+  }
   // 1.
   digitalWrite(PN5180_NSS, LOW); delay(2);
   // 2.
@@ -504,11 +528,28 @@ bool PN5180::transceiveCommand(uint8_t *sendBuffer, size_t sendBufferLen, uint8_
     SPI.transfer(sendBuffer[i]);
   }
   // 3.
-  while(HIGH != digitalRead(PN5180_BUSY));  // wait until BUSY is high
+  {
+    unsigned long t = millis();
+    while(HIGH != digitalRead(PN5180_BUSY)) {  // wait until BUSY is high
+      if (millis() - t > 1000) {
+        PN5180DEBUG(F("TIMEOUT waiting for BUSY HIGH (post-send)\n"));
+        digitalWrite(PN5180_NSS, HIGH);
+        return false;
+      }
+    }
+  }
   // 4.
   digitalWrite(PN5180_NSS, HIGH); delay(1);
   // 5.
-  while (LOW != digitalRead(PN5180_BUSY)); // wait unitl BUSY is low
+  {
+    unsigned long t = millis();
+    while (LOW != digitalRead(PN5180_BUSY)) { // wait until BUSY is low
+      if (millis() - t > 1000) {
+        PN5180DEBUG(F("TIMEOUT waiting for BUSY LOW (post-send)\n"));
+        return false;
+      }
+    }
+  }
 
   // check, if write-only
   //
@@ -522,11 +563,28 @@ bool PN5180::transceiveCommand(uint8_t *sendBuffer, size_t sendBufferLen, uint8_
     recvBuffer[i] = SPI.transfer(0xff);
   }
   // 3.
-  while(HIGH != digitalRead(PN5180_BUSY));  // wait until BUSY is high
+  {
+    unsigned long t = millis();
+    while(HIGH != digitalRead(PN5180_BUSY)) {  // wait until BUSY is high
+      if (millis() - t > 1000) {
+        PN5180DEBUG(F("TIMEOUT waiting for BUSY HIGH (post-recv)\n"));
+        digitalWrite(PN5180_NSS, HIGH);
+        return false;
+      }
+    }
+  }
   // 4.
   digitalWrite(PN5180_NSS, HIGH); delay(1);
   // 5.
-  while(LOW != digitalRead(PN5180_BUSY));  // wait until BUSY is low
+  {
+    unsigned long t = millis();
+    while(LOW != digitalRead(PN5180_BUSY)) {  // wait until BUSY is low
+      if (millis() - t > 1000) {
+        PN5180DEBUG(F("TIMEOUT waiting for BUSY LOW (post-recv)\n"));
+        return false;
+      }
+    }
+  }
 
 #ifdef DEBUG
   PN5180DEBUG(F("Received: "));
@@ -543,15 +601,22 @@ bool PN5180::transceiveCommand(uint8_t *sendBuffer, size_t sendBufferLen, uint8_
 /*
  * Reset NFC device
  */
-void PN5180::reset() {
+bool PN5180::reset() {
   digitalWrite(PN5180_RST, LOW);  // at least 10us required
   delay(10);
   digitalWrite(PN5180_RST, HIGH); // 2ms to ramp up required
   delay(10);
 
-  while (0 == (IDLE_IRQ_STAT & getIRQStatus())); // wait for system to start up
+  unsigned long t = millis();
+  while (0 == (IDLE_IRQ_STAT & getIRQStatus())) { // wait for system to start up
+    if (millis() - t > 1000) {
+      PN5180DEBUG(F("TIMEOUT waiting for IDLE_IRQ after reset\n"));
+      return false;
+    }
+  }
 
   clearIRQStatus(0xffffffff); // clear all flags
+  return true;
 }
 
 /**

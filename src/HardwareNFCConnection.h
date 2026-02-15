@@ -13,6 +13,7 @@ public:
 
     bool begin() override;
     void reset() override;
+    bool hardwareReset() override;
     bool setupRF() override;
     bool detectTag(uint8_t* uid, uint8_t* uidLength) override;
     void setCurrentUid(const uint8_t* uid, uint8_t length) override;

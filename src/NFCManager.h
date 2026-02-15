@@ -78,6 +78,12 @@ private:
 
     // Task handle
     TaskHandle_t scanTaskHandle = nullptr;
+
+    // NFC watchdog: recovery after consecutive failures
+    static constexpr uint32_t RECOVERY_THRESHOLD = 600;   // ~30s at 50ms/scan
+    static constexpr uint32_t RESTART_THRESHOLD = 1200;    // ~60s at 50ms/scan
+    uint32_t consecutiveFailures_ = 0;
+    void attemptRecovery();
 };
 
 #endif // NFC_MANAGER_H

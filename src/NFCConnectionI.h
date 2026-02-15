@@ -15,6 +15,9 @@ public:
     virtual void reset() = 0;
     virtual bool setupRF() = 0;
 
+    // Full hardware reset + RF re-init for recovery from bad chip state
+    virtual bool hardwareReset() = 0;
+
     // Tag detection - returns true if tag found, populates uid/uidLength
     virtual bool detectTag(uint8_t* uid, uint8_t* uidLength) = 0;
 

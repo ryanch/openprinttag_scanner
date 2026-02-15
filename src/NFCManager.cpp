@@ -119,10 +119,23 @@ void NFCManager::scanLoop() {
                           scanCount, detectCount, failCount);
         }
 
+        // Watchdog: check if we've exceeded failure thresholds
+        if (consecutiveFailures_ >= RESTART_THRESHOLD) {
+            Serial.println("NFCManager: CRITICAL - too many consecutive failures, restarting ESP");
+#ifndef NATIVE_TEST
+            delay(100);  // let serial flush
+            ESP.restart();
+#endif
+        }
+        if (consecutiveFailures_ > 0 && consecutiveFailures_ == RECOVERY_THRESHOLD) {
+            attemptRecovery();
+        }
+
         // Re-arm RF field for each scan (reset + setupRF).
         // The reset is needed to clear transceiver state between scans.
         connection_->reset();
         if (!connection_->setupRF()) {
+            consecutiveFailures_++;
             if (failCount++ % 200 == 0) {
                 Serial.println("NFCManager: setupRF() failed");
             }
@@ -133,6 +146,9 @@ void NFCManager::scanLoop() {
         // Give tag time to power up from RF field before sending inventory.
         // ISO15693 tags need ~5-10ms to charge from the RF field.
         vTaskDelay(pdMS_TO_TICKS(10));
+
+        // setupRF succeeded, chip is responsive
+        consecutiveFailures_ = 0;
 
         // Detect tag
         if (connection_->detectTag(uid, &uidLength)) {
@@ -207,6 +223,15 @@ void NFCManager::scanLoop() {
 
         // Small delay to prevent tight loop
         vTaskDelay(pdMS_TO_TICKS(50));
+    }
+}
+
+void NFCManager::attemptRecovery() {
+    Serial.println("NFCManager: WATCHDOG - attempting hardware recovery");
+    if (connection_->hardwareReset()) {
+        Serial.println("NFCManager: Hardware reset succeeded");
+    } else {
+        Serial.println("NFCManager: Hardware reset failed");
     }
 }
 

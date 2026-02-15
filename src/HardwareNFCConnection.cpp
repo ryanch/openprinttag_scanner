@@ -97,6 +97,43 @@ void HardwareNFCConnection::reset() {
     }
 }
 
+bool HardwareNFCConnection::hardwareReset() {
+    if (!nfc_) return false;
+
+    Serial.println("HardwareNFC: hardwareReset() - toggling RST pin");
+
+    // Toggle RST pin to force full hardware reset
+    digitalWrite(PN5180_RST, LOW);
+    delay(10);
+    digitalWrite(PN5180_RST, HIGH);
+
+    // Wait for BUSY to go LOW with timeout
+    unsigned long start = millis();
+    while (digitalRead(PN5180_BUSY) == HIGH) {
+        if (millis() - start > 2000) {
+            Serial.println("HardwareNFC: hardwareReset TIMEOUT waiting for BUSY LOW");
+            return false;
+        }
+        delay(1);
+    }
+
+    // Wait for IDLE IRQ with timeout
+    start = millis();
+    uint32_t irqStatus = 0;
+    while (0 == (irqStatus & IDLE_IRQ_STAT)) {
+        nfc_->readRegister(IRQ_STATUS, &irqStatus);
+        if (millis() - start > 2000) {
+            Serial.printf("HardwareNFC: hardwareReset TIMEOUT waiting for IDLE IRQ, IRQ=0x%08lX\n", irqStatus);
+            return false;
+        }
+        delay(1);
+    }
+    nfc_->clearIRQStatus(0xffffffff);
+
+    // Re-setup RF
+    return setupRF();
+}
+
 bool HardwareNFCConnection::setupRF() {
     if (!nfc_) return false;
 

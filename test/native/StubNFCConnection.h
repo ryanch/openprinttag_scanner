@@ -24,6 +24,7 @@ public:
     // NFCConnectionI interface
     bool begin() override { return true; }
     void reset() override {}
+    bool hardwareReset() override { return true; }
     bool setupRF() override { return true; }
 
     bool detectTag(uint8_t* uid, uint8_t* uidLength) override {
