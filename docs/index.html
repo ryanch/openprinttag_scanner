@@ -500,6 +500,10 @@
 
             <!-- Settings Tab -->
             <div id="tab-settings" class="tab-content">
+                <div class="form-group">
+                    <label>Device Version</label>
+                    <span id="device-version" style="color: #ccc;">—</span>
+                </div>
                 <form id="config-form">
                     <div class="form-group">
                         <label for="ssid">WiFi SSID</label>
@@ -1004,6 +1008,7 @@
                 document.getElementById('prusa_link_api_key').value = config.prusa_link_api_key || '';
                 document.getElementById('poll_interval_ms').value = config.poll_interval_ms || 5000;
                 document.getElementById('wifi_pass').value = '';
+                document.getElementById('device-version').textContent = config.device_version || 'Unknown';
 
             } catch (error) {
                 console.error('Failed to load config:', error);

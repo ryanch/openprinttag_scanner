@@ -4,6 +4,8 @@
 #include <Arduino.h>
 #include <cstdint>
 
+#define DEVICE_VERSION "0.6 BETA"
+
 class ConfigurationManager {
 public:
     static ConfigurationManager& getInstance();

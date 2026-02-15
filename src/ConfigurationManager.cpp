@@ -90,6 +90,7 @@ String ConfigurationManager::readConfig() {
     doc["prusa_link_url"] = _prusaLinkUrl;
     doc["prusa_link_api_key"] = _prusaLinkApiKey;
     doc["poll_interval_ms"] = _pollIntervalMs;
+    doc["device_version"] = DEVICE_VERSION;
 
     String output;
     serializeJson(doc, output);
