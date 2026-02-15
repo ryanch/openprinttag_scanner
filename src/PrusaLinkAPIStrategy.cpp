@@ -124,9 +124,6 @@ float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const String& downloadRef) {
     http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
     http.addHeader("Range", "bytes=0-8191");
 
-    Serial.printf("PrusaLinkAPIStrategy: Fetching bgcode header from %s:%d%s\n",
-        host.c_str(), port, downloadRef.c_str());
-
     int code = http.GET();
     if (code != 200 && code != 206) {
         Serial.printf("PrusaLinkAPIStrategy: bgcode header fetch failed: %d (path: %s)\n", code, downloadRef.c_str());
