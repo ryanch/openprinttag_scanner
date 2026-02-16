@@ -829,6 +829,10 @@ void NFCManager::addToRecentSpools() {
     newEntry.valid = true;
     newEntry.synced_to_spoolman = false;
 
+    int32_t smId = -1;
+    opt_get_gp_spoolman_id(&currentSpool.tag_data, &smId);
+    newEntry.spoolman_id = smId;
+
     if (existingIndex >= 0) {
         // Spool exists - shift entries to remove it from current position
         for (size_t i = existingIndex; i > 0; i--) {

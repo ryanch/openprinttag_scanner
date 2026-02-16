@@ -26,6 +26,7 @@ struct RecentSpoolEntry {
     time_t last_seen;  // Unix timestamp (seconds)
     bool valid;
     bool synced_to_spoolman;
+    int32_t spoolman_id;
 };
 
 #endif // NFC_TYPES_H

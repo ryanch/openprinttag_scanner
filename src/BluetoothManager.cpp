@@ -11,6 +11,10 @@
 #include "esp_bt.h"
 #include "esp_bt_main.h"
 #include <time.h>
+#include <HTTPClient.h>
+#include <WiFiClient.h>
+
+extern SemaphoreHandle_t g_httpMutex;
 
 static const char* TAG = "BluetoothManager";
 
@@ -156,6 +160,10 @@ static void process_command(const char* json) {
             current["grams_remaining"] = (int)(full_weight - consumed);
 
             current["last_seen"] = time(nullptr);
+
+            int32_t spoolmanId = -1;
+            opt_get_gp_spoolman_id(&spool.tag_data, &spoolmanId);
+            if (spoolmanId > 0) current["spoolman_id"] = spoolmanId;
         } else if (spool.present && spool.blank_tag_present) {
             JsonObject current = responseDoc["current"].to<JsonObject>();
             current["id"] = spool.spool_id;
@@ -179,6 +187,8 @@ static void process_command(const char* json) {
             recentObj["manufacturer"] = recentEntries[i].manufacturer;
             recentObj["grams_remaining"] = recentEntries[i].grams_remaining;
             recentObj["last_seen"] = recentEntries[i].last_seen;
+            if (recentEntries[i].spoolman_id > 0)
+                recentObj["spoolman_id"] = recentEntries[i].spoolman_id;
         }
 
         String response;
@@ -307,6 +317,69 @@ static void process_command(const char* json) {
                 snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
                 Serial.printf("%s: update_spool completed, queued=%d\n", TAG, queued);
             }
+        }
+    }
+    else if (strcmp(command, "test_spoolman") == 0) {
+        const char* url = doc["url"] | "";
+        if (strlen(url) == 0) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"error\",\"message\":\"Missing url\"}");
+        } else if (xSemaphoreTake(g_httpMutex, pdMS_TO_TICKS(10000)) != pdTRUE) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"error\",\"message\":\"Device busy\"}");
+        } else {
+            WiFiClient client;
+            HTTPClient http;
+            String testUrl = String(url) + "/api/v1/info";
+            http.begin(client, testUrl);
+            http.setTimeout(5000);
+            int httpCode = http.GET();
+            String body = http.getString();
+            http.end();
+            xSemaphoreGive(g_httpMutex);
+            if (httpCode != 200) {
+                snprintf(s_response_buffer, sizeof(s_response_buffer),
+                    "{\"status\":\"error\",\"message\":\"HTTP %d\",\"code\":%d}", httpCode, httpCode);
+            } else {
+                JsonDocument infoDoc;
+                DeserializationError err = deserializeJson(infoDoc, body);
+                if (err) {
+                    snprintf(s_response_buffer, sizeof(s_response_buffer),
+                        "{\"status\":\"error\",\"message\":\"Invalid JSON from server\"}");
+                } else if (infoDoc["version"].isNull()) {
+                    snprintf(s_response_buffer, sizeof(s_response_buffer),
+                        "{\"status\":\"error\",\"message\":\"Missing version in response\"}");
+                } else {
+                    snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
+                }
+            }
+            Serial.printf("%s: test_spoolman %s -> %d\n", TAG, testUrl.c_str(), httpCode);
+        }
+    }
+    else if (strcmp(command, "test_prusalink") == 0) {
+        const char* url = doc["url"] | "";
+        const char* apiKey = doc["api_key"] | "";
+        if (strlen(url) == 0) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"error\",\"message\":\"Missing url\"}");
+        } else if (xSemaphoreTake(g_httpMutex, pdMS_TO_TICKS(10000)) != pdTRUE) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"error\",\"message\":\"Device busy\"}");
+        } else {
+            WiFiClient client;
+            HTTPClient http;
+            String testUrl = String(url) + "/api/v1/status";
+            http.begin(client, testUrl);
+            http.setTimeout(5000);
+            if (strlen(apiKey) > 0) {
+                http.addHeader("X-Api-Key", apiKey);
+            }
+            int httpCode = http.GET();
+            http.end();
+            xSemaphoreGive(g_httpMutex);
+            if (httpCode == 200) {
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
+            } else {
+                snprintf(s_response_buffer, sizeof(s_response_buffer),
+                    "{\"status\":\"error\",\"message\":\"HTTP %d\",\"code\":%d}", httpCode, httpCode);
+            }
+            Serial.printf("%s: test_prusalink %s -> %d\n", TAG, testUrl.c_str(), httpCode);
         }
     }
     else {

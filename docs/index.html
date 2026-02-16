@@ -519,11 +519,19 @@
                     </div>
                     <div class="form-group">
                         <label for="prusa_link_api_key">PrusaLink API Key</label>
-                        <input type="password" id="prusa_link_api_key" name="prusa_link_api_key">
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="password" id="prusa_link_api_key" name="prusa_link_api_key" style="flex: 1;">
+                            <button type="button" id="test-prusalink-btn" class="secondary" style="white-space: nowrap;">Test</button>
+                        </div>
+                        <div id="test-prusalink-result" style="margin-top: 0.5rem; font-size: 0.85rem; display: none;"></div>
                     </div>
                     <div class="form-group">
                         <label for="spoolman_url">Spoolman URL (optional)</label>
-                        <input type="text" id="spoolman_url" name="spoolman_url" placeholder="e.g., http://192.168.1.100:7912">
+                        <div style="display: flex; gap: 0.5rem;">
+                            <input type="text" id="spoolman_url" name="spoolman_url" placeholder="e.g., http://192.168.1.100:7912" style="flex: 1;">
+                            <button type="button" id="test-spoolman-btn" class="secondary" style="white-space: nowrap;">Test</button>
+                        </div>
+                        <div id="test-spoolman-result" style="margin-top: 0.5rem; font-size: 0.85rem; display: none;"></div>
                     </div>
                     <div class="form-group">
                         <label for="poll_interval_ms">Poll Interval (ms)</label>
@@ -629,6 +637,7 @@
         let currentSpoolData = null;
         let recentSpoolsData = [];
         let spoolPollInterval = null;
+        let cachedSpoolmanUrl = '';
         const SPOOL_POLL_INTERVAL_MS = 3000;
         const textDecoder = new TextDecoder('utf-8');
         const textEncoder = new TextEncoder();
@@ -718,6 +727,14 @@
 
             const timeDisplay = isCurrent ? 'In range' : formatRelativeTime(spool.last_seen);
 
+            let buttons = '';
+            if (isCurrent) {
+                buttons += `<button class="spool-edit-btn" data-spool-id="${spool.id}">Edit</button>`;
+            }
+            if (cachedSpoolmanUrl && spool.spoolman_id > 0) {
+                buttons += `<button class="spool-edit-btn secondary" data-spoolman-url="${cachedSpoolmanUrl}/spool/show/${spool.spoolman_id}">Open In Spoolman</button>`;
+            }
+
             card.innerHTML = `
                 <div class="spool-color" style="background-color: ${spool.color || '#888'}"></div>
                 <div class="spool-info">
@@ -728,12 +745,19 @@
                     <div class="spool-grams">${spool.grams_remaining || '?'}g</div>
                     <div class="spool-time">${timeDisplay}</div>
                 </div>
-                ${isCurrent ? `<button class="spool-edit-btn" data-spool-id="${spool.id}">Edit</button>` : ''}
+                ${buttons}
             `;
 
             if (isCurrent) {
                 const editBtn = card.querySelector('.spool-edit-btn');
                 editBtn.addEventListener('click', () => openEditModal(spool));
+            }
+
+            const spoolmanBtn = card.querySelector('[data-spoolman-url]');
+            if (spoolmanBtn) {
+                spoolmanBtn.addEventListener('click', () => {
+                    window.open(spoolmanBtn.dataset.spoolmanUrl, '_blank');
+                });
             }
 
             return card;
@@ -1011,6 +1035,7 @@
                 document.getElementById('prusa_link_url').value = config.prusa_link_url || '';
                 document.getElementById('prusa_link_api_key').value = config.prusa_link_api_key || '';
                 document.getElementById('spoolman_url').value = config.spoolman_url || '';
+                cachedSpoolmanUrl = config.spoolman_url || '';
                 document.getElementById('poll_interval_ms').value = config.poll_interval_ms || 5000;
                 document.getElementById('wifi_pass').value = '';
                 document.getElementById('device-version').textContent = config.device_version || 'Unknown';
@@ -1090,9 +1115,113 @@
             recentSpoolsData = [];
         }
 
+        // Test connection handlers
+        async function handleTestSpoolman() {
+            const btn = document.getElementById('test-spoolman-btn');
+            const result = document.getElementById('test-spoolman-result');
+            const url = document.getElementById('spoolman_url').value.trim();
+
+            if (!url) {
+                result.style.display = 'block';
+                result.style.color = 'var(--prusa-red)';
+                result.textContent = 'Please enter a Spoolman URL first.';
+                return;
+            }
+
+            if (!configWriteCharacteristic) {
+                result.style.display = 'block';
+                result.style.color = 'var(--prusa-red)';
+                result.textContent = 'Not connected to device.';
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                btn.textContent = 'Testing...';
+                result.style.display = 'block';
+                result.style.color = '#aaa';
+                result.textContent = 'Testing connection...';
+
+                const response = await enqueueCommand(async () => {
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode(JSON.stringify({ command: 'test_spoolman', url }))
+                    );
+                    const responseValue = await configWriteCharacteristic.readValue();
+                    return JSON.parse(textDecoder.decode(responseValue));
+                });
+
+                if (response.status === 'ok') {
+                    result.style.color = 'var(--prusa-green)';
+                    result.textContent = 'Connection successful!';
+                } else {
+                    result.style.color = 'var(--prusa-red)';
+                    result.innerHTML = `Error: ${response.message || 'Unknown error'}<br><small>Tips: Use "http" not "https". Remove trailing "/". Include port number. Example: http://192.168.45.12:7912</small>`;
+                }
+            } catch (error) {
+                result.style.color = 'var(--prusa-red)';
+                result.textContent = `Error: ${error}`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Test';
+            }
+        }
+
+        async function handleTestPrusalink() {
+            const btn = document.getElementById('test-prusalink-btn');
+            const result = document.getElementById('test-prusalink-result');
+            const url = document.getElementById('prusa_link_url').value.trim();
+            const apiKey = document.getElementById('prusa_link_api_key').value.trim();
+
+            if (!url) {
+                result.style.display = 'block';
+                result.style.color = 'var(--prusa-red)';
+                result.textContent = 'Please enter a PrusaLink URL first.';
+                return;
+            }
+
+            if (!configWriteCharacteristic) {
+                result.style.display = 'block';
+                result.style.color = 'var(--prusa-red)';
+                result.textContent = 'Not connected to device.';
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                btn.textContent = 'Testing...';
+                result.style.display = 'block';
+                result.style.color = '#aaa';
+                result.textContent = 'Testing connection...';
+
+                const response = await enqueueCommand(async () => {
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode(JSON.stringify({ command: 'test_prusalink', url, api_key: apiKey }))
+                    );
+                    const responseValue = await configWriteCharacteristic.readValue();
+                    return JSON.parse(textDecoder.decode(responseValue));
+                });
+
+                if (response.status === 'ok') {
+                    result.style.color = 'var(--prusa-green)';
+                    result.textContent = 'Connection successful!';
+                } else {
+                    result.style.color = 'var(--prusa-red)';
+                    result.innerHTML = `Error: ${response.message || 'Unknown error'}<br><small>Tips: Use "http" not "https". Remove trailing "/". Include port number. API key and IP are on the printer and Prusa Connect.</small>`;
+                }
+            } catch (error) {
+                result.style.color = 'var(--prusa-red)';
+                result.textContent = `Error: ${error}`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Test';
+            }
+        }
+
         // Event Listeners
         connectButton.addEventListener('click', handleConnect);
         configForm.addEventListener('submit', handleSave);
+        document.getElementById('test-spoolman-btn').addEventListener('click', handleTestSpoolman);
+        document.getElementById('test-prusalink-btn').addEventListener('click', handleTestPrusalink);
     </script>
 </body>
 </html>
