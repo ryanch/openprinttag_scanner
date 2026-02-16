@@ -129,6 +129,14 @@ void PrinterManager::handleJobDetected(int jobId, float totalFilamentG) {
 }
 
 void PrinterManager::handleJobFinished(int jobId, float filamentUsedG) {
+    if (filamentUsedG <= 0.0f && strategy) {
+        float deferred = strategy->fetchDeferredFilament();
+        if (deferred > 0.0f) {
+            filamentUsedG = deferred;
+            Serial.printf("PrinterManager: Got deferred filament: %.2fg\n", deferred);
+        }
+    }
+
     AppMessage msg;
     msg.type = AppMessageType::PRINT_FINISHED;
     msg.payload.printFinished.job_id = jobId;
@@ -163,6 +171,14 @@ void PrinterManager::handleJobCanceled(int jobId, float progressPercent) {
 }
 
 void PrinterManager::handleJobDisappeared() {
+    if (currentJobTotalFilamentG <= 0.0f && strategy) {
+        float deferred = strategy->fetchDeferredFilament();
+        if (deferred > 0.0f) {
+            currentJobTotalFilamentG = deferred;
+            Serial.printf("PrinterManager: Got deferred filament: %.2fg\n", deferred);
+        }
+    }
+
     if (lastProgressPercent >= 95.0f) {
         // High progress — almost certainly a completed print
         Serial.printf("PrinterManager: Job %d disappeared at %.1f%% - treating as finished (filament: %.2fg)\n",

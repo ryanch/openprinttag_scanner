@@ -97,18 +97,17 @@ void PrusaLinkAPIStrategy::update() {
             }
         }
 
-        // If API didn't provide filament data, try parsing bgcode file header
+        // Save download ref for deferred fetch after print completes
+        JsonVariant downloadRefVar = jobDoc["file"]["refs"]["download"];
+        if (!downloadRefVar.isNull()) {
+            savedDownloadRef = downloadRefVar.as<String>();
+            savedDownloadRefJobId = jobId;
+        }
+
+        // Use cached bgcode data if available (from a previous deferred fetch)
         if (totalFilamentG <= 0.0f) {
             if (jobId == bgcodeFilamentJobId && bgcodeFilamentG > 0.0f) {
                 totalFilamentG = bgcodeFilamentG;
-            } else if (jobId != bgcodeFilamentJobId) {
-                bgcodeFilamentJobId = jobId;
-                bgcodeFilamentG = 0.0f;
-                JsonVariant downloadRef = jobDoc["file"]["refs"]["download"];
-                if (!downloadRef.isNull()) {
-                    bgcodeFilamentG = fetchFilamentFromBgcode(downloadRef.as<String>());
-                    totalFilamentG = bgcodeFilamentG;
-                }
             }
         }
     } while (false);
@@ -142,9 +141,27 @@ float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const String& downloadRef) {
     http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
     http.addHeader("Range", "bytes=0-8191");
 
-    int code = http.GET();
+    const int maxAttempts = 3;
+    const int baseDelayMs = 1000;
+    int code = 0;
+
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (attempt > 1) {
+            int delayMs = baseDelayMs * (attempt - 1);
+            Serial.printf("PrusaLinkAPIStrategy: bgcode fetch attempt %d/%d after %dms delay\n", attempt, maxAttempts, delayMs);
+            vTaskDelay(pdMS_TO_TICKS(delayMs));
+            http.end();
+            http.begin(client, host, port, downloadRef);
+            http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
+            http.addHeader("Range", "bytes=0-8191");
+        }
+        code = http.GET();
+        if (code == 200 || code == 206) break;
+        Serial.printf("PrusaLinkAPIStrategy: bgcode fetch attempt %d/%d failed: %d\n", attempt, maxAttempts, code);
+    }
+
     if (code != 200 && code != 206) {
-        Serial.printf("PrusaLinkAPIStrategy: bgcode header fetch failed: %d (path: %s)\n", code, downloadRef.c_str());
+        Serial.printf("PrusaLinkAPIStrategy: bgcode header fetch failed after %d attempts (path: %s)\n", maxAttempts, downloadRef.c_str());
         http.end();
         return 0.0f;
     }
@@ -192,4 +209,52 @@ float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const String& downloadRef) {
     }
 
     return result;
+}
+
+float PrusaLinkAPIStrategy::fetchDeferredFilament() {
+    if (savedDownloadRefJobId < 0) return 0.0f;
+    if (bgcodeFilamentJobId == savedDownloadRefJobId && bgcodeFilamentG > 0.0f)
+        return bgcodeFilamentG;
+
+    bool mutexHeld = false;
+    if (httpMutex_ != nullptr) {
+        if (xSemaphoreTake(httpMutex_, pdMS_TO_TICKS(10000)) != pdTRUE) return 0.0f;
+        mutexHeld = true;
+    }
+
+    auto& config = ConfigurationManager::getInstance();
+    float result = 0.0f;
+
+    // Try job API first — may have metadata now that print is done
+    HTTPClient http;
+    String jobUrl = String(config.getPrusaLinkURL()) + "/api/v1/job/" + String(savedDownloadRefJobId);
+    http.begin(jobUrl);
+    http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
+    int code = http.GET();
+    if (code == 200) {
+        String payload = http.getString();
+        http.end();
+        JsonDocument doc;
+        if (!deserializeJson(doc, payload)) {
+            JsonVariant filamentUsed = doc["file"]["meta"]["filament used [g]"];
+            if (!filamentUsed.isNull()) {
+                result = filamentUsed.as<float>();
+                Serial.printf("PrusaLinkAPIStrategy: Got deferred filament from job API: %.2fg\n", result);
+            }
+        }
+    } else {
+        Serial.printf("PrusaLinkAPIStrategy: Deferred job API request failed: %d\n", code);
+        http.end();
+    }
+
+    // Fall back to bgcode header parsing
+    if (result <= 0.0f && !savedDownloadRef.isEmpty()) {
+        result = fetchFilamentFromBgcode(savedDownloadRef);
+    }
+
+    bgcodeFilamentJobId = savedDownloadRefJobId;
+    bgcodeFilamentG = result;
+
+    if (mutexHeld) xSemaphoreGive(httpMutex_);
+    return bgcodeFilamentG;
 }

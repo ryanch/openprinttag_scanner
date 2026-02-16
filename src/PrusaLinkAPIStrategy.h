@@ -16,6 +16,7 @@ public:
     float getTotalFilamentGrams() const override { return totalFilamentG; }
     String getJobState() const override { return jobState; }
     bool isConnected() const override { return connected; }
+    float fetchDeferredFilament() override;
 
 private:
     float fetchFilamentFromBgcode(const String& downloadRef);
@@ -30,6 +31,10 @@ private:
     // Cache bgcode filament fetch (one attempt per job)
     int bgcodeFilamentJobId = -1;
     float bgcodeFilamentG = 0.0f;
+
+    // Saved download ref for deferred bgcode fetch after print completes
+    String savedDownloadRef = "";
+    int savedDownloadRefJobId = -1;
 
     SemaphoreHandle_t httpMutex_ = nullptr;
 };

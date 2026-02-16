@@ -21,6 +21,9 @@ public:
 
     // Connection status
     virtual bool isConnected() const = 0;
+
+    // Deferred filament fetch (called after print ends, when bgcode file is unlocked)
+    virtual float fetchDeferredFilament() { return 0.0f; }
 };
 
 #endif // I_PRINTER_LINK_STRATEGY_H
