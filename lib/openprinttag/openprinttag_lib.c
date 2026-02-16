@@ -93,7 +93,7 @@ static const char* material_type_strings[] = {
 
 /* Find a field by integer key in CBOR map data */
 static opt_error_t cbor_find_field(const uint8_t *data, size_t len,
-                                   uint8_t key, CborValue *out_value,
+                                   uint16_t key, CborValue *out_value,
                                    CborParser *out_parser) {
     CborError err;
 
@@ -485,7 +485,7 @@ static opt_error_t parse_ndef_record(const uint8_t *data, size_t data_len, size_
  *============================================================================*/
 
 static opt_error_t get_region_int_field(const opt_tag_t *tag, const opt_region_info_t *region,
-                                        uint8_t key, int64_t *out) {
+                                        uint16_t key, int64_t *out) {
     if (!tag->initialized || !region->valid) {
         return OPT_ERR_NOT_INITIALIZED;
     }
@@ -501,7 +501,7 @@ static opt_error_t get_region_int_field(const opt_tag_t *tag, const opt_region_i
 }
 
 static opt_error_t get_region_float_field(const opt_tag_t *tag, const opt_region_info_t *region,
-                                          uint8_t key, float *out) {
+                                          uint16_t key, float *out) {
     if (!tag->initialized || !region->valid) {
         return OPT_ERR_NOT_INITIALIZED;
     }
@@ -517,7 +517,7 @@ static opt_error_t get_region_float_field(const opt_tag_t *tag, const opt_region
 }
 
 static opt_error_t get_region_string_field(const opt_tag_t *tag, const opt_region_info_t *region,
-                                           uint8_t key, char *buf, size_t size) {
+                                           uint16_t key, char *buf, size_t size) {
     if (!tag->initialized || !region->valid) {
         return OPT_ERR_NOT_INITIALIZED;
     }
@@ -533,7 +533,7 @@ static opt_error_t get_region_string_field(const opt_tag_t *tag, const opt_regio
 }
 
 static opt_error_t get_region_bytes_field(const opt_tag_t *tag, const opt_region_info_t *region,
-                                          uint8_t key, uint8_t *buf, size_t size, size_t *actual) {
+                                          uint16_t key, uint8_t *buf, size_t size, size_t *actual) {
     if (!tag->initialized || !region->valid) {
         return OPT_ERR_NOT_INITIALIZED;
     }
@@ -554,7 +554,7 @@ static opt_error_t get_region_bytes_field(const opt_tag_t *tag, const opt_region
 
 /* Structure to hold field updates */
 typedef struct {
-    uint8_t key;
+    uint16_t key;
     enum { FIELD_INT, FIELD_FLOAT, FIELD_STRING, FIELD_BYTES } type;
     union {
         int64_t int_val;
@@ -1316,6 +1316,41 @@ opt_error_t opt_add_consumed_weight(opt_tag_t *tag, float grams_delta) {
     if (err != OPT_OK) return err;
 
     return opt_set_consumed_weight(tag, current + grams_delta);
+}
+
+opt_error_t opt_get_gp_spoolman_id(const opt_tag_t *tag, int32_t *id) {
+    if (!tag || !id) return OPT_ERR_INVALID_PARAM;
+    if (!tag->aux.valid) return OPT_ERR_FIELD_NOT_FOUND;
+
+    /* Verify gp_range_user == "openscan" */
+    char user[16] = {0};
+    opt_error_t err = get_region_string_field(tag, &tag->aux, OPT_AUX_GP_RANGE_USER, user, sizeof(user));
+    if (err != OPT_OK) return OPT_ERR_FIELD_NOT_FOUND;
+    if (strcmp(user, OPT_GP_RANGE_USER_OPENSCAN) != 0) return OPT_ERR_FIELD_NOT_FOUND;
+
+    /* Read the spoolman ID */
+    int64_t val;
+    err = get_region_int_field(tag, &tag->aux, OPT_AUX_GP_SPOOLMAN_ID, &val);
+    if (err != OPT_OK) return err;
+
+    *id = (int32_t)val;
+    return OPT_OK;
+}
+
+opt_error_t opt_set_gp_spoolman_id(opt_tag_t *tag, int32_t id) {
+    if (!tag) return OPT_ERR_INVALID_PARAM;
+    if (!tag->aux.valid) return OPT_ERR_INVALID_PARAM;
+
+    /* Set gp_range_user to "openscan" */
+    opt_field_update_t update = { .key = OPT_AUX_GP_RANGE_USER, .type = FIELD_STRING,
+                                  .str_val = OPT_GP_RANGE_USER_OPENSCAN };
+    opt_error_t err = update_region_field(tag, &tag->aux, &update);
+    if (err != OPT_OK) return err;
+
+    /* Set the spoolman ID */
+    opt_field_update_t id_update = { .key = OPT_AUX_GP_SPOOLMAN_ID, .type = FIELD_INT,
+                                     .int_val = id };
+    return update_region_field(tag, &tag->aux, &id_update);
 }
 
 /*============================================================================

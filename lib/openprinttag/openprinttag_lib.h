@@ -111,6 +111,10 @@ extern "C" {
 #define OPT_AUX_GP_RANGE_USER           2
 #define OPT_AUX_LAST_STIR_TIME          3
 
+/* General purpose key range (65400-65534) */
+#define OPT_AUX_GP_SPOOLMAN_ID          65400
+#define OPT_GP_RANGE_USER_OPENSCAN      "openscan"
+
 /*============================================================================
  * Material Class Enum
  *============================================================================*/
@@ -396,6 +400,9 @@ opt_error_t opt_set_manufactured_date(opt_tag_t *tag, uint32_t timestamp);
 opt_error_t opt_get_consumed_weight(const opt_tag_t *tag, float *grams);
 opt_error_t opt_set_consumed_weight(opt_tag_t *tag, float grams);
 opt_error_t opt_add_consumed_weight(opt_tag_t *tag, float grams_delta);
+
+opt_error_t opt_get_gp_spoolman_id(const opt_tag_t *tag, int32_t *id);
+opt_error_t opt_set_gp_spoolman_id(opt_tag_t *tag, int32_t id);
 
 /*============================================================================
  * High-Level Functions

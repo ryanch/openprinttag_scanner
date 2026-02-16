@@ -1,5 +1,4 @@
 #include "ConfigurationManager.h"
-#include "local_settings.h"
 #include <Preferences.h>
 #include <ArduinoJson.h>
 
@@ -13,22 +12,15 @@ bool ConfigurationManager::begin() {
         return true;
     }
 
-    // Load defaults from local_settings.h
-    strncpy(_ssid, WIFI_SSID, sizeof(_ssid) - 1);
-    _ssid[sizeof(_ssid) - 1] = '\0';
+    // Start with empty defaults
+    memset(_ssid, 0, sizeof(_ssid));
+    memset(_wifiPass, 0, sizeof(_wifiPass));
+    memset(_prusaLinkUrl, 0, sizeof(_prusaLinkUrl));
+    memset(_prusaLinkApiKey, 0, sizeof(_prusaLinkApiKey));
+    memset(_spoolmanUrl, 0, sizeof(_spoolmanUrl));
+    _pollIntervalMs = 5000;
 
-    strncpy(_wifiPass, WIFI_PASSWORD, sizeof(_wifiPass) - 1);
-    _wifiPass[sizeof(_wifiPass) - 1] = '\0';
-
-    strncpy(_prusaLinkUrl, PRUSALINK_URL, sizeof(_prusaLinkUrl) - 1);
-    _prusaLinkUrl[sizeof(_prusaLinkUrl) - 1] = '\0';
-
-    strncpy(_prusaLinkApiKey, PRUSALINK_API_KEY, sizeof(_prusaLinkApiKey) - 1);
-    _prusaLinkApiKey[sizeof(_prusaLinkApiKey) - 1] = '\0';
-
-    _pollIntervalMs = POLL_INTERVAL_MS;
-
-    // Override with NVS values if present
+    // Load from NVS if configured
     loadFromNVS();
 
     _initialized = true;
@@ -55,6 +47,9 @@ bool ConfigurationManager::loadFromNVS() {
     if (prefs.isKey("prusa_key")) {
         prefs.getString("prusa_key", _prusaLinkApiKey, sizeof(_prusaLinkApiKey));
     }
+    if (prefs.isKey("spoolman_url")) {
+        prefs.getString("spoolman_url", _spoolmanUrl, sizeof(_spoolmanUrl));
+    }
     if (prefs.isKey("poll_ms")) {
         _pollIntervalMs = prefs.getUInt("poll_ms", _pollIntervalMs);
     }
@@ -75,6 +70,7 @@ bool ConfigurationManager::saveToNVS() {
     prefs.putString("wifi_pass", _wifiPass);
     prefs.putString("prusa_url", _prusaLinkUrl);
     prefs.putString("prusa_key", _prusaLinkApiKey);
+    prefs.putString("spoolman_url", _spoolmanUrl);
     prefs.putUInt("poll_ms", _pollIntervalMs);
 
     prefs.end();
@@ -89,6 +85,7 @@ String ConfigurationManager::readConfig() {
     // wifi_pass intentionally omitted for security
     doc["prusa_link_url"] = _prusaLinkUrl;
     doc["prusa_link_api_key"] = _prusaLinkApiKey;
+    doc["spoolman_url"] = _spoolmanUrl;
     doc["poll_interval_ms"] = _pollIntervalMs;
     doc["device_version"] = DEVICE_VERSION;
 
@@ -124,6 +121,10 @@ bool ConfigurationManager::postConfigUpdate(const char* json) {
         strncpy(_prusaLinkApiKey, doc["prusa_link_api_key"].as<const char*>(), sizeof(_prusaLinkApiKey) - 1);
         _prusaLinkApiKey[sizeof(_prusaLinkApiKey) - 1] = '\0';
     }
+    if (doc["spoolman_url"].is<const char*>()) {
+        strncpy(_spoolmanUrl, doc["spoolman_url"].as<const char*>(), sizeof(_spoolmanUrl) - 1);
+        _spoolmanUrl[sizeof(_spoolmanUrl) - 1] = '\0';
+    }
     if (doc["poll_interval_ms"].is<uint32_t>()) {
         _pollIntervalMs = doc["poll_interval_ms"].as<uint32_t>();
     }
@@ -145,6 +146,10 @@ const char* ConfigurationManager::getPrusaLinkURL() const {
 
 const char* ConfigurationManager::getPrusaLinkAPIKey() const {
     return _prusaLinkApiKey;
+}
+
+const char* ConfigurationManager::getSpoolmanURL() const {
+    return _spoolmanUrl;
 }
 
 uint32_t ConfigurationManager::getPollIntervalMs() const {

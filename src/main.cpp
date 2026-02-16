@@ -8,8 +8,12 @@
 #include "PrinterManager.h"
 #include "NFCManager.h"
 #include "PrusaLinkAPIStrategy.h"
+#include "SpoolmanManager.h"
 #include "StubPrinterLinkStrategy.h"
 #include "LCDManager.h"
+
+// Global HTTP mutex for serializing WiFi HTTP requests
+SemaphoreHandle_t g_httpMutex = nullptr;
 
 // LCD I2C pins
 #define LCD_SDA 23
@@ -20,6 +24,13 @@ LCDManager lcdManager(0x27, 16, 2);
 
 void initWiFi() {
   auto& config = ConfigurationManager::getInstance();
+
+  if (strlen(config.getWiFiSSID()) == 0) {
+    Serial.println("WiFi SSID not configured - skipping WiFi");
+    lcdManager.updateScreen("WiFi: no SSID", "Configure via BLE");
+    delay(2000);
+    return;
+  }
 
   Serial.print("Connecting to WiFi: ");
   Serial.println(config.getWiFiSSID());
@@ -103,6 +114,19 @@ void setup() {
   // Connect to WiFi
   initWiFi();
 
+  // Create global HTTP mutex for serializing HTTP requests
+  g_httpMutex = xSemaphoreCreateMutex();
+  if (g_httpMutex == nullptr) {
+    Serial.println("Failed to create HTTP mutex - halting");
+    lcdManager.updateScreen("Mutex FAILED", "");
+    while (1) { delay(1000); }
+  }
+
+  // Initialize SpoolmanManager
+  if (!SpoolmanManager::getInstance().begin(g_httpMutex)) {
+    Serial.println("SpoolmanManager init failed - continuing without Spoolman");
+  }
+
   // Initialize NFCManager
   if (!NFCManager::getInstance().begin()) {
     Serial.println("NFCManager init failed - halting");
@@ -114,6 +138,7 @@ void setup() {
   // To use real PrusaLink API, replace StubPrinterLinkStrategy with PrusaLinkAPIStrategy
   //static StubPrinterLinkStrategy printerStrategy;
   static PrusaLinkAPIStrategy printerStrategy;
+  printerStrategy.setHttpMutex(g_httpMutex);
   PrinterManager::getInstance().setStrategy(&printerStrategy);
   PrinterManager::getInstance().begin();
 
@@ -124,6 +149,9 @@ void setup() {
 
   // Start NFC scan task
   NFCManager::getInstance().startScanTask();
+
+  // Start SpoolmanManager task
+  SpoolmanManager::getInstance().startTask();
 
   // Build status screen
   auto& config = ConfigurationManager::getInstance();
@@ -138,9 +166,13 @@ void setup() {
   if (strlen(config.getPrusaLinkURL()) == 0) prusaInd = '?';
   else prusaInd = printerStrategy.isConnected() ? '+' : '!';
 
+  char smInd;
+  if (strlen(config.getSpoolmanURL()) == 0) smInd = '?';
+  else smInd = '+';
+
   char line1[17], line2[17];
   snprintf(line1, sizeof(line1), "Status NFC+ BLE%c", bleInd);
-  snprintf(line2, sizeof(line2), "PrusaLink%c Wifi%c", prusaInd, wifiInd);
+  snprintf(line2, sizeof(line2), "Prusa%c SM%c Wifi%c", prusaInd, smInd, wifiInd);
   lcdManager.updateScreen(line1, line2);
 
   Serial.println("=== Setup complete ===");

@@ -19,6 +19,7 @@ enum class AppMessageType {
     SPOOL_DETECTED,     // Full spool info parsed from NFC
     SPOOL_UPDATED,      // Spool was written to successfully
     BLANK_TAG_DETECTED, // Tag present but not OpenPrintTag format
+    SPOOLMAN_SYNCED,    // Spoolman sync completed
 };
 
 enum class AppState { IDLE, MONITORING_PRINT };
@@ -29,6 +30,11 @@ struct SpoolDetectedPayload {
     float kg_remaining;          // Remaining weight in kg
     uint8_t primary_color[4];    // RGBA color
     char material_name[32];      // Material name string
+    float density;               // g/cm3 (0 if not available)
+    float diameter;              // mm (0 if not available)
+    float initial_weight_g;      // Full spool weight in grams
+    char manufacturer[64];       // Brand name from tag
+    int32_t spoolman_id;         // Spoolman ID from tag (-1 if absent)
 };
 
 struct SpoolUpdatedPayload {
@@ -40,6 +46,13 @@ struct SpoolUpdatedPayload {
 
 struct BlankTagPayload {
     char spool_id[64];           // UID hex string
+};
+
+struct SpoolmanSyncedPayload {
+    char spool_id[64];
+    bool success;
+    float kg_remaining;          // Remaining weight for LCD display
+    int32_t spoolman_id;         // Resolved Spoolman spool ID (-1 if unknown)
 };
 
 struct AppMessage {
@@ -59,6 +72,7 @@ struct AppMessage {
         SpoolDetectedPayload spoolDetected;
         SpoolUpdatedPayload spoolUpdated;
         BlankTagPayload blankTag;
+        SpoolmanSyncedPayload spoolmanSynced;
     } payload;
 };
 
@@ -113,7 +127,9 @@ private:
     void handleSpoolDetected(const AppMessage& msg);
     void handleSpoolUpdated(const AppMessage& msg);
     void handleBlankTagDetected(const AppMessage& msg);
+    void handleSpoolmanSynced(const AppMessage& msg);
     void finishPrint(float gramsUsed, bool canceled);
+    void enqueueSpoolmanSync(const SpoolDetectedPayload& spool);
 };
 
 #endif // APPLICATION_MANAGER_H

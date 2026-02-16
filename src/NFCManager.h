@@ -28,6 +28,7 @@ public:
     // Recent spools history (RAM only)
     static constexpr size_t MAX_RECENT_SPOOLS = 10;
     size_t getRecentSpools(RecentSpoolEntry* entries, size_t maxEntries);
+    void updateRecentSpoolSyncStatus(const char* spool_id, bool synced);
 
 private:
     NFCManager() = default;

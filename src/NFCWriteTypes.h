@@ -12,7 +12,8 @@ enum class NFCWriteType : uint8_t {
     CHANGE_FILAMENT_TYPE, // Set new material type
     SET_CONSUMED_WEIGHT,  // Set absolute consumed weight
     SET_BRAND_NAME,       // Set manufacturer name
-    FORMAT_NEW            // Format a blank tag with defaults
+    FORMAT_NEW,           // Format a blank tag with defaults
+    WRITE_SPOOLMAN_ID     // Write Spoolman spool ID to aux region
 };
 
 struct NFCWriteRequest {
@@ -25,6 +26,7 @@ struct NFCWriteRequest {
         uint8_t new_material_type;
         float consumed_weight;   // Absolute consumed weight in grams
         char brand_name[64];     // Manufacturer name
+        int32_t spoolman_id;     // Spoolman spool ID for tag write-back
     } data;
 };
 

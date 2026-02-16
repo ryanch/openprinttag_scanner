@@ -28,6 +28,11 @@ public:
         return true;
     }
 
+    void updateRecentSpoolSyncStatus(const char* spool_id, bool synced) {
+        (void)spool_id;
+        (void)synced;
+    }
+
     // Test inspection methods
     size_t getWriteCount() const { return writeRequests_.size(); }
 

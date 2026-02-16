@@ -25,6 +25,7 @@ struct RecentSpoolEntry {
     int grams_remaining;
     time_t last_seen;  // Unix timestamp (seconds)
     bool valid;
+    bool synced_to_spoolman;
 };
 
 #endif // NFC_TYPES_H

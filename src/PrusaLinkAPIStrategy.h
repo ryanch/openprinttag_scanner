@@ -2,9 +2,12 @@
 #define PRUSA_LINK_API_STRATEGY_H
 
 #include "IPrinterLinkStrategy.h"
+#include <freertos/FreeRTOS.h>
+#include <freertos/semphr.h>
 
 class PrusaLinkAPIStrategy : public IPrinterLinkStrategy {
 public:
+    void setHttpMutex(SemaphoreHandle_t mutex) { httpMutex_ = mutex; }
     void update() override;
 
     bool hasActiveJob() const override { return hasJob; }
@@ -27,6 +30,8 @@ private:
     // Cache bgcode filament fetch (one attempt per job)
     int bgcodeFilamentJobId = -1;
     float bgcodeFilamentG = 0.0f;
+
+    SemaphoreHandle_t httpMutex_ = nullptr;
 };
 
 #endif // PRUSA_LINK_API_STRATEGY_H

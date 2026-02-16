@@ -4,7 +4,6 @@
 .vscode/launch.json
 .vscode/ipch
 specs
-src/local_settings.h
 temp
 test/native/test_runner
 test/native/cbor_native.o

@@ -446,6 +446,30 @@ void NFCManager::sendSpoolDetectedMessage() {
         memset(msg.payload.spoolDetected.primary_color, 0, 4);
     }
 
+    // Get density (use 0 to signal "not available" to caller)
+    if (opt_get_density(&currentSpool.tag_data, &msg.payload.spoolDetected.density) != OPT_OK) {
+        msg.payload.spoolDetected.density = 0.0f;
+    }
+
+    // Get filament diameter
+    if (opt_get_filament_diameter(&currentSpool.tag_data, &msg.payload.spoolDetected.diameter) != OPT_OK) {
+        msg.payload.spoolDetected.diameter = 0.0f;
+    }
+
+    // Get initial (full) weight
+    msg.payload.spoolDetected.initial_weight_g = full_weight;
+
+    // Get manufacturer/brand name
+    if (opt_get_brand_name(&currentSpool.tag_data, msg.payload.spoolDetected.manufacturer,
+                           sizeof(msg.payload.spoolDetected.manufacturer)) != OPT_OK) {
+        msg.payload.spoolDetected.manufacturer[0] = '\0';
+    }
+
+    // Get Spoolman ID from tag (if present)
+    int32_t spoolman_id = -1;
+    opt_get_gp_spoolman_id(&currentSpool.tag_data, &spoolman_id);
+    msg.payload.spoolDetected.spoolman_id = spoolman_id;
+
     // Get material name
     if (opt_get_material_name(&currentSpool.tag_data, msg.payload.spoolDetected.material_name,
                                sizeof(msg.payload.spoolDetected.material_name)) != OPT_OK) {
@@ -604,6 +628,9 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
         case NFCWriteType::SET_BRAND_NAME:
             err = opt_set_brand_name(&currentSpool.tag_data, request.data.brand_name);
             break;
+        case NFCWriteType::WRITE_SPOOLMAN_ID:
+            err = opt_set_gp_spoolman_id(&currentSpool.tag_data, request.data.spoolman_id);
+            break;
         default:
             xSemaphoreGive(tagMutex);
             Serial.printf("NFCManager: Unknown write type: %u\n", static_cast<uint8_t>(request.type));
@@ -667,6 +694,15 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
                 return false;
             }
             Serial.printf("NFCManager: Set brand name to %s\n", request.data.brand_name);
+            break;
+
+        case NFCWriteType::WRITE_SPOOLMAN_ID:
+            err = opt_write_aux_region(&currentSpool.tag_data, hal);
+            if (err != OPT_OK) {
+                Serial.printf("NFCManager: Failed to write spoolman ID: %s\n", opt_error_str(err));
+                return false;
+            }
+            Serial.printf("NFCManager: Wrote spoolman ID %d to tag\n", request.data.spoolman_id);
             break;
 
         default:
@@ -791,6 +827,7 @@ void NFCManager::addToRecentSpools() {
 
     newEntry.last_seen = time(nullptr);
     newEntry.valid = true;
+    newEntry.synced_to_spoolman = false;
 
     if (existingIndex >= 0) {
         // Spool exists - shift entries to remove it from current position
@@ -880,4 +917,23 @@ size_t NFCManager::getRecentSpools(RecentSpoolEntry* entries, size_t maxEntries)
 
     xSemaphoreGive(tagMutex);
     return count;
+}
+
+void NFCManager::updateRecentSpoolSyncStatus(const char* spool_id, bool synced) {
+    if (tagMutex == nullptr || spool_id == nullptr) {
+        return;
+    }
+
+    if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        return;
+    }
+
+    for (size_t i = 0; i < recentSpoolsCount; i++) {
+        if (recentSpools[i].valid && strcmp(recentSpools[i].spool_id, spool_id) == 0) {
+            recentSpools[i].synced_to_spoolman = synced;
+            break;
+        }
+    }
+
+    xSemaphoreGive(tagMutex);
 }

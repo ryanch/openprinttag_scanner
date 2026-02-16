@@ -6,8 +6,10 @@
 
 // Message factory functions
 inline AppMessage createSpoolDetected(const char* spoolId, uint8_t materialType,
-                                       float kgRemaining, const char* materialName = "PLA") {
+                                       float kgRemaining, const char* materialName = "PLA",
+                                       int32_t spoolmanId = -1) {
     AppMessage msg;
+    memset(&msg, 0, sizeof(msg));
     msg.type = AppMessageType::SPOOL_DETECTED;
     strncpy(msg.payload.spoolDetected.spool_id, spoolId,
             sizeof(msg.payload.spoolDetected.spool_id) - 1);
@@ -21,6 +23,11 @@ inline AppMessage createSpoolDetected(const char* spoolId, uint8_t materialType,
     strncpy(msg.payload.spoolDetected.material_name, materialName,
             sizeof(msg.payload.spoolDetected.material_name) - 1);
     msg.payload.spoolDetected.material_name[sizeof(msg.payload.spoolDetected.material_name) - 1] = '\0';
+    msg.payload.spoolDetected.density = 0.0f;
+    msg.payload.spoolDetected.diameter = 0.0f;
+    msg.payload.spoolDetected.initial_weight_g = kgRemaining * 1000.0f;
+    msg.payload.spoolDetected.manufacturer[0] = '\0';
+    msg.payload.spoolDetected.spoolman_id = spoolmanId;
     return msg;
 }
 

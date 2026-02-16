@@ -65,3 +65,4 @@ Connect the components to the ESP32 as follows:
 *   PN5180 Datasheet: https://www.nxp.com/docs/en/data-sheet/PN5180A0xx-C3.pdf
 *   PrusaLink API Docs: https://hexdocs.pm/prusa_link/PrusaLink.Api.html
 *   https://openprinttag.org/generator/ 
+*   Spoolman API: https://donkie.github.io/Spoolman/#tag/filament/operation/Find_filaments_filament_get 

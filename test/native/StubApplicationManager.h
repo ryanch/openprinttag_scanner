@@ -15,6 +15,7 @@ enum class AppMessageType {
     SPOOL_DETECTED,
     SPOOL_UPDATED,
     BLANK_TAG_DETECTED,
+    SPOOLMAN_SYNCED,
 };
 
 enum class AppState { IDLE, MONITORING_PRINT };
@@ -25,6 +26,11 @@ struct SpoolDetectedPayload {
     float kg_remaining;
     uint8_t primary_color[4];
     char material_name[32];
+    float density;
+    float diameter;
+    float initial_weight_g;
+    char manufacturer[64];
+    int32_t spoolman_id;
 };
 
 struct SpoolUpdatedPayload {
@@ -36,6 +42,13 @@ struct SpoolUpdatedPayload {
 
 struct BlankTagPayload {
     char spool_id[64];
+};
+
+struct SpoolmanSyncedPayload {
+    char spool_id[64];
+    bool success;
+    float kg_remaining;
+    int32_t spoolman_id;
 };
 
 struct AppMessage {
@@ -55,6 +68,7 @@ struct AppMessage {
         SpoolDetectedPayload spoolDetected;
         SpoolUpdatedPayload spoolUpdated;
         BlankTagPayload blankTag;
+        SpoolmanSyncedPayload spoolmanSynced;
     } payload;
 };
 

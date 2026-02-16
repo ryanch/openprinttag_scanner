@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <cstdint>
 
-#define DEVICE_VERSION "0.6 BETA"
+#define DEVICE_VERSION "0.62 BETA"
 
 class ConfigurationManager {
 public:
@@ -18,6 +18,7 @@ public:
     const char* getWiFiPassword() const;
     const char* getPrusaLinkURL() const;
     const char* getPrusaLinkAPIKey() const;
+    const char* getSpoolmanURL() const;
     uint32_t getPollIntervalMs() const;
 
 private:
@@ -33,6 +34,7 @@ private:
     char _wifiPass[64];
     char _prusaLinkUrl[128];
     char _prusaLinkApiKey[64];
+    char _spoolmanUrl[128];
     uint32_t _pollIntervalMs;
     bool _initialized = false;
 
