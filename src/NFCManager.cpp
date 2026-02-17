@@ -214,6 +214,26 @@ void NFCManager::scanLoop() {
             if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 if (lastSeenValid) {
                     Serial.println("NFCManager: Tag removed");
+
+                    // Send TAG_REMOVED message before clearing state
+                    if (currentSpool.tag_data_valid) {
+                        AppMessage msg;
+                        memset(&msg, 0, sizeof(msg));
+                        msg.type = AppMessageType::TAG_REMOVED;
+                        strncpy(msg.payload.tagRemoved.spool_id, currentSpool.spool_id,
+                                sizeof(msg.payload.tagRemoved.spool_id) - 1);
+
+                        float full_weight = 0.0f, consumed = 0.0f;
+                        opt_get_actual_full_weight(&currentSpool.tag_data, &full_weight);
+                        opt_get_consumed_weight(&currentSpool.tag_data, &consumed);
+                        msg.payload.tagRemoved.last_remaining_kg = (full_weight - consumed) / 1000.0f;
+
+                        int32_t smId = -1;
+                        opt_get_gp_spoolman_id(&currentSpool.tag_data, &smId);
+                        msg.payload.tagRemoved.spoolman_id = smId;
+
+                        ApplicationManager::getInstance().sendMessage(msg);
+                    }
                 }
                 currentSpool.present = false;
                 currentSpool.blank_tag_present = false;

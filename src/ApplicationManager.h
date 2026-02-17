@@ -16,10 +16,18 @@ enum class AppMessageType {
     PRINT_STARTED,
     PRINT_CANCELED,
     PRINT_FINISHED,
-    SPOOL_DETECTED,     // Full spool info parsed from NFC
-    SPOOL_UPDATED,      // Spool was written to successfully
-    BLANK_TAG_DETECTED, // Tag present but not OpenPrintTag format
-    SPOOLMAN_SYNCED,    // Spoolman sync completed
+    SPOOL_DETECTED,         // Full spool info parsed from NFC
+    SPOOL_UPDATED,          // Spool was written to successfully
+    BLANK_TAG_DETECTED,     // Tag present but not OpenPrintTag format
+    SPOOLMAN_SYNCED,        // Spoolman sync completed
+    TAG_REMOVED,            // Tag was present, now gone
+    HA_WRITE_TAG,           // HA commands full tag write
+    HA_UPDATE_REMAINING,    // HA commands remaining weight update
+};
+
+enum class AutomationMode : uint8_t {
+    SELF_DIRECTED = 0,              // Device acts autonomously + reports to HA
+    CONTROLLED_BY_HOME_ASSISTANT = 1 // Device reports only, acts on HA commands
 };
 
 enum class AppState { IDLE, MONITORING_PRINT };
@@ -55,6 +63,27 @@ struct SpoolmanSyncedPayload {
     int32_t spoolman_id;         // Resolved Spoolman spool ID (-1 if unknown)
 };
 
+struct TagRemovedPayload {
+    char spool_id[64];           // UID of removed tag
+    float last_remaining_kg;     // Last known remaining (kg)
+    int32_t spoolman_id;         // Last known spoolman ID
+};
+
+struct HAWriteTagPayload {
+    char expected_uid[64];       // Required — must match current tag
+    uint8_t material_type;
+    uint8_t color[4];            // RGBA
+    char manufacturer[64];
+    float initial_weight_g;
+    float remaining_g;
+    int32_t spoolman_id;
+};
+
+struct HAUpdateRemainingPayload {
+    char expected_uid[64];       // Required — must match current tag
+    float remaining_g;
+};
+
 struct AppMessage {
     AppMessageType type;
     union {
@@ -73,6 +102,9 @@ struct AppMessage {
         SpoolUpdatedPayload spoolUpdated;
         BlankTagPayload blankTag;
         SpoolmanSyncedPayload spoolmanSynced;
+        TagRemovedPayload tagRemoved;
+        HAWriteTagPayload haWriteTag;
+        HAUpdateRemainingPayload haUpdateRemaining;
     } payload;
 };
 
@@ -90,6 +122,8 @@ public:
     const char* getStartingSpoolId() const { return startingSpoolId; }
     int getCurrentJobId() const { return currentJobId; }
     bool hasSpoolChangedDuringPrint() const { return spoolChangedDuringPrint; }
+    AutomationMode getAutomationMode() const { return automationMode; }
+    void setAutomationMode(AutomationMode mode) { automationMode = mode; }
 #ifdef NATIVE_TEST
     void resetForTest() {
         currentState = AppState::IDLE;
@@ -98,6 +132,7 @@ public:
         spoolChangedDuringPrint = false;
         lastDisplayedSpoolId[0] = '\0';
         lastDisplayedBlankId[0] = '\0';
+        automationMode = AutomationMode::SELF_DIRECTED;
     }
 #endif
 
@@ -120,6 +155,9 @@ private:
     char lastDisplayedSpoolId[64] = {0};
     char lastDisplayedBlankId[64] = {0};
 
+    // Automation mode
+    AutomationMode automationMode = AutomationMode::SELF_DIRECTED;
+
     // Handlers
     void handlePrintStarted(const AppMessage& msg);
     void handlePrintCanceled(const AppMessage& msg);
@@ -128,8 +166,12 @@ private:
     void handleSpoolUpdated(const AppMessage& msg);
     void handleBlankTagDetected(const AppMessage& msg);
     void handleSpoolmanSynced(const AppMessage& msg);
+    void handleTagRemoved(const AppMessage& msg);
+    void handleHAWriteTag(const AppMessage& msg);
+    void handleHAUpdateRemaining(const AppMessage& msg);
     void finishPrint(float gramsUsed, bool canceled);
     void enqueueSpoolmanSync(const SpoolDetectedPayload& spool);
+    void publishToHA(const char* topicSuffix, const char* payload, bool retained);
 };
 
 #endif // APPLICATION_MANAGER_H

@@ -67,6 +67,47 @@ inline AppMessage createSpoolUpdated(const char* spoolId, bool success,
     return msg;
 }
 
+inline AppMessage createTagRemoved(const char* spoolId, float lastRemainingKg = 0.0f,
+                                    int32_t spoolmanId = -1) {
+    AppMessage msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = AppMessageType::TAG_REMOVED;
+    strncpy(msg.payload.tagRemoved.spool_id, spoolId,
+            sizeof(msg.payload.tagRemoved.spool_id) - 1);
+    msg.payload.tagRemoved.last_remaining_kg = lastRemainingKg;
+    msg.payload.tagRemoved.spoolman_id = spoolmanId;
+    return msg;
+}
+
+inline AppMessage createHAWriteTag(const char* expectedUid, uint8_t materialType,
+                                    const uint8_t* color, const char* manufacturer,
+                                    float initialWeightG, float remainingG,
+                                    int32_t spoolmanId = -1) {
+    AppMessage msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = AppMessageType::HA_WRITE_TAG;
+    strncpy(msg.payload.haWriteTag.expected_uid, expectedUid,
+            sizeof(msg.payload.haWriteTag.expected_uid) - 1);
+    msg.payload.haWriteTag.material_type = materialType;
+    memcpy(msg.payload.haWriteTag.color, color, 4);
+    strncpy(msg.payload.haWriteTag.manufacturer, manufacturer,
+            sizeof(msg.payload.haWriteTag.manufacturer) - 1);
+    msg.payload.haWriteTag.initial_weight_g = initialWeightG;
+    msg.payload.haWriteTag.remaining_g = remainingG;
+    msg.payload.haWriteTag.spoolman_id = spoolmanId;
+    return msg;
+}
+
+inline AppMessage createHAUpdateRemaining(const char* expectedUid, float remainingG) {
+    AppMessage msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = AppMessageType::HA_UPDATE_REMAINING;
+    strncpy(msg.payload.haUpdateRemaining.expected_uid, expectedUid,
+            sizeof(msg.payload.haUpdateRemaining.expected_uid) - 1);
+    msg.payload.haUpdateRemaining.remaining_g = remainingG;
+    return msg;
+}
+
 // Test assertion helpers
 #define TEST_ASSERT(cond) \
     do { \

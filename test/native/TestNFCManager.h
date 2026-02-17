@@ -51,10 +51,16 @@ public:
         return requestCurrentSpoolCalled_;
     }
 
+    // Set current spool for testing UID validation
+    void setCurrentSpool(const CurrentSpoolState& spool) {
+        currentSpool_ = spool;
+    }
+
     // Reset for test isolation
     void reset() {
         writeRequests_.clear();
         requestCurrentSpoolCalled_ = false;
+        memset(&currentSpool_, 0, sizeof(currentSpool_));
     }
 
 private:

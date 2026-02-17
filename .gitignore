@@ -12,3 +12,4 @@ test/native/test_nfc_read_runner
 test/build/test_openprinttag
 test/build
 test/build/test_openprinttag
+test/integration/ha

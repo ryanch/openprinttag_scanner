@@ -5,6 +5,7 @@
   #include "LCDManager.h"
   #include "SpoolmanManager.h"
   #include "ConfigurationManager.h"
+  #include "HomeAssistantManager.h"
   #include <Arduino.h>
 #else
   #include "platform/NativePlatform.h"
@@ -86,6 +87,18 @@ void ApplicationManager::handleMessage(const AppMessage& msg) {
         case AppMessageType::SPOOLMAN_SYNCED:
             handleSpoolmanSynced(msg);
             break;
+
+        case AppMessageType::TAG_REMOVED:
+            handleTagRemoved(msg);
+            break;
+
+        case AppMessageType::HA_WRITE_TAG:
+            handleHAWriteTag(msg);
+            break;
+
+        case AppMessageType::HA_UPDATE_REMAINING:
+            handleHAUpdateRemaining(msg);
+            break;
     }
 }
 
@@ -107,6 +120,14 @@ void ApplicationManager::handlePrintStarted(const AppMessage& msg) {
         snprintf(line2, sizeof(line2), "Job: %d", currentJobId);
         lcdManager->updateScreen("Print Started", line2);
     }
+
+    // Publish printer state to HA
+    {
+        char json[96];
+        snprintf(json, sizeof(json), "{\"state\":\"printing\",\"job_id\":%d}",
+                 msg.payload.printStarted.job_id);
+        publishToHA("printer/state", json, true);
+    }
 }
 
 void ApplicationManager::handlePrintCanceled(const AppMessage& msg) {
@@ -118,6 +139,16 @@ void ApplicationManager::handlePrintCanceled(const AppMessage& msg) {
         finishPrint(msg.payload.printCanceled.est_filament_used_grams, true);
     }
     currentState = AppState::IDLE;
+
+    // Publish printer state to HA
+    {
+        char json[128];
+        snprintf(json, sizeof(json),
+                 "{\"state\":\"idle\",\"last_job_id\":%d,\"filament_used_g\":%.1f}",
+                 msg.payload.printCanceled.job_id,
+                 msg.payload.printCanceled.est_filament_used_grams);
+        publishToHA("printer/state", json, true);
+    }
 }
 
 void ApplicationManager::handlePrintFinished(const AppMessage& msg) {
@@ -129,6 +160,16 @@ void ApplicationManager::handlePrintFinished(const AppMessage& msg) {
         finishPrint(msg.payload.printFinished.filament_used_grams, false);
     }
     currentState = AppState::IDLE;
+
+    // Publish printer state to HA
+    {
+        char json[128];
+        snprintf(json, sizeof(json),
+                 "{\"state\":\"idle\",\"last_job_id\":%d,\"filament_used_g\":%.1f}",
+                 msg.payload.printFinished.job_id,
+                 msg.payload.printFinished.filament_used_grams);
+        publishToHA("printer/state", json, true);
+    }
 }
 
 void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
@@ -166,9 +207,27 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
         Serial.printf("ApplicationManager: Skipping LCD update for already displayed spool %s\n", msg.payload.spoolDetected.spool_id);
     }
 
+    // Publish tag state to HA (always, regardless of mode)
+    {
+        const auto& s = msg.payload.spoolDetected;
+        char colorHex[8];
+        snprintf(colorHex, sizeof(colorHex), "#%02X%02X%02X",
+                 s.primary_color[0], s.primary_color[1], s.primary_color[2]);
+        char json[384];
+        snprintf(json, sizeof(json),
+                 "{\"uid\":\"%s\",\"present\":true,\"material_type\":\"%s\","
+                 "\"material_name\":\"%s\",\"color\":\"%s\",\"manufacturer\":\"%s\","
+                 "\"remaining_g\":%.1f,\"initial_weight_g\":%.1f,\"spoolman_id\":%d}",
+                 s.spool_id, s.material_name, s.material_name, colorHex,
+                 s.manufacturer, s.kg_remaining * 1000.0f, s.initial_weight_g,
+                 s.spoolman_id);
+        publishToHA("tag/state", json, true);
+    }
+
 #ifndef NATIVE_TEST
-    // Trigger Spoolman sync if configured
-    if (SpoolmanManager::getInstance().isConfigured()) {
+    // Trigger Spoolman sync if configured (only in SELF_DIRECTED mode)
+    if (automationMode == AutomationMode::SELF_DIRECTED &&
+        SpoolmanManager::getInstance().isConfigured()) {
         enqueueSpoolmanSync(msg.payload.spoolDetected);
     }
 #endif
@@ -248,6 +307,15 @@ void ApplicationManager::handleBlankTagDetected(const AppMessage& msg) {
 
         lcdManager->updateScreen("Unknown Tag", "Use app to setup");
     }
+
+    // Publish blank tag state to HA
+    {
+        char json[128];
+        snprintf(json, sizeof(json),
+                 "{\"uid\":\"%s\",\"present\":true,\"blank\":true}",
+                 msg.payload.blankTag.spool_id);
+        publishToHA("tag/state", json, true);
+    }
 }
 
 void ApplicationManager::finishPrint(float gramsUsed, bool /*canceled*/) {
@@ -271,19 +339,26 @@ void ApplicationManager::finishPrint(float gramsUsed, bool /*canceled*/) {
         Serial.printf("ApplicationManager: Updating spool %s - removing %.2fg\n",
             startingSpoolId, gramsUsed);
 
-        if (lcdManager) {
-            lcdManager->updateScreen("Updating spool..", "");
+        // Only auto-update NFC tag in SELF_DIRECTED mode
+        if (automationMode == AutomationMode::SELF_DIRECTED) {
+            if (lcdManager) {
+                lcdManager->updateScreen("Updating spool..", "");
+            }
+
+            // Enqueue write request with expected spool ID
+            NFCWriteRequest request;
+            request.request_id = millis();  // Simple unique ID
+            request.type = NFCWriteType::REMOVE_WEIGHT;
+            strncpy(request.expected_spool_id, startingSpoolId, sizeof(request.expected_spool_id) - 1);
+            request.expected_spool_id[sizeof(request.expected_spool_id) - 1] = '\0';
+            request.data.grams_to_remove = gramsUsed;
+
+            NFCManager::getInstance().enqueueWrite(request);
+        } else {
+            if (lcdManager) {
+                lcdManager->updateScreen("Print done", "HA controlled");
+            }
         }
-
-        // Enqueue write request with expected spool ID
-        NFCWriteRequest request;
-        request.request_id = millis();  // Simple unique ID
-        request.type = NFCWriteType::REMOVE_WEIGHT;
-        strncpy(request.expected_spool_id, startingSpoolId, sizeof(request.expected_spool_id) - 1);
-        request.expected_spool_id[sizeof(request.expected_spool_id) - 1] = '\0';
-        request.data.grams_to_remove = gramsUsed;
-
-        NFCManager::getInstance().enqueueWrite(request);
     } else {
         Serial.println("ApplicationManager: No filament used - not updating spool");
         if (lcdManager) {
@@ -342,6 +417,97 @@ void ApplicationManager::handleSpoolmanSynced(const AppMessage& msg) {
 #endif
 }
 
+void ApplicationManager::handleTagRemoved(const AppMessage& msg) {
+    Serial.printf("EVENT: TagRemoved - spool_id=%s\n",
+        msg.payload.tagRemoved.spool_id);
+
+    // Clear displayed spool so next scan re-displays
+    lastDisplayedSpoolId[0] = '\0';
+    lastDisplayedBlankId[0] = '\0';
+
+    // Publish tag removed to HA
+    publishToHA("tag/state", "{\"uid\":\"\",\"present\":false}", true);
+}
+
+void ApplicationManager::handleHAWriteTag(const AppMessage& msg) {
+    Serial.printf("EVENT: HAWriteTag - expected_uid=%s\n",
+        msg.payload.haWriteTag.expected_uid);
+
+    // Enqueue individual write requests for each field
+    const auto& p = msg.payload.haWriteTag;
+
+    // Material type
+    NFCWriteRequest req;
+    memset(&req, 0, sizeof(req));
+    req.request_id = millis();
+    req.type = NFCWriteType::CHANGE_FILAMENT_TYPE;
+    strncpy(req.expected_spool_id, p.expected_uid, sizeof(req.expected_spool_id) - 1);
+    req.data.new_material_type = p.material_type;
+    NFCManager::getInstance().enqueueWrite(req);
+
+    // Color
+    memset(&req, 0, sizeof(req));
+    req.request_id = millis() + 1;
+    req.type = NFCWriteType::CHANGE_COLOR;
+    strncpy(req.expected_spool_id, p.expected_uid, sizeof(req.expected_spool_id) - 1);
+    memcpy(req.data.new_color, p.color, 4);
+    NFCManager::getInstance().enqueueWrite(req);
+
+    // Brand name
+    memset(&req, 0, sizeof(req));
+    req.request_id = millis() + 2;
+    req.type = NFCWriteType::SET_BRAND_NAME;
+    strncpy(req.expected_spool_id, p.expected_uid, sizeof(req.expected_spool_id) - 1);
+    strncpy(req.data.brand_name, p.manufacturer, sizeof(req.data.brand_name) - 1);
+    NFCManager::getInstance().enqueueWrite(req);
+
+    // Remaining weight (set consumed = initial - remaining)
+    if (p.initial_weight_g > 0) {
+        float consumed = p.initial_weight_g - p.remaining_g;
+        if (consumed < 0) consumed = 0;
+        memset(&req, 0, sizeof(req));
+        req.request_id = millis() + 3;
+        req.type = NFCWriteType::SET_CONSUMED_WEIGHT;
+        strncpy(req.expected_spool_id, p.expected_uid, sizeof(req.expected_spool_id) - 1);
+        req.data.consumed_weight = consumed;
+        NFCManager::getInstance().enqueueWrite(req);
+    }
+
+    // Spoolman ID
+    if (p.spoolman_id > 0) {
+        memset(&req, 0, sizeof(req));
+        req.request_id = millis() + 4;
+        req.type = NFCWriteType::WRITE_SPOOLMAN_ID;
+        strncpy(req.expected_spool_id, p.expected_uid, sizeof(req.expected_spool_id) - 1);
+        req.data.spoolman_id = p.spoolman_id;
+        NFCManager::getInstance().enqueueWrite(req);
+    }
+}
+
+void ApplicationManager::handleHAUpdateRemaining(const AppMessage& msg) {
+    Serial.printf("EVENT: HAUpdateRemaining - expected_uid=%s, remaining_g=%.2f\n",
+        msg.payload.haUpdateRemaining.expected_uid,
+        msg.payload.haUpdateRemaining.remaining_g);
+
+    const auto& p = msg.payload.haUpdateRemaining;
+
+    // Set consumed weight: we need the initial weight from the current tag
+    // The NFC write will compute consumed = initial - remaining internally
+    // We use SET_CONSUMED_WEIGHT with consumed = initial - remaining
+    // But we don't know initial here. Use SET_CONSUMED_WEIGHT with a sentinel approach.
+    // Actually, the HA manager will compute consumed before sending this message.
+    // For now, treat remaining_g as a consumed weight to set.
+    // The HA task should compute consumed = initial - remaining before sending.
+    NFCWriteRequest req;
+    memset(&req, 0, sizeof(req));
+    req.request_id = millis();
+    req.type = NFCWriteType::SET_CONSUMED_WEIGHT;
+    strncpy(req.expected_spool_id, p.expected_uid, sizeof(req.expected_spool_id) - 1);
+    // remaining_g here is actually the consumed weight (computed by HA task)
+    req.data.consumed_weight = p.remaining_g;
+    NFCManager::getInstance().enqueueWrite(req);
+}
+
 #ifndef NATIVE_TEST
 void ApplicationManager::enqueueSpoolmanSync(const SpoolDetectedPayload& spool) {
     SpoolmanSyncRequest req;
@@ -374,3 +540,25 @@ void ApplicationManager::enqueueSpoolmanSync(const SpoolDetectedPayload& spool) 
     SpoolmanManager::getInstance().enqueueSync(req);
 }
 #endif
+
+void ApplicationManager::publishToHA(const char* topicSuffix, const char* payload, bool retained) {
+#ifndef NATIVE_TEST
+    auto& ha = HomeAssistantManager::getInstance();
+    if (!ha.isConfigured()) return;
+
+    HAPublishRequest req;
+    memset(&req, 0, sizeof(req));
+
+    char deviceId[7];
+    HomeAssistantManager::getDeviceId(deviceId, sizeof(deviceId));
+    snprintf(req.topic, sizeof(req.topic), "openprinttag/%s/%s", deviceId, topicSuffix);
+    strncpy(req.payload, payload, sizeof(req.payload) - 1);
+    req.retained = retained;
+
+    ha.enqueuePublish(req);
+#else
+    (void)topicSuffix;
+    (void)payload;
+    (void)retained;
+#endif
+}

@@ -19,6 +19,12 @@ bool ConfigurationManager::begin() {
     memset(_prusaLinkApiKey, 0, sizeof(_prusaLinkApiKey));
     memset(_spoolmanUrl, 0, sizeof(_spoolmanUrl));
     _pollIntervalMs = 5000;
+    _haEnabled = false;
+    memset(_haMqttHost, 0, sizeof(_haMqttHost));
+    _haMqttPort = 1883;
+    memset(_haMqttUser, 0, sizeof(_haMqttUser));
+    memset(_haMqttPass, 0, sizeof(_haMqttPass));
+    _automationMode = 0;
 
     // Load from NVS if configured
     loadFromNVS();
@@ -53,6 +59,24 @@ bool ConfigurationManager::loadFromNVS() {
     if (prefs.isKey("poll_ms")) {
         _pollIntervalMs = prefs.getUInt("poll_ms", _pollIntervalMs);
     }
+    if (prefs.isKey("ha_enabled")) {
+        _haEnabled = prefs.getBool("ha_enabled", false);
+    }
+    if (prefs.isKey("ha_mqtt_host")) {
+        prefs.getString("ha_mqtt_host", _haMqttHost, sizeof(_haMqttHost));
+    }
+    if (prefs.isKey("ha_mqtt_port")) {
+        _haMqttPort = prefs.getUShort("ha_mqtt_port", 1883);
+    }
+    if (prefs.isKey("ha_mqtt_user")) {
+        prefs.getString("ha_mqtt_user", _haMqttUser, sizeof(_haMqttUser));
+    }
+    if (prefs.isKey("ha_mqtt_pass")) {
+        prefs.getString("ha_mqtt_pass", _haMqttPass, sizeof(_haMqttPass));
+    }
+    if (prefs.isKey("auto_mode")) {
+        _automationMode = prefs.getUChar("auto_mode", 0);
+    }
 
     prefs.end();
     Serial.println("ConfigurationManager: Loaded config from NVS");
@@ -72,6 +96,12 @@ bool ConfigurationManager::saveToNVS() {
     prefs.putString("prusa_key", _prusaLinkApiKey);
     prefs.putString("spoolman_url", _spoolmanUrl);
     prefs.putUInt("poll_ms", _pollIntervalMs);
+    prefs.putBool("ha_enabled", _haEnabled);
+    prefs.putString("ha_mqtt_host", _haMqttHost);
+    prefs.putUShort("ha_mqtt_port", _haMqttPort);
+    prefs.putString("ha_mqtt_user", _haMqttUser);
+    prefs.putString("ha_mqtt_pass", _haMqttPass);
+    prefs.putUChar("auto_mode", _automationMode);
 
     prefs.end();
     Serial.println("ConfigurationManager: Saved config to NVS");
@@ -87,6 +117,12 @@ String ConfigurationManager::readConfig() {
     doc["prusa_link_api_key"] = _prusaLinkApiKey;
     doc["spoolman_url"] = _spoolmanUrl;
     doc["poll_interval_ms"] = _pollIntervalMs;
+    doc["ha_enabled"] = _haEnabled;
+    doc["ha_mqtt_host"] = _haMqttHost;
+    doc["ha_mqtt_port"] = _haMqttPort;
+    doc["ha_mqtt_user"] = _haMqttUser;
+    // ha_mqtt_pass intentionally omitted for security
+    doc["automation_mode"] = _automationMode;
     doc["device_version"] = DEVICE_VERSION;
 
     String output;
@@ -128,6 +164,27 @@ bool ConfigurationManager::postConfigUpdate(const char* json) {
     if (doc["poll_interval_ms"].is<uint32_t>()) {
         _pollIntervalMs = doc["poll_interval_ms"].as<uint32_t>();
     }
+    if (doc["ha_enabled"].is<bool>()) {
+        _haEnabled = doc["ha_enabled"].as<bool>();
+    }
+    if (doc["ha_mqtt_host"].is<const char*>()) {
+        strncpy(_haMqttHost, doc["ha_mqtt_host"].as<const char*>(), sizeof(_haMqttHost) - 1);
+        _haMqttHost[sizeof(_haMqttHost) - 1] = '\0';
+    }
+    if (doc["ha_mqtt_port"].is<uint16_t>()) {
+        _haMqttPort = doc["ha_mqtt_port"].as<uint16_t>();
+    }
+    if (doc["ha_mqtt_user"].is<const char*>()) {
+        strncpy(_haMqttUser, doc["ha_mqtt_user"].as<const char*>(), sizeof(_haMqttUser) - 1);
+        _haMqttUser[sizeof(_haMqttUser) - 1] = '\0';
+    }
+    if (doc["ha_mqtt_pass"].is<const char*>()) {
+        strncpy(_haMqttPass, doc["ha_mqtt_pass"].as<const char*>(), sizeof(_haMqttPass) - 1);
+        _haMqttPass[sizeof(_haMqttPass) - 1] = '\0';
+    }
+    if (doc["automation_mode"].is<uint8_t>()) {
+        _automationMode = doc["automation_mode"].as<uint8_t>();
+    }
 
     return saveToNVS();
 }
@@ -154,4 +211,28 @@ const char* ConfigurationManager::getSpoolmanURL() const {
 
 uint32_t ConfigurationManager::getPollIntervalMs() const {
     return _pollIntervalMs;
+}
+
+bool ConfigurationManager::getHAEnabled() const {
+    return _haEnabled;
+}
+
+const char* ConfigurationManager::getHAMqttHost() const {
+    return _haMqttHost;
+}
+
+uint16_t ConfigurationManager::getHAMqttPort() const {
+    return _haMqttPort;
+}
+
+const char* ConfigurationManager::getHAMqttUser() const {
+    return _haMqttUser;
+}
+
+const char* ConfigurationManager::getHAMqttPass() const {
+    return _haMqttPass;
+}
+
+uint8_t ConfigurationManager::getAutomationMode() const {
+    return _automationMode;
 }

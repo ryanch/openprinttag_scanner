@@ -9,6 +9,7 @@
 #include "NFCManager.h"
 #include "PrusaLinkAPIStrategy.h"
 #include "SpoolmanManager.h"
+#include "HomeAssistantManager.h"
 #include "StubPrinterLinkStrategy.h"
 #include "LCDManager.h"
 
@@ -127,6 +128,19 @@ void setup() {
     Serial.println("SpoolmanManager init failed - continuing without Spoolman");
   }
 
+  // Initialize HomeAssistantManager
+  if (!HomeAssistantManager::getInstance().begin()) {
+    Serial.println("HomeAssistantManager init failed - continuing without HA");
+  }
+
+  // Load automation mode from config
+  {
+    uint8_t mode = ConfigurationManager::getInstance().getAutomationMode();
+    ApplicationManager::getInstance().setAutomationMode(static_cast<AutomationMode>(mode));
+    Serial.printf("Automation mode: %s\n",
+                  mode == 0 ? "SELF_DIRECTED" : "CONTROLLED_BY_HA");
+  }
+
   // Initialize NFCManager
   if (!NFCManager::getInstance().begin()) {
     Serial.println("NFCManager init failed - halting");
@@ -153,9 +167,19 @@ void setup() {
   // Start SpoolmanManager task
   SpoolmanManager::getInstance().startTask();
 
-  // Build status screen
+  // Build status + HA startup from same config snapshot
   auto& config = ConfigurationManager::getInstance();
 
+  // Start HomeAssistantManager task
+  Serial.printf("Setup: HA config before startTask: enabled=%s host='%s' host_len=%u port=%u user_set=%s\n",
+                config.getHAEnabled() ? "true" : "false",
+                config.getHAMqttHost(),
+                static_cast<unsigned>(strlen(config.getHAMqttHost())),
+                static_cast<unsigned>(config.getHAMqttPort()),
+                strlen(config.getHAMqttUser()) > 0 ? "true" : "false");
+  HomeAssistantManager::getInstance().startTask();
+
+  // Build status screen
   char bleInd = BluetoothManager::getInstance().isAdvertising() ? '+' : '!';
 
   char wifiInd;
@@ -170,9 +194,14 @@ void setup() {
   if (strlen(config.getSpoolmanURL()) == 0) smInd = '?';
   else smInd = '+';
 
+  char haInd;
+  if (!config.getHAEnabled()) haInd = '?';
+  else if (strlen(config.getHAMqttHost()) == 0) haInd = '!';
+  else haInd = '+';
+
   char line1[17], line2[17];
-  snprintf(line1, sizeof(line1), "Status NFC+ BLE%c", bleInd);
-  snprintf(line2, sizeof(line2), "Prusa%c SM%c Wifi%c", prusaInd, smInd, wifiInd);
+  snprintf(line1, sizeof(line1), "NFC+ BLE%c Wifi%c", bleInd, wifiInd);
+  snprintf(line2, sizeof(line2), "PL%c SM%c HA%c", prusaInd, smInd, haInd);
   lcdManager.updateScreen(line1, line2);
 
   Serial.println("=== Setup complete ===");

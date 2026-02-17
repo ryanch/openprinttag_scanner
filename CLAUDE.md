@@ -17,6 +17,7 @@ ApplicationManager: Central state machine + message bus, receives events (print 
 NFC Stack: NFCManager -> HardwareNFCConnection -> PN5180 driver -> ISO15693 Tag -> openprinttag_lib (CBOR encode/decode)
 Printer Polling: PrinterManager task polls -> PrusaLinkAPIStrategy::update() -> HTTP GET to /api/v1/status & /api/v1/job
 Spoolman Sync: ApplicationManager triggers sync -> SpoolmanManager queues request -> SpoolmanManager task -> HTTP requests to /api/v1/... endpoints.
+Home Assistant: ApplicationManager publishes events -> HomeAssistantManager queues -> MQTT publish. HA commands arrive via MQTT subscribe -> AppMessage queue -> ApplicationManager handles.
 Configuration: Web Browser <-> BLE <-> BluetoothManager <-> ConfigurationManager & NFCManager
 
 # Source Inventory
@@ -51,6 +52,9 @@ src/StubPrinterLinkStrategy.cpp / .h — Test stub
 Spool Sync
 src/SpoolmanManager.cpp / .h — Spoolman API sync + queue worker
 
+Home Assistant
+src/HomeAssistantManager.cpp / .h — MQTT client task, publish/subscribe, HA discovery
+
 UI / UX
 src/LCDManager.cpp / .h — I2C LCD task + status updates
 src/BluetoothManager.cpp / .h — BLE services + connections
@@ -77,3 +81,6 @@ test/native/TestableApplicationManager.h — Queue bypass harness
 test/native/TestNFCManager.h — Write queue tracker
 test/native/test_helpers.h — Factories + assertions
 
+Integration Tests
+test/integration/ha.cpp — Native standalone MQTT/HA connectivity + discovery/state publisher
+test/integration/Makefile — Build/run helper for local HA integration probe

@@ -16,6 +16,14 @@ enum class AppMessageType {
     SPOOL_UPDATED,
     BLANK_TAG_DETECTED,
     SPOOLMAN_SYNCED,
+    TAG_REMOVED,
+    HA_WRITE_TAG,
+    HA_UPDATE_REMAINING,
+};
+
+enum class AutomationMode : uint8_t {
+    SELF_DIRECTED = 0,
+    CONTROLLED_BY_HOME_ASSISTANT = 1
 };
 
 enum class AppState { IDLE, MONITORING_PRINT };
@@ -51,6 +59,27 @@ struct SpoolmanSyncedPayload {
     int32_t spoolman_id;
 };
 
+struct TagRemovedPayload {
+    char spool_id[64];
+    float last_remaining_kg;
+    int32_t spoolman_id;
+};
+
+struct HAWriteTagPayload {
+    char expected_uid[64];
+    uint8_t material_type;
+    uint8_t color[4];
+    char manufacturer[64];
+    float initial_weight_g;
+    float remaining_g;
+    int32_t spoolman_id;
+};
+
+struct HAUpdateRemainingPayload {
+    char expected_uid[64];
+    float remaining_g;
+};
+
 struct AppMessage {
     AppMessageType type;
     union {
@@ -69,6 +98,9 @@ struct AppMessage {
         SpoolUpdatedPayload spoolUpdated;
         BlankTagPayload blankTag;
         SpoolmanSyncedPayload spoolmanSynced;
+        TagRemovedPayload tagRemoved;
+        HAWriteTagPayload haWriteTag;
+        HAUpdateRemainingPayload haUpdateRemaining;
     } payload;
 };
 

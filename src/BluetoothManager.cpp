@@ -1,5 +1,6 @@
 #include "BluetoothManager.h"
 #include "ConfigurationManager.h"
+#include "HomeAssistantManager.h"
 #include "NFCManager.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
@@ -352,6 +353,29 @@ static void process_command(const char* json) {
                 }
             }
             Serial.printf("%s: test_spoolman %s -> %d\n", TAG, testUrl.c_str(), httpCode);
+        }
+    }
+    else if (strcmp(command, "test_mqtt") == 0) {
+        auto& config = ConfigurationManager::getInstance();
+        auto& haManager = HomeAssistantManager::getInstance();
+
+        if (!config.getHAEnabled()) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer),
+                     "{\"status\":\"error\",\"message\":\"Home Assistant must be enabled\"}");
+        } else if (strlen(config.getHAMqttHost()) == 0) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer),
+                     "{\"status\":\"error\",\"message\":\"MQTT host not configured\"}");
+        } else {
+            int mqttState = -1;
+            bool connected = haManager.restartAndTestConnection(10000, &mqttState);
+            if (connected) {
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
+            } else {
+                snprintf(s_response_buffer, sizeof(s_response_buffer),
+                         "{\"status\":\"error\",\"message\":\"MQTT state %d\"}", mqttState);
+            }
+            Serial.printf("%s: test_mqtt restart -> %s (state=%d)\n", TAG,
+                          connected ? "OK" : "FAIL", mqttState);
         }
     }
     else if (strcmp(command, "test_prusalink") == 0) {

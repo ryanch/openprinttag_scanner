@@ -3,7 +3,8 @@
 <head>
     <meta charset="UTF-8">
     <meta name="viewport" content="width=device-width, initial-scale=1.0">
-    <title>OpenPrintTag</title>
+    <title>OpenPrintTag Scanner</title>
+    <link rel="icon" type="image/x-icon" href="favicon.ico">
     <style>
         /* Typography and Theme - Prusa Connect Aesthetic */
         @import url('https://fonts.googleapis.com/css2?family=Exo+2:wght@400;600;700&display=swap');
@@ -538,6 +539,42 @@
                         <input type="number" id="poll_interval_ms" name="poll_interval_ms" min="1000">
                     </div>
 
+                    <div class="section-header" style="margin-top: 1.5rem;">Home Assistant</div>
+                    <div class="form-group">
+                        <label for="ha_enabled">Enable Home Assistant</label>
+                        <select id="ha_enabled" name="ha_enabled">
+                            <option value="false">Disabled</option>
+                            <option value="true">Enabled</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <label for="ha_mqtt_host">MQTT Broker Host</label>
+                        <input type="text" id="ha_mqtt_host" name="ha_mqtt_host" placeholder="e.g., 192.168.1.50">
+                    </div>
+                    <div class="form-group">
+                        <label for="ha_mqtt_port">MQTT Port</label>
+                        <input type="number" id="ha_mqtt_port" name="ha_mqtt_port" min="1" max="65535" value="1883">
+                    </div>
+                    <div class="form-group">
+                        <label for="ha_mqtt_user">MQTT Username</label>
+                        <input type="text" id="ha_mqtt_user" name="ha_mqtt_user">
+                    </div>
+                    <div class="form-group">
+                        <label for="ha_mqtt_pass">MQTT Password</label>
+                        <input type="password" id="ha_mqtt_pass" name="ha_mqtt_pass">
+                    </div>
+                    <div class="form-group">
+                        <label for="automation_mode">Automation Mode</label>
+                        <select id="automation_mode" name="automation_mode">
+                            <option value="0">Self Directed</option>
+                            <option value="1">Controlled by Home Assistant</option>
+                        </select>
+                    </div>
+                    <div class="form-group">
+                        <button type="button" id="test-mqtt-btn" class="secondary" style="width: 100%;">Test MQTT Connection</button>
+                        <div id="test-mqtt-result" style="margin-top: 0.5rem; font-size: 0.85rem; display: none;"></div>
+                    </div>
+
                     <div class="button-group">
                         <button type="submit" id="save-button">Save Configuration</button>
                     </div>
@@ -1040,6 +1077,14 @@
                 document.getElementById('wifi_pass').value = '';
                 document.getElementById('device-version').textContent = config.device_version || 'Unknown';
 
+                // HA fields
+                document.getElementById('ha_enabled').value = config.ha_enabled ? 'true' : 'false';
+                document.getElementById('ha_mqtt_host').value = config.ha_mqtt_host || '';
+                document.getElementById('ha_mqtt_port').value = config.ha_mqtt_port || 1883;
+                document.getElementById('ha_mqtt_user').value = config.ha_mqtt_user || '';
+                document.getElementById('ha_mqtt_pass').value = '';
+                document.getElementById('automation_mode').value = (config.automation_mode || 0).toString();
+
             } catch (error) {
                 console.error('Failed to load config:', error);
             }
@@ -1058,6 +1103,12 @@
             const prusa_link_api_key = document.getElementById('prusa_link_api_key').value;
             const spoolman_url = document.getElementById('spoolman_url').value;
             const poll_interval_ms = parseInt(document.getElementById('poll_interval_ms').value, 10);
+            const ha_enabled = document.getElementById('ha_enabled').value === 'true';
+            const ha_mqtt_host = document.getElementById('ha_mqtt_host').value;
+            const ha_mqtt_port = parseInt(document.getElementById('ha_mqtt_port').value, 10) || 1883;
+            const ha_mqtt_user = document.getElementById('ha_mqtt_user').value;
+            const ha_mqtt_pass = document.getElementById('ha_mqtt_pass').value;
+            const automation_mode = parseInt(document.getElementById('automation_mode').value, 10) || 0;
 
             const configPayload = {
                 command: 'write_config',
@@ -1065,11 +1116,19 @@
                 prusa_link_url,
                 prusa_link_api_key,
                 spoolman_url,
-                poll_interval_ms
+                poll_interval_ms,
+                ha_enabled,
+                ha_mqtt_host,
+                ha_mqtt_port,
+                ha_mqtt_user,
+                automation_mode
             };
 
             if (wifi_pass) {
                 configPayload.wifi_pass = wifi_pass;
+            }
+            if (ha_mqtt_pass) {
+                configPayload.ha_mqtt_pass = ha_mqtt_pass;
             }
 
             try {
@@ -1217,11 +1276,62 @@
             }
         }
 
+        async function handleTestMqtt() {
+            const btn = document.getElementById('test-mqtt-btn');
+            const result = document.getElementById('test-mqtt-result');
+            const haEnabled = document.getElementById('ha_enabled').value === 'true';
+
+            if (!haEnabled) {
+                result.style.display = 'block';
+                result.style.color = 'var(--prusa-red)';
+                result.textContent = 'Enable Home Assistant before running MQTT test.';
+                return;
+            }
+
+            if (!configWriteCharacteristic) {
+                result.style.display = 'block';
+                result.style.color = 'var(--prusa-red)';
+                result.textContent = 'Not connected to device.';
+                return;
+            }
+
+            try {
+                btn.disabled = true;
+                btn.textContent = 'Testing...';
+                result.style.display = 'block';
+                result.style.color = '#aaa';
+                result.textContent = 'Testing MQTT connection (restart + connect)...';
+
+                const response = await enqueueCommand(async () => {
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode(JSON.stringify({ command: 'test_mqtt' }))
+                    );
+                    const responseValue = await configWriteCharacteristic.readValue();
+                    return JSON.parse(textDecoder.decode(responseValue));
+                });
+
+                if (response.status === 'ok') {
+                    result.style.color = 'var(--prusa-green)';
+                    result.textContent = 'MQTT connection successful!';
+                } else {
+                    result.style.color = 'var(--prusa-red)';
+                    result.textContent = `Error: ${response.message || 'Connection failed'}`;
+                }
+            } catch (error) {
+                result.style.color = 'var(--prusa-red)';
+                result.textContent = `Error: ${error}`;
+            } finally {
+                btn.disabled = false;
+                btn.textContent = 'Test MQTT Connection';
+            }
+        }
+
         // Event Listeners
         connectButton.addEventListener('click', handleConnect);
         configForm.addEventListener('submit', handleSave);
         document.getElementById('test-spoolman-btn').addEventListener('click', handleTestSpoolman);
         document.getElementById('test-prusalink-btn').addEventListener('click', handleTestPrusalink);
+        document.getElementById('test-mqtt-btn').addEventListener('click', handleTestMqtt);
     </script>
 </body>
 </html>

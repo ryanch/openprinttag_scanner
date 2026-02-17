@@ -21,6 +21,14 @@ public:
     const char* getSpoolmanURL() const;
     uint32_t getPollIntervalMs() const;
 
+    // Home Assistant / MQTT configuration
+    bool getHAEnabled() const;
+    const char* getHAMqttHost() const;
+    uint16_t getHAMqttPort() const;
+    const char* getHAMqttUser() const;
+    const char* getHAMqttPass() const;
+    uint8_t getAutomationMode() const;
+
 private:
     ConfigurationManager() = default;
     ConfigurationManager(const ConfigurationManager&) = delete;
@@ -36,6 +44,15 @@ private:
     char _prusaLinkApiKey[64];
     char _spoolmanUrl[128];
     uint32_t _pollIntervalMs;
+
+    // Home Assistant / MQTT config
+    bool _haEnabled;
+    char _haMqttHost[128];
+    uint16_t _haMqttPort;
+    char _haMqttUser[64];
+    char _haMqttPass[64];
+    uint8_t _automationMode;
+
     bool _initialized = false;
 
     static constexpr const char* NVS_NAMESPACE = "opt_config";

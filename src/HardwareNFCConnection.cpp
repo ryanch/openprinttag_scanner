@@ -2,6 +2,8 @@
 #include <Arduino.h>
 #include <cstring>
 
+//#define ENABLE_NFC_DEBUG_LOGS
+
 HardwareNFCConnection::HardwareNFCConnection() {
     memset(currentUid_, 0, sizeof(currentUid_));
     memset(&hal_, 0, sizeof(hal_));
@@ -204,51 +206,77 @@ void HardwareNFCConnection::logDiagnostics() {
     bool rfFieldOn = (rfStatus & 0x01);  // TX_RF_STATUS bit
     bool extFieldDet = (rfStatus & 0x02);  // RF_DET_STATUS bit
 
-    Serial.printf("HardwareNFC DIAG: IRQ=0x%08lX RF=0x%08lX SYS=0x%08lX\n",
-                  irqStatus, rfStatus, sysStatus);
-    Serial.printf("HardwareNFC DIAG: RF_field=%s ext_field=%s transceiver=%u\n",
-                  rfFieldOn ? "ON" : "OFF",
-                  extFieldDet ? "YES" : "NO",
-                  transceiverState);
+    #ifdef ENABLE_NFC_DEBUG_LOGS
 
-    // Step-by-step RF activation test
-    Serial.println("HardwareNFC DIAG: --- RF activation test ---");
+        Serial.printf("HardwareNFC DIAG: IRQ=0x%08lX RF=0x%08lX SYS=0x%08lX\n",
+                    irqStatus, rfStatus, sysStatus);
+        Serial.printf("HardwareNFC DIAG: RF_field=%s ext_field=%s transceiver=%u\n",
+                    rfFieldOn ? "ON" : "OFF",
+                    extFieldDet ? "YES" : "NO",
+                    transceiverState);
+
+        // Step-by-step RF activation test
+        Serial.println("HardwareNFC DIAG: --- RF activation test ---");
+
+    #endif
+    
 
     // Step 1: Reset and check
     nfc_->reset();
     nfc_->readRegister(RF_STATUS, &rfStatus);
-    Serial.printf("HardwareNFC DIAG: After reset: RF=0x%08lX field=%s\n",
-                  rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+    #ifdef ENABLE_NFC_DEBUG_LOGS
+        Serial.printf("HardwareNFC DIAG: After reset: RF=0x%08lX field=%s\n",
+                    rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+    #endif
+
 
     // Step 2: Load RF config
     nfc_->loadRFConfig(0x0d, 0x8d);
     nfc_->readRegister(RF_STATUS, &rfStatus);
-    Serial.printf("HardwareNFC DIAG: After loadRFConfig: RF=0x%08lX field=%s\n",
-                  rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+    #ifdef ENABLE_NFC_DEBUG_LOGS
+        Serial.printf("HardwareNFC DIAG: After loadRFConfig: RF=0x%08lX field=%s\n",
+                    rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+    #endif
+
 
     // Step 3: Turn RF on
     nfc_->setRF_on();
     nfc_->readRegister(RF_STATUS, &rfStatus);
     nfc_->readRegister(IRQ_STATUS, &irqStatus);
-    Serial.printf("HardwareNFC DIAG: After setRF_on: RF=0x%08lX IRQ=0x%08lX field=%s\n",
-                  rfStatus, irqStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+    #ifdef ENABLE_NFC_DEBUG_LOGS
+        Serial.printf("HardwareNFC DIAG: After setRF_on: RF=0x%08lX IRQ=0x%08lX field=%s\n",
+                    rfStatus, irqStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+    #endif
 
     // Step 4: Wait and check again
     delay(50);
     nfc_->readRegister(RF_STATUS, &rfStatus);
-    Serial.printf("HardwareNFC DIAG: After 50ms wait: RF=0x%08lX field=%s\n",
-                  rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+    #ifdef ENABLE_NFC_DEBUG_LOGS
+        Serial.printf("HardwareNFC DIAG: After 50ms wait: RF=0x%08lX field=%s\n",
+                    rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+    #endif
 
     // Step 5: Set transceive (like setupRF does) and check
     nfc_->writeRegisterWithAndMask(SYSTEM_CONFIG, 0xfffffff8);  // Idle
     nfc_->readRegister(RF_STATUS, &rfStatus);
-    Serial.printf("HardwareNFC DIAG: After Idle cmd: RF=0x%08lX field=%s\n",
-                  rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+    #ifdef ENABLE_NFC_DEBUG_LOGS
+        Serial.printf("HardwareNFC DIAG: After Idle cmd: RF=0x%08lX field=%s\n",
+                    rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+    #endif
+
 
     nfc_->writeRegisterWithOrMask(SYSTEM_CONFIG, 0x00000003);  // Transceive
     nfc_->readRegister(RF_STATUS, &rfStatus);
-    Serial.printf("HardwareNFC DIAG: After Transceive cmd: RF=0x%08lX field=%s\n",
-                  rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
 
-    Serial.println("HardwareNFC DIAG: --- end test ---");
+    #ifdef ENABLE_NFC_DEBUG_LOGS
+        Serial.printf("HardwareNFC DIAG: After Transceive cmd: RF=0x%08lX field=%s\n",
+                    rfStatus, (rfStatus & 0x01) ? "ON" : "OFF");
+
+        Serial.println("HardwareNFC DIAG: --- end test ---");
+    #endif
 }

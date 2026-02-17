@@ -235,6 +235,153 @@ int test_high_progress_disappearance_deducts_filament() {
     return 0;
 }
 
+// Test: CONTROLLED_BY_HA mode does not auto-update NFC tag on print finish
+int test_controlled_mode_no_auto_weight_update() {
+    setup_test();
+
+    auto& app = ApplicationManager::getInstance();
+    app.setAutomationMode(AutomationMode::CONTROLLED_BY_HOME_ASSISTANT);
+
+    // Print starts
+    g_app->injectMessage(createPrintStarted(100));
+
+    // Spool detected
+    g_app->injectMessage(createSpoolDetected("SPOOL_HA", OPT_MATERIAL_TYPE_PLA, 0.500f, "PLA"));
+
+    // Print finishes with filament used
+    g_app->injectMessage(createPrintFinished(100, 50.0f));
+    TEST_ASSERT_EQ(g_app->getState(), AppState::IDLE);
+
+    // No NFC write should be enqueued in CONTROLLED_BY_HA mode
+    TEST_ASSERT_EQ(NFCManager::getInstance().getWriteCount(), 0);
+
+    // LCD should show HA controlled message
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine2, "HA controlled");
+
+    teardown_test();
+    return 0;
+}
+
+// Test: SELF_DIRECTED mode auto-updates NFC tag on print finish (existing behavior)
+int test_self_directed_auto_weight_update() {
+    setup_test();
+
+    auto& app = ApplicationManager::getInstance();
+    app.setAutomationMode(AutomationMode::SELF_DIRECTED);
+
+    g_app->injectMessage(createPrintStarted(101));
+    g_app->injectMessage(createSpoolDetected("SPOOL_SD", OPT_MATERIAL_TYPE_PLA, 0.500f, "PLA"));
+    g_app->injectMessage(createPrintFinished(101, 50.0f));
+
+    // NFC write SHOULD be enqueued in SELF_DIRECTED mode
+    TEST_ASSERT_EQ(NFCManager::getInstance().getWriteCount(), 1);
+    TEST_ASSERT(NFCManager::getInstance().hasWriteForSpool("SPOOL_SD"));
+
+    teardown_test();
+    return 0;
+}
+
+// Test: HA_WRITE_TAG enqueues multiple NFC write requests
+int test_ha_write_tag_enqueues_writes() {
+    setup_test();
+
+    uint8_t color[4] = {0, 255, 0, 255};
+    g_app->injectMessage(createHAWriteTag("SPOOL001", OPT_MATERIAL_TYPE_PETG,
+                                           color, "Bambu", 1000.0f, 750.0f, 99));
+
+    auto& nfcMgr = NFCManager::getInstance();
+    // Should enqueue: material type, color, brand name, consumed weight, spoolman ID = 5 writes
+    TEST_ASSERT_EQ(nfcMgr.getWriteCount(), 5);
+
+    // Verify write types
+    const auto& reqs = nfcMgr.getWriteRequests();
+    TEST_ASSERT_EQ(reqs[0].type, NFCWriteType::CHANGE_FILAMENT_TYPE);
+    TEST_ASSERT_EQ(reqs[1].type, NFCWriteType::CHANGE_COLOR);
+    TEST_ASSERT_EQ(reqs[2].type, NFCWriteType::SET_BRAND_NAME);
+    TEST_ASSERT_EQ(reqs[3].type, NFCWriteType::SET_CONSUMED_WEIGHT);
+    TEST_ASSERT_EQ(reqs[4].type, NFCWriteType::WRITE_SPOOLMAN_ID);
+
+    // All should target the expected UID
+    for (const auto& req : reqs) {
+        TEST_ASSERT(strcmp(req.expected_spool_id, "SPOOL001") == 0);
+    }
+
+    teardown_test();
+    return 0;
+}
+
+// Test: HA_WRITE_TAG works in both automation modes
+int test_ha_write_works_in_both_modes() {
+    // Test CONTROLLED_BY_HA mode
+    setup_test();
+    auto& app = ApplicationManager::getInstance();
+    app.setAutomationMode(AutomationMode::CONTROLLED_BY_HOME_ASSISTANT);
+
+    uint8_t color[4] = {255, 0, 0, 255};
+    g_app->injectMessage(createHAWriteTag("SPOOL_C", OPT_MATERIAL_TYPE_ABS,
+                                           color, "Test", 500.0f, 400.0f));
+    TEST_ASSERT(NFCManager::getInstance().getWriteCount() > 0);
+    teardown_test();
+
+    // Test SELF_DIRECTED mode
+    setup_test();
+    auto& app2 = ApplicationManager::getInstance();
+    app2.setAutomationMode(AutomationMode::SELF_DIRECTED);
+
+    g_app->injectMessage(createHAWriteTag("SPOOL_S", OPT_MATERIAL_TYPE_ABS,
+                                           color, "Test", 500.0f, 400.0f));
+    TEST_ASSERT(NFCManager::getInstance().getWriteCount() > 0);
+    teardown_test();
+
+    return 0;
+}
+
+// Test: HA_UPDATE_REMAINING enqueues SET_CONSUMED_WEIGHT write
+int test_ha_update_remaining_enqueues_write() {
+    setup_test();
+
+    g_app->injectMessage(createHAUpdateRemaining("SPOOL001", 200.0f));
+
+    auto& nfcMgr = NFCManager::getInstance();
+    TEST_ASSERT_EQ(nfcMgr.getWriteCount(), 1);
+    const auto& req = nfcMgr.getWriteRequests()[0];
+    TEST_ASSERT_EQ(req.type, NFCWriteType::SET_CONSUMED_WEIGHT);
+    TEST_ASSERT(strcmp(req.expected_spool_id, "SPOOL001") == 0);
+
+    teardown_test();
+    return 0;
+}
+
+// Test: TAG_REMOVED message clears displayed spool ID
+int test_tag_removed_clears_display_state() {
+    setup_test();
+
+    // Detect a spool first
+    g_app->injectMessage(createSpoolDetected("SPOOL_TR", OPT_MATERIAL_TYPE_PLA, 0.850f, "PLA"));
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+
+    // Tag removed
+    g_app->injectMessage(createTagRemoved("SPOOL_TR", 0.850f));
+
+    // Same spool again should update LCD (dedup state was cleared)
+    g_app->injectMessage(createSpoolDetected("SPOOL_TR", OPT_MATERIAL_TYPE_PLA, 0.850f, "PLA"));
+    TEST_ASSERT_EQ(g_lcd->updateCount, 2);
+
+    teardown_test();
+    return 0;
+}
+
+// Test: Default automation mode is SELF_DIRECTED (existing tests unaffected)
+int test_default_automation_mode() {
+    setup_test();
+
+    TEST_ASSERT_EQ(ApplicationManager::getInstance().getAutomationMode(),
+                   AutomationMode::SELF_DIRECTED);
+
+    teardown_test();
+    return 0;
+}
+
 int main() {
     int passed = 0, failed = 0, total = 0;
 
@@ -250,6 +397,15 @@ int main() {
     RUN_TEST(test_spool_update_failure);
     RUN_TEST(test_duplicate_spool_detection);
     RUN_TEST(test_high_progress_disappearance_deducts_filament);
+
+    // HA / Automation mode tests
+    RUN_TEST(test_controlled_mode_no_auto_weight_update);
+    RUN_TEST(test_self_directed_auto_weight_update);
+    RUN_TEST(test_ha_write_tag_enqueues_writes);
+    RUN_TEST(test_ha_write_works_in_both_modes);
+    RUN_TEST(test_ha_update_remaining_enqueues_write);
+    RUN_TEST(test_tag_removed_clears_display_state);
+    RUN_TEST(test_default_automation_mode);
 
     printf("\n=== Results: %d/%d passed ===\n", passed, total);
 
