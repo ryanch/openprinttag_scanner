@@ -217,7 +217,8 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
         snprintf(json, sizeof(json),
                  "{\"uid\":\"%s\",\"present\":true,\"material_type\":\"%s\","
                  "\"material_name\":\"%s\",\"color\":\"%s\",\"manufacturer\":\"%s\","
-                 "\"remaining_g\":%.1f,\"initial_weight_g\":%.1f,\"spoolman_id\":%d}",
+                 "\"remaining_g\":%.1f,\"initial_weight_g\":%.1f,\"spoolman_id\":%d,"
+                 "\"blank\":false}",
                  s.spool_id, s.material_name, s.material_name, colorHex,
                  s.manufacturer, s.kg_remaining * 1000.0f, s.initial_weight_g,
                  s.spoolman_id);
@@ -310,9 +311,12 @@ void ApplicationManager::handleBlankTagDetected(const AppMessage& msg) {
 
     // Publish blank tag state to HA
     {
-        char json[128];
+        char json[256];
         snprintf(json, sizeof(json),
-                 "{\"uid\":\"%s\",\"present\":true,\"blank\":true}",
+                 "{\"uid\":\"%s\",\"present\":true,\"material_type\":\"\","
+                 "\"material_name\":\"\",\"color\":\"\",\"manufacturer\":\"\","
+                 "\"remaining_g\":0.0,\"initial_weight_g\":0.0,\"spoolman_id\":-1,"
+                 "\"blank\":true}",
                  msg.payload.blankTag.spool_id);
         publishToHA("tag/state", json, true);
     }
@@ -426,7 +430,12 @@ void ApplicationManager::handleTagRemoved(const AppMessage& msg) {
     lastDisplayedBlankId[0] = '\0';
 
     // Publish tag removed to HA
-    publishToHA("tag/state", "{\"uid\":\"\",\"present\":false}", true);
+    publishToHA("tag/state",
+                "{\"uid\":\"\",\"present\":false,\"material_type\":\"\","
+                "\"material_name\":\"\",\"color\":\"\",\"manufacturer\":\"\","
+                "\"remaining_g\":0.0,\"initial_weight_g\":0.0,\"spoolman_id\":-1,"
+                "\"blank\":false}",
+                true);
 }
 
 void ApplicationManager::handleHAWriteTag(const AppMessage& msg) {

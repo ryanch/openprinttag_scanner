@@ -263,19 +263,21 @@ bool publishSampleData(int fd, const Options& opts) {
     const std::string tagStateTopic = base + "/tag/state";
 
     const std::string discoveryTopic =
-        "homeassistant/binary_sensor/openprinttag_" + opts.deviceId +
-        "/tag_present/config";
+        "homeassistant/sensor/openprinttag_" + opts.deviceId +
+        "/spool/config";
 
     std::ostringstream discovery;
     discovery
         << "{"
         << "\"~\":\"" << base << "\"," 
-        << "\"name\":\"Tag Present\"," 
-        << "\"unique_id\":\"openprinttag_" << opts.deviceId << "_tag_present\"," 
+        << "\"name\":\"Spool\"," 
+        << "\"unique_id\":\"openprinttag_" << opts.deviceId << "_spool\"," 
         << "\"stat_t\":\"~/tag/state\"," 
-        << "\"val_tpl\":\"{{ 'ON' if value_json.present else 'OFF' }}\"," 
+        << "\"val_tpl\":\"{{ 'present' if value_json.present else 'not_present' }}\"," 
+        << "\"json_attr_t\":\"~/tag/state\"," 
+        << "\"json_attr_tpl\":\"{{ value_json }}\"," 
         << "\"avty_t\":\"~/availability\"," 
-        << "\"dev_cla\":\"occupancy\"," 
+        << "\"ic\":\"mdi:printer-3d-nozzle\"," 
         << "\"dev\":{"
         << "\"ids\":[\"openprinttag_" << opts.deviceId << "\"],"
         << "\"name\":\"OpenPrintTag Scanner\"," 
@@ -287,7 +289,11 @@ bool publishSampleData(int fd, const Options& opts) {
     packets.push_back(makePublishPacket(availabilityTopic, "online", true));
     packets.push_back(makePublishPacket(discoveryTopic, discovery.str(), true));
     packets.push_back(makePublishPacket(tagStateTopic,
-                                        "{\"uid\":\"TEST123\",\"present\":true,\"remaining_g\":845}",
+                                        "{\"uid\":\"TEST123\",\"present\":true,"
+                                        "\"material_type\":\"PLA\",\"material_name\":\"PLA\","
+                                        "\"color\":\"#FFFFFF\",\"manufacturer\":\"\","
+                                        "\"remaining_g\":845.0,\"initial_weight_g\":1000.0,"
+                                        "\"spoolman_id\":-1,\"blank\":false}",
                                         true));
 
     for (const auto& pkt : packets) {

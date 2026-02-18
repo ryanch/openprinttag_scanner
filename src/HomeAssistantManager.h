@@ -44,6 +44,7 @@ private:
     void taskLoop();
     bool reconnect();
     void publishDiscovery();
+    void publishCurrentTagState();
     void publishAvailability(const char* state);
     void subscribeCommands();
     static void mqttCallback(char* topic, uint8_t* payload, unsigned int length);
