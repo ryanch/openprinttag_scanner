@@ -4,7 +4,7 @@
 #include <Arduino.h>
 #include <cstdint>
 
-#define DEVICE_VERSION "0.66 BETA"
+#define DEVICE_VERSION "0.67 BETA"
 
 class ConfigurationManager {
 public:

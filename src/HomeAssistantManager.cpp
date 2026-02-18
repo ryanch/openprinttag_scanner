@@ -267,8 +267,12 @@ void HomeAssistantManager::taskLoop() {
             if (mqttClient.connected()) {
                 mqttClient.publish(req.topic, req.payload, req.retained);
                 char tagStateTopic[64];
+                char tagAttrsTopic[64];
                 snprintf(tagStateTopic, sizeof(tagStateTopic), "openprinttag/%s/tag/state", deviceId_);
+                snprintf(tagAttrsTopic, sizeof(tagAttrsTopic), "openprinttag/%s/tag/attributes", deviceId_);
                 if (strcmp(req.topic, tagStateTopic) == 0) {
+                    // Keep spool attributes aligned with the state payload source.
+                    mqttClient.publish(tagAttrsTopic, req.payload, req.retained);
                     // Keep command topics aligned with currently-present UID.
                     publishDiscovery();
                 }
@@ -469,7 +473,7 @@ void HomeAssistantManager::publishDiscovery() {
                                "\"stat_t\":\"~/tag/state\","
                                "\"val_tpl\":\"{{ 'present' if value_json.present else 'not_present' }}\","
                                "\"avty_t\":\"~/availability\","
-                               "\"json_attr_t\":\"~/tag/state\",\"json_attr_tpl\":\"{{ value_json }}\","
+                               "\"json_attr_t\":\"~/tag/attributes\","
                                "\"ic\":\"mdi:printer-3d-nozzle\","
                                "\"dev\":{\"ids\":[\"openprinttag_%s\"],\"name\":\"OpenPrintTag Scanner\","
                                "\"mf\":\"OpenPrintTag\",\"sw\":\"%s\"}}",
@@ -535,16 +539,20 @@ void HomeAssistantManager::publishCurrentTagState() {
     if (spool == nullptr) return;
 
     bool got = NFCManager::getInstance().getCurrentSpoolState(*spool);
+    char stateTopic[64];
+    char attrsTopic[64];
+    snprintf(stateTopic, sizeof(stateTopic), "openprinttag/%s/tag/state", deviceId_);
+    snprintf(attrsTopic, sizeof(attrsTopic), "openprinttag/%s/tag/attributes", deviceId_);
+
     if (!got || !spool->present) {
-        // Publish "not present" so HA sensors are in a known state
-        char topic[64];
-        snprintf(topic, sizeof(topic), "openprinttag/%s/tag/state", deviceId_);
-        mqttClient.publish(topic,
-                           "{\"uid\":\"\",\"present\":false,\"material_type\":\"\","
-                           "\"material_name\":\"\",\"color\":\"\",\"manufacturer\":\"\","
-                           "\"remaining_g\":0.0,\"initial_weight_g\":0.0,\"spoolman_id\":-1,"
-                           "\"blank\":false}",
-                           true);
+        // Publish "not present" so HA entities are in a known state.
+        const char* emptyState =
+            "{\"uid\":\"\",\"present\":false,\"tag_data_valid\":false,\"material_type\":\"\","
+            "\"material_name\":\"\",\"color\":\"\",\"manufacturer\":\"\","
+            "\"remaining_g\":0.0,\"initial_weight_g\":0.0,\"spoolman_id\":-1,"
+            "\"blank\":false}";
+        mqttClient.publish(stateTopic, emptyState, true);
+        mqttClient.publish(attrsTopic, emptyState, true);
         Serial.println("HomeAssistantManager: Published tag state (not present)");
         delete spool;
         return;
@@ -577,16 +585,18 @@ void HomeAssistantManager::publishCurrentTagState() {
 
     char json[384];
     snprintf(json, sizeof(json),
-             "{\"uid\":\"%s\",\"present\":true,\"material_type\":\"%s\","
+             "{\"uid\":\"%s\",\"present\":true,\"tag_data_valid\":%s,\"material_type\":\"%s\","
              "\"material_name\":\"%s\",\"color\":\"%s\",\"manufacturer\":\"%s\","
              "\"remaining_g\":%.1f,\"initial_weight_g\":%.1f,\"spoolman_id\":%d,"
-             "\"blank\":false}",
-             spool->spool_id, materialName, materialName, colorHex,
-             manufacturer, remaining, fullWeight, spoolmanId);
+             "\"blank\":%s}",
+             spool->spool_id,
+             spool->tag_data_valid ? "true" : "false",
+             materialName, materialName, colorHex,
+             manufacturer, remaining, fullWeight, spoolmanId,
+             spool->blank_tag_present ? "true" : "false");
 
-    char topic[64];
-    snprintf(topic, sizeof(topic), "openprinttag/%s/tag/state", deviceId_);
-    mqttClient.publish(topic, json, true);
+    mqttClient.publish(stateTopic, json, true);
+    mqttClient.publish(attrsTopic, json, true);
     Serial.printf("HomeAssistantManager: Published current tag state uid=%s\n", spool->spool_id);
     delete spool;
 }
