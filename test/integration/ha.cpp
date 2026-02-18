@@ -23,6 +23,8 @@ struct Options {
     std::string clientId = "opt_local_ha_test";
     std::string deviceId = "localtest";
     bool publishSample = false;
+    int listenCmdSec = 0;
+    std::string cmdTplVariant = "topic_uid";
     int timeoutSec = 5;
 };
 
@@ -37,10 +39,15 @@ void printUsage(const char* prog) {
         << "  --device-id <id>       Device id for topic paths (default: localtest)\n"
         << "  --timeout <sec>        Socket/connect timeout in seconds (default: 5)\n"
         << "  --publish-sample       Publish sample availability/discovery/state\n"
+        << "  --listen-cmd <sec>     Subscribe and print openprinttag/<device>/cmd/# for N sec\n"
+        << "  --cmd-tpl-variant <v>  Command template variant for sample number entity:\n"
+        << "                         topic_uid | fixed_spool | self_entity | sibling_from_this\n"
+        << "                         (default: topic_uid)\n"
         << "  --help                 Show this help\n\n"
         << "Examples:\n"
         << "  ./ha --host 192.168.87.28 --port 1883\n"
-        << "  ./ha --host 192.168.87.28 --user mqtt_user --pass mqtt_pass --publish-sample\n";
+        << "  ./ha --host 192.168.87.28 --user mqtt_user --pass mqtt_pass --publish-sample\n"
+        << "  ./ha --host 192.168.87.28 --device-id 199d90 --publish-sample --listen-cmd 60\n";
 }
 
 bool parseArgs(int argc, char** argv, Options& opts) {
@@ -85,6 +92,24 @@ bool parseArgs(int argc, char** argv, Options& opts) {
             opts.timeoutSec = static_cast<int>(t);
         } else if (arg == "--publish-sample") {
             opts.publishSample = true;
+        } else if (arg == "--listen-cmd") {
+            std::string val;
+            if (!requireValue("--listen-cmd", val)) return false;
+            long t = std::strtol(val.c_str(), nullptr, 10);
+            if (t < 1 || t > 3600) {
+                std::cerr << "Invalid --listen-cmd: " << val << "\n";
+                return false;
+            }
+            opts.listenCmdSec = static_cast<int>(t);
+        } else if (arg == "--cmd-tpl-variant") {
+            if (!requireValue("--cmd-tpl-variant", opts.cmdTplVariant)) return false;
+            if (opts.cmdTplVariant != "topic_uid" &&
+                opts.cmdTplVariant != "fixed_spool" &&
+                opts.cmdTplVariant != "self_entity" &&
+                opts.cmdTplVariant != "sibling_from_this") {
+                std::cerr << "Invalid --cmd-tpl-variant: " << opts.cmdTplVariant << "\n";
+                return false;
+            }
         } else if (arg == "--help" || arg == "-h") {
             printUsage(argv[0]);
             std::exit(0);
@@ -257,21 +282,98 @@ std::vector<uint8_t> makePublishPacket(const std::string& topic,
     return packet;
 }
 
+std::vector<uint8_t> makeSubscribePacket(uint16_t packetId, const std::string& topicFilter) {
+    std::vector<uint8_t> varPayload;
+    varPayload.push_back(static_cast<uint8_t>((packetId >> 8) & 0xFF));
+    varPayload.push_back(static_cast<uint8_t>(packetId & 0xFF));
+    appendUtf8(varPayload, topicFilter);
+    varPayload.push_back(0x00); // QoS 0
+
+    std::vector<uint8_t> packet;
+    packet.push_back(0x82); // SUBSCRIBE QoS 1
+    appendRemainingLength(packet, varPayload.size());
+    packet.insert(packet.end(), varPayload.begin(), varPayload.end());
+    return packet;
+}
+
+bool readRemainingLength(int fd, size_t& outLen) {
+    outLen = 0;
+    size_t multiplier = 1;
+    for (int i = 0; i < 4; ++i) {
+        uint8_t b = 0;
+        if (!readExact(fd, &b, 1)) return false;
+        outLen += (b & 0x7F) * multiplier;
+        if ((b & 0x80) == 0) return true;
+        multiplier *= 128;
+    }
+    return false;
+}
+
+std::string remainingCmdTpl(const Options& opts) {
+    if (opts.cmdTplVariant == "topic_uid") {
+        return "{\"remaining_g\": {{ value | float }}}";
+    }
+    if (opts.cmdTplVariant == "self_entity") {
+        return "{\"uid\":{{ state_attr(entity_id, 'uid') | tojson }},\"remaining_g\": {{ value | float }}}";
+    }
+    if (opts.cmdTplVariant == "sibling_from_this") {
+        return "{% set n=this.entity_id.split('.')[1] %}{% set s='sensor.' ~ (n | replace('_set_remaining_filament','_spool')) %}{\"uid\":{{ state_attr(s, 'uid') | tojson }},\"remaining_g\": {{ value | float }}}";
+    }
+    return "{\"uid\":{{ state_attr('sensor.openprinttag_" + opts.deviceId + "_spool', 'uid') | tojson }},\"remaining_g\": {{ value | float }}}";
+}
+
+std::string writeTagCmdTpl(const Options& opts, const std::string& field, const std::string& valueTpl) {
+    if (opts.cmdTplVariant == "topic_uid") {
+        return "{\"" + field + "\": " + valueTpl + "}";
+    }
+    if (opts.cmdTplVariant == "self_entity") {
+        return "{\"uid\":{{ state_attr(entity_id, 'uid') | tojson }},\"" + field + "\": " + valueTpl + "}";
+    }
+    if (opts.cmdTplVariant == "sibling_from_this") {
+        return "{% set n=this.entity_id.split('.')[1] %}{% set s='sensor.' ~ (n | replace('_set_initial_spool_weight','_spool') | replace('_set_spoolman_id','_spool') | replace('_set_material_type','_spool') | replace('_set_manufacturer','_spool')) %}{\"uid\":{{ state_attr(s, 'uid') | tojson }},\"" + field + "\": " + valueTpl + "}";
+    }
+    return "{\"uid\":{{ state_attr('sensor.openprinttag_" + opts.deviceId + "_spool', 'uid') | tojson }},\"" + field + "\": " + valueTpl + "}";
+}
+
 bool publishSampleData(int fd, const Options& opts) {
     const std::string base = "openprinttag/" + opts.deviceId;
     const std::string availabilityTopic = base + "/availability";
     const std::string tagStateTopic = base + "/tag/state";
 
-    const std::string discoveryTopic =
+    const std::string spoolDiscoveryTopic =
         "homeassistant/sensor/openprinttag_" + opts.deviceId +
         "/spool/config";
+    const std::string numberDiscoveryTopic =
+        "homeassistant/number/openprinttag_" + opts.deviceId +
+        "/set_remaining_weight/config";
+    const std::string initialDiscoveryTopic =
+        "homeassistant/number/openprinttag_" + opts.deviceId +
+        "/set_initial_weight/config";
+    const std::string spoolmanDiscoveryTopic =
+        "homeassistant/number/openprinttag_" + opts.deviceId +
+        "/set_spoolman_id/config";
+    const std::string materialDiscoveryTopic =
+        "homeassistant/select/openprinttag_" + opts.deviceId +
+        "/set_material_type/config";
+    const std::string mfrDiscoveryTopic =
+        "homeassistant/text/openprinttag_" + opts.deviceId +
+        "/set_manufacturer/config";
+    const std::string updateCmdTopic =
+        (opts.cmdTplVariant == "topic_uid")
+            ? ("~/cmd/update_remaining/TEST123")
+            : "~/cmd/update_remaining";
+    const std::string writeCmdTopic =
+        (opts.cmdTplVariant == "topic_uid")
+            ? ("~/cmd/write_tag/TEST123")
+            : "~/cmd/write_tag";
 
-    std::ostringstream discovery;
-    discovery
+    std::ostringstream spoolDiscovery;
+    spoolDiscovery
         << "{"
         << "\"~\":\"" << base << "\"," 
         << "\"name\":\"Spool\"," 
         << "\"unique_id\":\"openprinttag_" << opts.deviceId << "_spool\"," 
+        << "\"obj_id\":\"openprinttag_" << opts.deviceId << "_spool\"," 
         << "\"stat_t\":\"~/tag/state\"," 
         << "\"val_tpl\":\"{{ 'present' if value_json.present else 'not_present' }}\"," 
         << "\"json_attr_t\":\"~/tag/state\"," 
@@ -280,14 +382,101 @@ bool publishSampleData(int fd, const Options& opts) {
         << "\"ic\":\"mdi:printer-3d-nozzle\"," 
         << "\"dev\":{"
         << "\"ids\":[\"openprinttag_" << opts.deviceId << "\"],"
-        << "\"name\":\"OpenPrintTag Scanner\"," 
+        << "\"name\":\"Int Test OpenPrintTag Scanner\"," 
         << "\"mf\":\"OpenPrintTag\"," 
         << "\"sw\":\"local-test\""
         << "}}";
 
+    std::ostringstream numberDiscovery;
+    numberDiscovery
+        << "{"
+        << "\"~\":\"" << base << "\","
+        << "\"name\":\"Set Remaining Filament\","
+        << "\"unique_id\":\"openprinttag_" << opts.deviceId << "_set_remaining_weight\","
+        << "\"obj_id\":\"openprinttag_" << opts.deviceId << "_set_remaining_weight\","
+        << "\"stat_t\":\"~/tag/state\","
+        << "\"val_tpl\":\"{{ value_json.remaining_g | default(0) }}\","
+        << "\"cmd_t\":\"" << updateCmdTopic << "\","
+        << "\"cmd_tpl\":\"" << remainingCmdTpl(opts) << "\","
+        << "\"avty_t\":\"~/availability\","
+        << "\"min\":0.0,\"max\":5000.0,\"step\":1.0,\"mode\":\"box\","
+        << "\"unit_of_meas\":\"g\","
+        << "\"ic\":\"mdi:weight-gram\","
+        << "\"dev\":{\"ids\":[\"openprinttag_" << opts.deviceId << "\"]}"
+        << "}";
+    std::ostringstream initialDiscovery;
+    initialDiscovery
+        << "{"
+        << "\"~\":\"" << base << "\","
+        << "\"name\":\"Set Initial Spool Weight\","
+        << "\"unique_id\":\"openprinttag_" << opts.deviceId << "_set_initial_weight\","
+        << "\"obj_id\":\"openprinttag_" << opts.deviceId << "_set_initial_weight\","
+        << "\"stat_t\":\"~/tag/state\","
+        << "\"val_tpl\":\"{{ value_json.initial_weight_g | default(1000) }}\","
+        << "\"cmd_t\":\"" << writeCmdTopic << "\","
+        << "\"cmd_tpl\":\"" << writeTagCmdTpl(opts, "initial_weight_g", "{{ value | float }}") << "\","
+        << "\"avty_t\":\"~/availability\","
+        << "\"min\":0.0,\"max\":5000.0,\"step\":1.0,\"mode\":\"box\","
+        << "\"unit_of_meas\":\"g\","
+        << "\"ic\":\"mdi:scale\","
+        << "\"dev\":{\"ids\":[\"openprinttag_" << opts.deviceId << "\"]}"
+        << "}";
+    std::ostringstream spoolmanDiscovery;
+    spoolmanDiscovery
+        << "{"
+        << "\"~\":\"" << base << "\","
+        << "\"name\":\"Set Spoolman ID\","
+        << "\"unique_id\":\"openprinttag_" << opts.deviceId << "_set_spoolman_id\","
+        << "\"obj_id\":\"openprinttag_" << opts.deviceId << "_set_spoolman_id\","
+        << "\"stat_t\":\"~/tag/state\","
+        << "\"val_tpl\":\"{{ value_json.spoolman_id | default(-1) }}\","
+        << "\"cmd_t\":\"" << writeCmdTopic << "\","
+        << "\"cmd_tpl\":\"" << writeTagCmdTpl(opts, "spoolman_id", "{{ value | int }}") << "\","
+        << "\"avty_t\":\"~/availability\","
+        << "\"min\":-1,\"max\":2000000,\"step\":1,\"mode\":\"box\","
+        << "\"ic\":\"mdi:database\","
+        << "\"dev\":{\"ids\":[\"openprinttag_" << opts.deviceId << "\"]}"
+        << "}";
+    std::ostringstream materialDiscovery;
+    materialDiscovery
+        << "{"
+        << "\"~\":\"" << base << "\","
+        << "\"name\":\"Set Material Type\","
+        << "\"unique_id\":\"openprinttag_" << opts.deviceId << "_set_material_type\","
+        << "\"obj_id\":\"openprinttag_" << opts.deviceId << "_set_material_type\","
+        << "\"stat_t\":\"~/tag/state\","
+        << "\"val_tpl\":\"{{ value_json.material_type | default('PLA') }}\","
+        << "\"cmd_t\":\"" << writeCmdTopic << "\","
+        << "\"cmd_tpl\":\"" << writeTagCmdTpl(opts, "filament_type", "{{ value | tojson }}") << "\","
+        << "\"avty_t\":\"~/availability\","
+        << "\"options\":[\"PLA\",\"PETG\",\"ABS\",\"ASA\",\"TPU\",\"PC\",\"Nylon\",\"PVA\",\"HIPS\"],"
+        << "\"ic\":\"mdi:printer-3d-nozzle\","
+        << "\"dev\":{\"ids\":[\"openprinttag_" << opts.deviceId << "\"]}"
+        << "}";
+    std::ostringstream mfrDiscovery;
+    mfrDiscovery
+        << "{"
+        << "\"~\":\"" << base << "\","
+        << "\"name\":\"Set Manufacturer\","
+        << "\"unique_id\":\"openprinttag_" << opts.deviceId << "_set_manufacturer\","
+        << "\"obj_id\":\"openprinttag_" << opts.deviceId << "_set_manufacturer\","
+        << "\"stat_t\":\"~/tag/state\","
+        << "\"val_tpl\":\"{{ value_json.manufacturer | default('') }}\","
+        << "\"cmd_t\":\"" << writeCmdTopic << "\","
+        << "\"cmd_tpl\":\"" << writeTagCmdTpl(opts, "manufacturer", "{{ value | tojson }}") << "\","
+        << "\"avty_t\":\"~/availability\","
+        << "\"ic\":\"mdi:factory\","
+        << "\"dev\":{\"ids\":[\"openprinttag_" << opts.deviceId << "\"]}"
+        << "}";
+
     std::vector<std::vector<uint8_t>> packets;
     packets.push_back(makePublishPacket(availabilityTopic, "online", true));
-    packets.push_back(makePublishPacket(discoveryTopic, discovery.str(), true));
+    packets.push_back(makePublishPacket(spoolDiscoveryTopic, spoolDiscovery.str(), true));
+    packets.push_back(makePublishPacket(numberDiscoveryTopic, numberDiscovery.str(), true));
+    packets.push_back(makePublishPacket(initialDiscoveryTopic, initialDiscovery.str(), true));
+    packets.push_back(makePublishPacket(spoolmanDiscoveryTopic, spoolmanDiscovery.str(), true));
+    packets.push_back(makePublishPacket(materialDiscoveryTopic, materialDiscovery.str(), true));
+    packets.push_back(makePublishPacket(mfrDiscoveryTopic, mfrDiscovery.str(), true));
     packets.push_back(makePublishPacket(tagStateTopic,
                                         "{\"uid\":\"TEST123\",\"present\":true,"
                                         "\"material_type\":\"PLA\",\"material_name\":\"PLA\","
@@ -298,6 +487,71 @@ bool publishSampleData(int fd, const Options& opts) {
 
     for (const auto& pkt : packets) {
         if (!writeAll(fd, pkt)) return false;
+    }
+    std::cout << "Published number cmd_tpl variant=" << opts.cmdTplVariant << "\n";
+    return true;
+}
+
+bool listenForCmd(int fd, const Options& opts) {
+    const std::string topicFilter = "openprinttag/" + opts.deviceId + "/cmd/#";
+    auto subPkt = makeSubscribePacket(1, topicFilter);
+    if (!writeAll(fd, subPkt)) {
+        std::cerr << "Failed to send SUBSCRIBE\n";
+        return false;
+    }
+
+    uint8_t fixedHdr = 0;
+    if (!readExact(fd, &fixedHdr, 1)) {
+        std::cerr << "Failed waiting for SUBACK\n";
+        return false;
+    }
+    size_t remLen = 0;
+    if (!readRemainingLength(fd, remLen)) {
+        std::cerr << "Failed reading SUBACK remaining length\n";
+        return false;
+    }
+    std::vector<uint8_t> rem(remLen);
+    if (remLen > 0 && !readExact(fd, rem.data(), remLen)) {
+        std::cerr << "Failed reading SUBACK payload\n";
+        return false;
+    }
+
+    std::cout << "Listening on " << topicFilter << " for " << opts.listenCmdSec << "s...\n";
+    const time_t deadline = time(nullptr) + opts.listenCmdSec;
+    while (time(nullptr) < deadline) {
+        uint8_t header = 0;
+        ssize_t n = recv(fd, &header, 1, MSG_DONTWAIT);
+        if (n == 0) break;
+        if (n < 0) {
+            if (errno == EAGAIN || errno == EWOULDBLOCK) {
+                usleep(100000);
+                continue;
+            }
+            std::cerr << "recv error: " << std::strerror(errno) << "\n";
+            return false;
+        }
+
+        size_t len = 0;
+        if (!readRemainingLength(fd, len)) return false;
+        std::vector<uint8_t> payload(len);
+        if (len > 0 && !readExact(fd, payload.data(), len)) return false;
+
+        const uint8_t packetType = header >> 4;
+        if (packetType != 3) continue; // PUBLISH only
+        if (len < 2) continue;
+
+        size_t idx = 0;
+        size_t topicLen = (static_cast<size_t>(payload[idx]) << 8) | payload[idx + 1];
+        idx += 2;
+        if (idx + topicLen > payload.size()) continue;
+        std::string topic(reinterpret_cast<const char*>(payload.data() + idx), topicLen);
+        idx += topicLen;
+        if (((header >> 1) & 0x03) > 0) {
+            if (idx + 2 > payload.size()) continue;
+            idx += 2; // packet id for QoS>0
+        }
+        std::string body(reinterpret_cast<const char*>(payload.data() + idx), payload.size() - idx);
+        std::cout << "CMD topic=" << topic << " payload=" << body << "\n";
     }
     return true;
 }
@@ -338,6 +592,13 @@ int main(int argc, char** argv) {
         }
         std::cout << "Published sample availability/discovery/tag-state for device_id="
                   << opts.deviceId << "\n";
+    }
+
+    if (opts.listenCmdSec > 0) {
+        if (!listenForCmd(fd, opts)) {
+            close(fd);
+            return 1;
+        }
     }
 
     // DISCONNECT packet

@@ -266,6 +266,12 @@ void HomeAssistantManager::taskLoop() {
         while (xQueueReceive(publishQueue, &req, 0) == pdTRUE) {
             if (mqttClient.connected()) {
                 mqttClient.publish(req.topic, req.payload, req.retained);
+                char tagStateTopic[64];
+                snprintf(tagStateTopic, sizeof(tagStateTopic), "openprinttag/%s/tag/state", deviceId_);
+                if (strcmp(req.topic, tagStateTopic) == 0) {
+                    // Keep command topics aligned with currently-present UID.
+                    publishDiscovery();
+                }
             }
         }
 
@@ -341,54 +347,36 @@ void HomeAssistantManager::subscribeCommands() {
 }
 
 void HomeAssistantManager::publishDiscovery() {
-    // Discovery payloads use abbreviated HA keys to fit in 768-byte buffer
+    // Discovery payloads use abbreviated HA keys to fit in 768-byte buffer.
     char baseTopic[48];
     snprintf(baseTopic, sizeof(baseTopic), "openprinttag/%s", deviceId_);
+    char currentUid[64] = {0};
+    CurrentSpoolState spoolState;
+    if (NFCManager::getInstance().getCurrentSpoolState(spoolState) &&
+        spoolState.present &&
+        spoolState.spool_id[0] != '\0') {
+        strncpy(currentUid, spoolState.spool_id, sizeof(currentUid) - 1);
+    }
+    char updateRemainingCmdTopic[128];
+    char writeTagCmdTopic[128];
+    if (currentUid[0] != '\0') {
+        snprintf(updateRemainingCmdTopic, sizeof(updateRemainingCmdTopic),
+                 "~/cmd/update_remaining/%s", currentUid);
+        snprintf(writeTagCmdTopic, sizeof(writeTagCmdTopic),
+                 "~/cmd/write_tag/%s", currentUid);
+    } else {
+        snprintf(updateRemainingCmdTopic, sizeof(updateRemainingCmdTopic),
+                 "~/cmd/update_remaining");
+        snprintf(writeTagCmdTopic, sizeof(writeTagCmdTopic),
+                 "~/cmd/write_tag");
+    }
 
-    // Device block (shared across entities, abbreviated after first)
-    // First entity includes full device info
-    JsonDocument doc;
-
-    auto publishEntity = [&](const char* component, const char* objectId,
-                             const char* name, const char* valTpl,
-                             const char* stateTopic,
-                             const char* devCla, const char* unitOfMeas,
-                             const char* icon, bool isFirstEntity,
-                             const char* jsonAttrTopic = nullptr,
-                             const char* jsonAttrTpl = nullptr) {
-        doc.clear();
-        doc["~"] = baseTopic;
-        doc["name"] = name;
-
-        char uniqueId[64];
-        snprintf(uniqueId, sizeof(uniqueId), "openprinttag_%s_%s", deviceId_, objectId);
-        doc["unique_id"] = uniqueId;
-        doc["obj_id"] = uniqueId;
-        doc["stat_t"] = stateTopic;
-        doc["val_tpl"] = valTpl;
-        doc["avty_t"] = "~/availability";
-        if (jsonAttrTopic && jsonAttrTopic[0]) doc["json_attr_t"] = jsonAttrTopic;
-        if (jsonAttrTpl && jsonAttrTpl[0]) doc["json_attr_tpl"] = jsonAttrTpl;
-
-        if (devCla && devCla[0]) doc["dev_cla"] = devCla;
-        if (unitOfMeas && unitOfMeas[0]) doc["unit_of_meas"] = unitOfMeas;
-        if (icon && icon[0]) doc["ic"] = icon;
-
-        JsonObject dev = doc["dev"].to<JsonObject>();
-        dev["ids"].to<JsonArray>().add(String("openprinttag_") + deviceId_);
-        if (isFirstEntity) {
-            dev["name"] = "OpenPrintTag Scanner";
-            dev["mf"] = "OpenPrintTag";
-            dev["sw"] = DEVICE_VERSION;
-        }
-
+    auto publishDiscoveryPayload = [&](const char* component, const char* objectId, const char* payload) {
         char discoveryTopic[128];
         snprintf(discoveryTopic, sizeof(discoveryTopic),
                  "homeassistant/%s/openprinttag_%s/%s/config",
                  component, deviceId_, objectId);
-
-        char payload[768];
-        size_t len = serializeJson(doc, payload, sizeof(payload));
+        size_t len = strlen(payload);
         bool ok = mqttClient.publish(discoveryTopic, payload, true);
         Serial.printf("HomeAssistantManager: Discovery %s -> %s (%u bytes)\n",
                       discoveryTopic, ok ? "OK" : "FAIL", (unsigned)len);
@@ -402,129 +390,96 @@ void HomeAssistantManager::publishDiscovery() {
         Serial.printf("HomeAssistantManager: Remove legacy discovery %s -> %s\n",
                       discoveryTopic, ok ? "OK" : "FAIL");
     };
-
-    auto publishNumberEntity = [&](const char* objectId, const char* name,
-                                   const char* stateTopic, const char* valTpl,
-                                   const char* cmdTopic, const char* cmdTpl,
-                                   float minV, float maxV, float stepV,
-                                   const char* unitOfMeas, const char* icon) {
-        doc.clear();
-        doc["~"] = baseTopic;
-        doc["name"] = name;
-
-        char uniqueId[64];
-        snprintf(uniqueId, sizeof(uniqueId), "openprinttag_%s_%s", deviceId_, objectId);
-        doc["unique_id"] = uniqueId;
-        doc["obj_id"] = uniqueId;
-        doc["stat_t"] = stateTopic;
-        doc["val_tpl"] = valTpl;
-        doc["cmd_t"] = cmdTopic;
-        doc["cmd_tpl"] = cmdTpl;
-        doc["avty_t"] = "~/availability";
-        doc["min"] = minV;
-        doc["max"] = maxV;
-        doc["step"] = stepV;
-        doc["mode"] = "box";
-
-        if (unitOfMeas && unitOfMeas[0]) doc["unit_of_meas"] = unitOfMeas;
-        if (icon && icon[0]) doc["ic"] = icon;
-
-        JsonObject dev = doc["dev"].to<JsonObject>();
-        dev["ids"].to<JsonArray>().add(String("openprinttag_") + deviceId_);
-
-        char discoveryTopic[128];
-        snprintf(discoveryTopic, sizeof(discoveryTopic),
-                 "homeassistant/number/openprinttag_%s/%s/config",
-                 deviceId_, objectId);
-
+    auto publishNumberEntity = [&](const char* objectId, const char* name, const char* valTpl,
+                                   const char* cmdTopic, const char* cmdTpl, float minV, float maxV,
+                                   float stepV, const char* unitOfMeas, const char* icon) {
         char payload[768];
-        size_t len = serializeJson(doc, payload, sizeof(payload));
-        bool ok = mqttClient.publish(discoveryTopic, payload, true);
-        Serial.printf("HomeAssistantManager: Discovery %s -> %s (%u bytes)\n",
-                      discoveryTopic, ok ? "OK" : "FAIL", (unsigned)len);
-    };
-
-    auto publishSelectEntity = [&](const char* objectId, const char* name,
-                                   const char* stateTopic, const char* valTpl,
-                                   const char* cmdTopic, const char* cmdTpl,
-                                   const char* const* options, size_t optionsCount,
-                                   const char* icon) {
-        doc.clear();
-        doc["~"] = baseTopic;
-        doc["name"] = name;
-
-        char uniqueId[64];
-        snprintf(uniqueId, sizeof(uniqueId), "openprinttag_%s_%s", deviceId_, objectId);
-        doc["unique_id"] = uniqueId;
-        doc["obj_id"] = uniqueId;
-        doc["stat_t"] = stateTopic;
-        doc["val_tpl"] = valTpl;
-        doc["cmd_t"] = cmdTopic;
-        doc["cmd_tpl"] = cmdTpl;
-        doc["avty_t"] = "~/availability";
-
-        if (icon && icon[0]) doc["ic"] = icon;
-
-        JsonArray opts = doc["options"].to<JsonArray>();
-        for (size_t i = 0; i < optionsCount; ++i) {
-            opts.add(options[i]);
+        int written = snprintf(payload, sizeof(payload),
+                               "{\"~\":\"%s\",\"name\":\"%s\","
+                               "\"unique_id\":\"openprinttag_%s_%s\",\"obj_id\":\"openprinttag_%s_%s\","
+                               "\"stat_t\":\"~/tag/state\",\"val_tpl\":\"%s\","
+                               "\"json_attr_t\":\"~/tag/state\",\"json_attr_tpl\":\"{{ value_json }}\","
+                               "\"cmd_t\":\"%s\",\"cmd_tpl\":\"%s\","
+                               "\"avty_t\":\"~/availability\",\"min\":%.1f,\"max\":%.1f,\"step\":%.1f,\"mode\":\"box\","
+                               "\"unit_of_meas\":\"%s\",\"ic\":\"%s\","
+                               "\"dev\":{\"ids\":[\"openprinttag_%s\"]}}",
+                               baseTopic, name,
+                               deviceId_, objectId, deviceId_, objectId,
+                               valTpl, cmdTopic, cmdTpl,
+                               minV, maxV, stepV, unitOfMeas, icon, deviceId_);
+        if (written < 0 || written >= (int)sizeof(payload)) {
+            Serial.printf("HomeAssistantManager: Discovery payload too large for number/%s, skipping\n",
+                          objectId);
+            return;
         }
-
-        JsonObject dev = doc["dev"].to<JsonObject>();
-        dev["ids"].to<JsonArray>().add(String("openprinttag_") + deviceId_);
-
-        char discoveryTopic[128];
-        snprintf(discoveryTopic, sizeof(discoveryTopic),
-                 "homeassistant/select/openprinttag_%s/%s/config",
-                 deviceId_, objectId);
-
-        char payload[768];
-        size_t len = serializeJson(doc, payload, sizeof(payload));
-        bool ok = mqttClient.publish(discoveryTopic, payload, true);
-        Serial.printf("HomeAssistantManager: Discovery %s -> %s (%u bytes)\n",
-                      discoveryTopic, ok ? "OK" : "FAIL", (unsigned)len);
+        publishDiscoveryPayload("number", objectId, payload);
     };
-
-    auto publishTextEntity = [&](const char* objectId, const char* name,
-                                 const char* stateTopic, const char* valTpl,
-                                 const char* cmdTopic, const char* cmdTpl,
-                                 const char* icon) {
-        doc.clear();
-        doc["~"] = baseTopic;
-        doc["name"] = name;
-
-        char uniqueId[64];
-        snprintf(uniqueId, sizeof(uniqueId), "openprinttag_%s_%s", deviceId_, objectId);
-        doc["unique_id"] = uniqueId;
-        doc["obj_id"] = uniqueId;
-        doc["stat_t"] = stateTopic;
-        doc["val_tpl"] = valTpl;
-        doc["cmd_t"] = cmdTopic;
-        doc["cmd_tpl"] = cmdTpl;
-        doc["avty_t"] = "~/availability";
-
-        if (icon && icon[0]) doc["ic"] = icon;
-
-        JsonObject dev = doc["dev"].to<JsonObject>();
-        dev["ids"].to<JsonArray>().add(String("openprinttag_") + deviceId_);
-
-        char discoveryTopic[128];
-        snprintf(discoveryTopic, sizeof(discoveryTopic),
-                 "homeassistant/text/openprinttag_%s/%s/config",
-                 deviceId_, objectId);
-
+    auto publishSelectEntity = [&](const char* objectId, const char* name, const char* valTpl,
+                                   const char* cmdTopic, const char* cmdTpl, const char* icon) {
         char payload[768];
-        size_t len = serializeJson(doc, payload, sizeof(payload));
-        bool ok = mqttClient.publish(discoveryTopic, payload, true);
-        Serial.printf("HomeAssistantManager: Discovery %s -> %s (%u bytes)\n",
-                      discoveryTopic, ok ? "OK" : "FAIL", (unsigned)len);
+        int written = snprintf(payload, sizeof(payload),
+                               "{\"~\":\"%s\",\"name\":\"%s\","
+                               "\"unique_id\":\"openprinttag_%s_%s\",\"obj_id\":\"openprinttag_%s_%s\","
+                               "\"stat_t\":\"~/tag/state\",\"val_tpl\":\"%s\","
+                               "\"json_attr_t\":\"~/tag/state\",\"json_attr_tpl\":\"{{ value_json }}\","
+                               "\"cmd_t\":\"%s\",\"cmd_tpl\":\"%s\","
+                               "\"avty_t\":\"~/availability\","
+                               "\"options\":[\"PLA\",\"PETG\",\"ABS\",\"ASA\",\"TPU\",\"PC\",\"Nylon\",\"PVA\",\"HIPS\"],"
+                               "\"ic\":\"%s\",\"dev\":{\"ids\":[\"openprinttag_%s\"]}}",
+                               baseTopic, name,
+                               deviceId_, objectId, deviceId_, objectId,
+                               valTpl, cmdTopic, cmdTpl,
+                               icon, deviceId_);
+        if (written < 0 || written >= (int)sizeof(payload)) {
+            Serial.printf("HomeAssistantManager: Discovery payload too large for select/%s, skipping\n",
+                          objectId);
+            return;
+        }
+        publishDiscoveryPayload("select", objectId, payload);
+    };
+    auto publishTextEntity = [&](const char* objectId, const char* name, const char* valTpl,
+                                 const char* cmdTopic, const char* cmdTpl, const char* icon) {
+        char payload[768];
+        int written = snprintf(payload, sizeof(payload),
+                               "{\"~\":\"%s\",\"name\":\"%s\","
+                               "\"unique_id\":\"openprinttag_%s_%s\",\"obj_id\":\"openprinttag_%s_%s\","
+                               "\"stat_t\":\"~/tag/state\",\"val_tpl\":\"%s\","
+                               "\"json_attr_t\":\"~/tag/state\",\"json_attr_tpl\":\"{{ value_json }}\","
+                               "\"cmd_t\":\"%s\",\"cmd_tpl\":\"%s\","
+                               "\"avty_t\":\"~/availability\",\"ic\":\"%s\","
+                               "\"dev\":{\"ids\":[\"openprinttag_%s\"]}}",
+                               baseTopic, name,
+                               deviceId_, objectId, deviceId_, objectId,
+                               valTpl, cmdTopic, cmdTpl,
+                               icon, deviceId_);
+        if (written < 0 || written >= (int)sizeof(payload)) {
+            Serial.printf("HomeAssistantManager: Discovery payload too large for text/%s, skipping\n",
+                          objectId);
+            return;
+        }
+        publishDiscoveryPayload("text", objectId, payload);
     };
 
     // Single spool sensor with spool fields represented as attributes.
-    publishEntity("sensor", "spool", "Spool",
-                  "{{ 'present' if value_json.present else 'not_present' }}",
-                  "~/tag/state", "", "", "mdi:printer-3d-nozzle", true,
-                  "~/tag/state", "{{ value_json }}");
+    {
+        char payload[768];
+        int written = snprintf(payload, sizeof(payload),
+                               "{\"~\":\"%s\",\"name\":\"Spool\","
+                               "\"unique_id\":\"openprinttag_%s_spool\",\"obj_id\":\"openprinttag_%s_spool\","
+                               "\"stat_t\":\"~/tag/state\","
+                               "\"val_tpl\":\"{{ 'present' if value_json.present else 'not_present' }}\","
+                               "\"avty_t\":\"~/availability\","
+                               "\"json_attr_t\":\"~/tag/state\",\"json_attr_tpl\":\"{{ value_json }}\","
+                               "\"ic\":\"mdi:printer-3d-nozzle\","
+                               "\"dev\":{\"ids\":[\"openprinttag_%s\"],\"name\":\"OpenPrintTag Scanner\","
+                               "\"mf\":\"OpenPrintTag\",\"sw\":\"%s\"}}",
+                               baseTopic, deviceId_, deviceId_, deviceId_, DEVICE_VERSION);
+        if (written >= 0 && written < (int)sizeof(payload)) {
+            publishDiscoveryPayload("sensor", "spool", payload);
+        } else {
+            Serial.println("HomeAssistantManager: Discovery payload too large for sensor/spool, skipping");
+        }
+    }
 
     // Remove stale retained discovery configs from previous read entities.
     removeLegacyEntity("binary_sensor", "tag_present");
@@ -534,80 +489,42 @@ void HomeAssistantManager::publishDiscovery() {
     removeLegacyEntity("sensor", "color");
     removeLegacyEntity("sensor", "printer_state");
 
-    // Build command templates that include uid from spool sensor attributes.
-    // This ensures updates are applied only if the current tag matches the requested tag.
-    char spoolEntityId[96];
-    snprintf(spoolEntityId, sizeof(spoolEntityId),
-             "sensor.openprinttag_%s_spool", deviceId_);
-
-    char updateRemainingCmdTpl[256];
+    // UID is carried in command topic; payload contains only values.
+    char updateRemainingCmdTpl[128];
     snprintf(updateRemainingCmdTpl, sizeof(updateRemainingCmdTpl),
-             "{\"uid\":{{ state_attr('%s', 'uid') | tojson }},\"remaining_g\": {{ value | float }}}",
-             spoolEntityId);
-
-    char writeInitialCmdTpl[256];
+             "{\\\"remaining_g\\\": {{ value | float }}}");
+    char writeInitialCmdTpl[128];
     snprintf(writeInitialCmdTpl, sizeof(writeInitialCmdTpl),
-             "{\"uid\":{{ state_attr('%s', 'uid') | tojson }},\"initial_weight_g\": {{ value | float }}}",
-             spoolEntityId);
-
-    char writeSpoolmanCmdTpl[256];
+             "{\\\"initial_weight_g\\\": {{ value | float }}}");
+    char writeSpoolmanCmdTpl[128];
     snprintf(writeSpoolmanCmdTpl, sizeof(writeSpoolmanCmdTpl),
-             "{\"uid\":{{ state_attr('%s', 'uid') | tojson }},\"spoolman_id\": {{ value | int }}}",
-             spoolEntityId);
-
-    char writeMaterialCmdTpl[256];
+             "{\\\"spoolman_id\\\": {{ value | int }}}");
+    char writeMaterialCmdTpl[128];
     snprintf(writeMaterialCmdTpl, sizeof(writeMaterialCmdTpl),
-             "{\"uid\":{{ state_attr('%s', 'uid') | tojson }},\"filament_type\": {{ value | tojson }}}",
-             spoolEntityId);
-
-    char writeManufacturerCmdTpl[256];
+             "{\\\"filament_type\\\": {{ value | tojson }}}");
+    char writeManufacturerCmdTpl[128];
     snprintf(writeManufacturerCmdTpl, sizeof(writeManufacturerCmdTpl),
-             "{\"uid\":{{ state_attr('%s', 'uid') | tojson }},\"manufacturer\": {{ value | tojson }}}",
-             spoolEntityId);
+             "{\\\"manufacturer\\\": {{ value | tojson }}}");
 
-    // Number: Set remaining grams on current spool (CONTROLLED_BY_HOME_ASSISTANT mode use-case)
     publishNumberEntity("set_remaining_weight", "Set Remaining Filament",
-                        "~/tag/state",
                         "{{ value_json.remaining_g | default(0) }}",
-                        "~/cmd/update_remaining",
-                        updateRemainingCmdTpl,
-                        0.0f, 5000.0f, 1.0f,
-                        "g", "mdi:weight-gram");
-
-    // Number: Set initial/full spool weight via write_tag
+                        updateRemainingCmdTopic, updateRemainingCmdTpl,
+                        0.0f, 5000.0f, 1.0f, "g", "mdi:weight-gram");
     publishNumberEntity("set_initial_weight", "Set Initial Spool Weight",
-                        "~/tag/state",
                         "{{ value_json.initial_weight_g | default(1000) }}",
-                        "~/cmd/write_tag",
-                        writeInitialCmdTpl,
-                        0.0f, 5000.0f, 1.0f,
-                        "g", "mdi:scale");
-
-    // Number: Set Spoolman ID via write_tag
+                        writeTagCmdTopic, writeInitialCmdTpl,
+                        0.0f, 5000.0f, 1.0f, "g", "mdi:scale");
     publishNumberEntity("set_spoolman_id", "Set Spoolman ID",
-                        "~/tag/state",
                         "{{ value_json.spoolman_id | default(-1) }}",
-                        "~/cmd/write_tag",
-                        writeSpoolmanCmdTpl,
-                        -1.0f, 2000000.0f, 1.0f,
-                        "", "mdi:database");
-
-    // Select: Set material type via write_tag
-    const char* materialOptions[] = {"PLA", "PETG", "ABS", "ASA", "TPU", "PC", "Nylon", "PVA", "HIPS"};
+                        writeTagCmdTopic, writeSpoolmanCmdTpl,
+                        -1.0f, 2000000.0f, 1.0f, "", "mdi:database");
     publishSelectEntity("set_material_type", "Set Material Type",
-                        "~/tag/state",
                         "{{ value_json.material_type | default('PLA') }}",
-                        "~/cmd/write_tag",
-                        writeMaterialCmdTpl,
-                        materialOptions, sizeof(materialOptions) / sizeof(materialOptions[0]),
+                        writeTagCmdTopic, writeMaterialCmdTpl,
                         "mdi:printer-3d-nozzle");
-
-    // Text: Set manufacturer via write_tag
     publishTextEntity("set_manufacturer", "Set Manufacturer",
-                      "~/tag/state",
                       "{{ value_json.manufacturer | default('') }}",
-                      "~/cmd/write_tag",
-                      writeManufacturerCmdTpl,
+                      writeTagCmdTopic, writeManufacturerCmdTpl,
                       "mdi:factory");
 
     Serial.println("HomeAssistantManager: Discovery payloads published");
@@ -688,8 +605,8 @@ void HomeAssistantManager::mqttCallback(char* topic, uint8_t* payload, unsigned 
 void HomeAssistantManager::handleCommand(const char* topic, const char* payload) {
     Serial.printf("HomeAssistantManager: Command received: %s payload=%s\n", topic, payload);
 
-    // Parse topic to extract command name
-    // Format: openprinttag/{id}/cmd/{command}
+    // Parse topic to extract command name (and optional uid suffix)
+    // Format: openprinttag/{id}/cmd/{command}[/uid]
     char cmdPrefix[64];
     snprintf(cmdPrefix, sizeof(cmdPrefix), "openprinttag/%s/cmd/", deviceId_);
 
@@ -697,7 +614,19 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
         Serial.println("HomeAssistantManager: Unknown topic prefix");
         return;
     }
-    const char* command = topic + strlen(cmdPrefix);
+    const char* commandPath = topic + strlen(cmdPrefix);
+    const char* slash = strchr(commandPath, '/');
+    char command[32] = {0};
+    const char* uidFromTopic = "";
+    if (slash != nullptr) {
+        size_t commandLen = static_cast<size_t>(slash - commandPath);
+        if (commandLen >= sizeof(command)) commandLen = sizeof(command) - 1;
+        memcpy(command, commandPath, commandLen);
+        command[commandLen] = '\0';
+        uidFromTopic = slash + 1;
+    } else {
+        strncpy(command, commandPath, sizeof(command) - 1);
+    }
     if (strcmp(command, "response") == 0) {
         return;
     }
@@ -725,9 +654,10 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
         return;
     }
 
-    const char* uid = doc["uid"] | "";
+    const char* uidFromPayload = doc["uid"] | "";
+    const char* uid = (strlen(uidFromPayload) > 0) ? uidFromPayload : uidFromTopic;
     if (strlen(uid) == 0) {
-        Serial.printf("HomeAssistantManager: Rejecting cmd '%s': missing uid in payload: %s\n", command, payload);
+        Serial.printf("HomeAssistantManager: Rejecting cmd '%s': missing uid in payload/topic: %s\n", command, payload);
         publishCommandResponse(command, false, "missing_uid");
         delete spool;
         return;
