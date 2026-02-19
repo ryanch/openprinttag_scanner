@@ -220,6 +220,15 @@
             background-color: #3a3a3a;
         }
 
+        button.danger {
+            background-color: var(--prusa-red);
+            color: #fff;
+        }
+
+        button.danger:hover {
+            background-color: #b62526;
+        }
+
         button:disabled {
             background-color: #444;
             color: #777;
@@ -412,6 +421,12 @@
         .modal-footer {
             padding: 1rem 1.5rem;
             border-top: 1px solid var(--prusa-medium-gray);
+            display: flex;
+            flex-direction: column;
+            gap: 0.75rem;
+        }
+
+        .modal-footer-actions {
             display: flex;
             gap: 0.75rem;
             justify-content: flex-end;
@@ -637,8 +652,11 @@
                 </div>
             </div>
             <div class="modal-footer">
-                <button class="secondary" id="modal-cancel">Cancel</button>
-                <button id="modal-save">Save to Tag</button>
+                <div class="modal-footer-actions">
+                    <button class="secondary" id="modal-cancel">Cancel</button>
+                    <button id="modal-save">Save to Tag</button>
+                </div>
+                <button id="modal-format" class="danger">Format Spool</button>
             </div>
         </div>
     </div>
@@ -666,6 +684,7 @@
         const modalClose = document.getElementById('modal-close');
         const modalCancel = document.getElementById('modal-cancel');
         const modalSave = document.getElementById('modal-save');
+        const modalFormat = document.getElementById('modal-format');
         const editSpoolId = document.getElementById('edit-spool-id');
         const editType = document.getElementById('edit-type');
         const editColor = document.getElementById('edit-color');
@@ -859,6 +878,8 @@
             editColorHex.value = spool.color || '#888888';
             editManufacturer.value = spool.manufacturer || '';
             editGrams.value = spool.grams_remaining || '';
+            modalFormat.disabled = false;
+            modalFormat.textContent = 'Format Spool';
 
             editModal.classList.add('active');
         }
@@ -938,6 +959,49 @@
             }
         });
 
+        modalFormat.addEventListener('click', async () => {
+            if (!configWriteCharacteristic) {
+                alert('Not connected to device.');
+                return;
+            }
+
+            const spoolId = editSpoolId.value;
+            const confirmed = window.confirm(
+                'Format this spool as new? This resets all tag data and will assign a new Spoolman ID.'
+            );
+            if (!confirmed) return;
+
+            try {
+                modalSave.disabled = true;
+                modalCancel.disabled = true;
+                modalFormat.disabled = true;
+                modalFormat.textContent = 'Formatting...';
+
+                const response = await enqueueCommand(async () => {
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode(JSON.stringify({ command: 'format_spool', id: spoolId }))
+                    );
+
+                    const responseValue = await configWriteCharacteristic.readValue();
+                    return JSON.parse(textDecoder.decode(responseValue));
+                });
+
+                if (response.status === 'ok') {
+                    closeEditModal();
+                    setTimeout(() => loadSpools(), 2000);
+                } else {
+                    alert(response.error || 'Failed to format spool.');
+                }
+            } catch (error) {
+                alert(`Error formatting spool: ${error}`);
+            } finally {
+                modalSave.disabled = false;
+                modalCancel.disabled = false;
+                modalFormat.disabled = false;
+                modalFormat.textContent = 'Format Spool';
+            }
+        });
+
         // Format blank spool
         async function handleFormatSpool() {
             if (!configWriteCharacteristic || !currentSpoolData || !currentSpoolData.blank) return;
@@ -950,14 +1014,7 @@
                 btn.textContent = 'Formatting...';
 
                 const response = await enqueueCommand(async () => {
-                    const payload = {
-                        command: 'update_spool',
-                        id: uid,
-                        type: 'PLA',
-                        color: '#FFFFFF',
-                        manufacturer: 'Unknown',
-                        grams_remaining: 1000
-                    };
+                    const payload = { command: 'format_spool', id: uid };
                     await configWriteCharacteristic.writeValue(
                         textEncoder.encode(JSON.stringify(payload))
                     );

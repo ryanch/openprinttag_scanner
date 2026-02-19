@@ -205,6 +205,36 @@ static void process_command(const char* json) {
         snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
         //Serial.printf("%s: list_spools completed\n", TAG);
     }
+    else if (strcmp(command, "format_spool") == 0) {
+        CurrentSpoolState spool;
+        if (!NFCManager::getInstance().getCurrentSpoolState(spool)) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
+            if (s_config_write_char) {
+                s_config_write_char->setValue(s_response_buffer);
+            }
+            return;
+        }
+
+        if (!spool.present) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
+            Serial.printf("%s: format_spool failed - no tag present\n", TAG);
+        } else {
+            const char* requestedId = doc["id"] | "";
+            if (requestedId[0] != '\0' && strcmp(requestedId, spool.spool_id) != 0) {
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
+                Serial.printf("%s: format_spool failed - ID mismatch\n", TAG);
+            } else {
+                NFCWriteRequest req;
+                memset(&req, 0, sizeof(req));
+                req.request_id = ++s_request_id_counter;
+                req.type = NFCWriteType::FORMAT_NEW;
+                strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
+                NFCManager::getInstance().enqueueWrite(req);
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
+                Serial.printf("%s: format_spool - enqueued FORMAT_NEW\n", TAG);
+            }
+        }
+    }
     else if (strcmp(command, "update_spool") == 0) {
         CurrentSpoolState spool;
         if (!NFCManager::getInstance().getCurrentSpoolState(spool)) {

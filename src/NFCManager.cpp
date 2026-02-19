@@ -605,11 +605,6 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
             Serial.println("NFCManager: FORMAT_NEW rejected - UID mismatch");
             return false;
         }
-        if (!currentSpool.blank_tag_present) {
-            xSemaphoreGive(tagMutex);
-            Serial.println("NFCManager: FORMAT_NEW rejected - not a blank tag");
-            return false;
-        }
         xSemaphoreGive(tagMutex);
 
         // formatNewSpool() does NFC I/O without mutex, takes mutex at end for state copy
