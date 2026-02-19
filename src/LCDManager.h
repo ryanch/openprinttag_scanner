@@ -2,6 +2,7 @@
 #define LCD_MANAGER_H
 
 #include <string>
+#include <cstdint>
 #include <LiquidCrystal_I2C.h>
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
@@ -18,6 +19,7 @@ public:
     void begin();
     void updateScreen(const std::string& line1, const std::string& line2);
     void startTask();
+    void setScreenTimeoutMs(uint32_t timeoutMs);
 
 private:
     void processQueue();
@@ -32,7 +34,9 @@ private:
     uint8_t _lcd_cols;
     unsigned long _lastChangeTime;
     bool _screenOff;
-    static const unsigned long SCREEN_TIMEOUT_MS = 120000; // 2 minutes
+    uint32_t _screenTimeoutMs;
+    portMUX_TYPE _stateMux;
+    static const uint32_t DEFAULT_SCREEN_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
 };
 
 #endif // LCD_MANAGER_H

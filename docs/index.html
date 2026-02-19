@@ -538,6 +538,10 @@
                         <label for="poll_interval_ms">Poll Interval (ms)</label>
                         <input type="number" id="poll_interval_ms" name="poll_interval_ms" min="1000">
                     </div>
+                    <div class="form-group">
+                        <label for="lcd_timeout_minutes">LCD Auto-Off (minutes, 0 = never)</label>
+                        <input type="number" id="lcd_timeout_minutes" name="lcd_timeout_minutes" min="0" step="1">
+                    </div>
 
                     <div class="section-header" style="margin-top: 1.5rem;">Home Assistant</div>
                     <div class="form-group">
@@ -1074,6 +1078,8 @@
                 document.getElementById('spoolman_url').value = config.spoolman_url || '';
                 cachedSpoolmanUrl = config.spoolman_url || '';
                 document.getElementById('poll_interval_ms').value = config.poll_interval_ms || 5000;
+                const lcdTimeoutMs = config.lcd_timeout_ms ?? 120000;
+                document.getElementById('lcd_timeout_minutes').value = Math.round(lcdTimeoutMs / 60000);
                 document.getElementById('wifi_pass').value = '';
                 document.getElementById('device-version').textContent = config.device_version || 'Unknown';
 
@@ -1103,6 +1109,7 @@
             const prusa_link_api_key = document.getElementById('prusa_link_api_key').value;
             const spoolman_url = document.getElementById('spoolman_url').value;
             const poll_interval_ms = parseInt(document.getElementById('poll_interval_ms').value, 10);
+            const lcd_timeout_minutes = parseInt(document.getElementById('lcd_timeout_minutes').value, 10);
             const ha_enabled = document.getElementById('ha_enabled').value === 'true';
             const ha_mqtt_host = document.getElementById('ha_mqtt_host').value;
             const ha_mqtt_port = parseInt(document.getElementById('ha_mqtt_port').value, 10) || 1883;
@@ -1117,6 +1124,7 @@
                 prusa_link_api_key,
                 spoolman_url,
                 poll_interval_ms,
+                lcd_timeout_ms: Number.isFinite(lcd_timeout_minutes) ? Math.max(0, lcd_timeout_minutes) * 60000 : 120000,
                 ha_enabled,
                 ha_mqtt_host,
                 ha_mqtt_port,

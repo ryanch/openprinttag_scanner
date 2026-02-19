@@ -2,6 +2,7 @@
 #include "ConfigurationManager.h"
 #include "HomeAssistantManager.h"
 #include "NFCManager.h"
+#include "LCDManager.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <BLEDevice.h>
@@ -16,6 +17,7 @@
 #include <WiFiClient.h>
 
 extern SemaphoreHandle_t g_httpMutex;
+extern LCDManager lcdManager;
 
 static const char* TAG = "BluetoothManager";
 
@@ -108,6 +110,7 @@ static void process_command(const char* json) {
     }
     else if (strcmp(command, "write_config") == 0) {
         if (ConfigurationManager::getInstance().postConfigUpdate(json)) {
+            lcdManager.setScreenTimeoutMs(ConfigurationManager::getInstance().getLcdTimeoutMs());
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
             Serial.printf("%s: Config updated successfully\n", TAG);
         } else {

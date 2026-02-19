@@ -97,6 +97,7 @@ void setup() {
     lcdManager.updateScreen("Config FAILED", "");
     while (1) { delay(1000); }
   }
+  lcdManager.setScreenTimeoutMs(ConfigurationManager::getInstance().getLcdTimeoutMs());
 
   // Initialize ApplicationManager (message queue) with LCD reference
   if (!ApplicationManager::getInstance().begin(&lcdManager)) {

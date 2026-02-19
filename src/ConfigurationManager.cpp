@@ -19,6 +19,7 @@ bool ConfigurationManager::begin() {
     memset(_prusaLinkApiKey, 0, sizeof(_prusaLinkApiKey));
     memset(_spoolmanUrl, 0, sizeof(_spoolmanUrl));
     _pollIntervalMs = 5000;
+    _lcdTimeoutMs = 15 * 60 * 1000; // 15 mins
     _haEnabled = false;
     memset(_haMqttHost, 0, sizeof(_haMqttHost));
     _haMqttPort = 1883;
@@ -59,6 +60,9 @@ bool ConfigurationManager::loadFromNVS() {
     if (prefs.isKey("poll_ms")) {
         _pollIntervalMs = prefs.getUInt("poll_ms", _pollIntervalMs);
     }
+    if (prefs.isKey("lcd_to_ms")) {
+        _lcdTimeoutMs = prefs.getUInt("lcd_to_ms", _lcdTimeoutMs);
+    }
     if (prefs.isKey("ha_enabled")) {
         _haEnabled = prefs.getBool("ha_enabled", false);
     }
@@ -96,6 +100,7 @@ bool ConfigurationManager::saveToNVS() {
     prefs.putString("prusa_key", _prusaLinkApiKey);
     prefs.putString("spoolman_url", _spoolmanUrl);
     prefs.putUInt("poll_ms", _pollIntervalMs);
+    prefs.putUInt("lcd_to_ms", _lcdTimeoutMs);
     prefs.putBool("ha_enabled", _haEnabled);
     prefs.putString("ha_mqtt_host", _haMqttHost);
     prefs.putUShort("ha_mqtt_port", _haMqttPort);
@@ -117,6 +122,7 @@ String ConfigurationManager::readConfig() {
     doc["prusa_link_api_key"] = _prusaLinkApiKey;
     doc["spoolman_url"] = _spoolmanUrl;
     doc["poll_interval_ms"] = _pollIntervalMs;
+    doc["lcd_timeout_ms"] = _lcdTimeoutMs;
     doc["ha_enabled"] = _haEnabled;
     doc["ha_mqtt_host"] = _haMqttHost;
     doc["ha_mqtt_port"] = _haMqttPort;
@@ -163,6 +169,9 @@ bool ConfigurationManager::postConfigUpdate(const char* json) {
     }
     if (doc["poll_interval_ms"].is<uint32_t>()) {
         _pollIntervalMs = doc["poll_interval_ms"].as<uint32_t>();
+    }
+    if (doc["lcd_timeout_ms"].is<uint32_t>()) {
+        _lcdTimeoutMs = doc["lcd_timeout_ms"].as<uint32_t>();
     }
     if (doc["ha_enabled"].is<bool>()) {
         _haEnabled = doc["ha_enabled"].as<bool>();
@@ -211,6 +220,10 @@ const char* ConfigurationManager::getSpoolmanURL() const {
 
 uint32_t ConfigurationManager::getPollIntervalMs() const {
     return _pollIntervalMs;
+}
+
+uint32_t ConfigurationManager::getLcdTimeoutMs() const {
+    return _lcdTimeoutMs;
 }
 
 bool ConfigurationManager::getHAEnabled() const {

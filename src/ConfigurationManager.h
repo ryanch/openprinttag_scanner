@@ -20,6 +20,7 @@ public:
     const char* getPrusaLinkAPIKey() const;
     const char* getSpoolmanURL() const;
     uint32_t getPollIntervalMs() const;
+    uint32_t getLcdTimeoutMs() const;
 
     // Home Assistant / MQTT configuration
     bool getHAEnabled() const;
@@ -44,6 +45,7 @@ private:
     char _prusaLinkApiKey[64];
     char _spoolmanUrl[128];
     uint32_t _pollIntervalMs;
+    uint32_t _lcdTimeoutMs;
 
     // Home Assistant / MQTT config
     bool _haEnabled;
