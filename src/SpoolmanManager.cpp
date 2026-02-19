@@ -102,7 +102,7 @@ static int findOrCreateVendor(const char* name) {
 
     Serial.printf("SpoolmanManager: get vendor '%s' code=%d\n", name, code);
 
-    if (code == 200) {
+    if (code == 200 || code == 201) {
         JsonDocument doc;
         DeserializationError error = deserializeJson(doc, response);
         if (error == DeserializationError::Ok) {
@@ -180,8 +180,8 @@ static int findOrCreateFilament(int vendorId, const SpoolmanSyncRequest& req) {
     String body;
     serializeJson(createDoc, body);
 
-    code = httpPost("/api/v1/filament/", body.c_str(), response);
-    if (code == 200) {
+    code = httpPost("/api/v1/filament", body.c_str(), response);
+    if (code == 200 || code == 201) {
         JsonDocument respDoc;
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             int id = respDoc["id"] | -1;
@@ -246,7 +246,7 @@ static int createSpool(int filamentId, const SpoolmanSyncRequest& req) {
     String response;
     int code = httpPost("/api/v1/spool", body.c_str(), response);
 
-    if (code == 200) {
+    if (code == 200 || code == 201) {
         JsonDocument respDoc;
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             int id = respDoc["id"] | -1;
