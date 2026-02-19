@@ -180,30 +180,7 @@ void setup() {
                 strlen(config.getHAMqttUser()) > 0 ? "true" : "false");
   HomeAssistantManager::getInstance().startTask();
 
-  // Build status screen
-  char bleInd = BluetoothManager::getInstance().isAdvertising() ? '+' : '!';
-
-  char wifiInd;
-  if (strlen(config.getWiFiSSID()) == 0) wifiInd = '?';
-  else wifiInd = (WiFi.status() == WL_CONNECTED) ? '+' : '!';
-
-  char prusaInd;
-  if (strlen(config.getPrusaLinkURL()) == 0) prusaInd = '?';
-  else prusaInd = printerStrategy.isConnected() ? '+' : '!';
-
-  char smInd;
-  if (strlen(config.getSpoolmanURL()) == 0) smInd = '?';
-  else smInd = '+';
-
-  char haInd;
-  if (!config.getHAEnabled()) haInd = '?';
-  else if (strlen(config.getHAMqttHost()) == 0) haInd = '!';
-  else haInd = '+';
-
-  char line1[17], line2[17];
-  snprintf(line1, sizeof(line1), "NFC+ BLE%c Wifi%c", bleInd, wifiInd);
-  snprintf(line2, sizeof(line2), "PL%c SM%c HA%c", prusaInd, smInd, haInd);
-  lcdManager.updateScreen(line1, line2);
+  ApplicationManager::getInstance().showStatusOnLCD();
 
   Serial.println("=== Setup complete ===");
 }

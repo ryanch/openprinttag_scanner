@@ -19,6 +19,7 @@ public:
     void poll();
     void startPollingTask();
     void setStrategy(IPrinterLinkStrategy* strategy);
+    bool isConnected() const;
 
 private:
     PrinterManager() = default;

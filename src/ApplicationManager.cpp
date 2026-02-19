@@ -3,10 +3,13 @@
   #include "NFCTypes.h"
   #include "NFCManager.h"
   #include "LCDManager.h"
+  #include "BluetoothManager.h"
+  #include "PrinterManager.h"
   #include "SpoolmanManager.h"
   #include "ConfigurationManager.h"
   #include "HomeAssistantManager.h"
   #include <Arduino.h>
+  #include <WiFi.h>
 #else
   #include "platform/NativePlatform.h"
   #include "FakeLCDManager.h"
@@ -56,6 +59,61 @@ void ApplicationManager::processMessages() {
     while (xQueueReceive(messageQueue, &msg, 0) == pdTRUE) {
         handleMessage(msg);
     }
+}
+
+void ApplicationManager::showStatusOnLCD() {
+    if (lcdManager == nullptr) {
+        return;
+    }
+
+#ifndef NATIVE_TEST
+    auto& config = ConfigurationManager::getInstance();
+
+    char bleInd = BluetoothManager::getInstance().isAdvertising() ? '+' : '!';
+
+    char wifiInd;
+    if (strlen(config.getWiFiSSID()) == 0) {
+        wifiInd = '?';
+    } else {
+        wifiInd = (WiFi.status() == WL_CONNECTED) ? '+' : '!';
+    }
+
+    char prusaInd;
+    if (strlen(config.getPrusaLinkURL()) == 0) {
+        prusaInd = '?';
+    } else {
+        prusaInd = PrinterManager::getInstance().isConnected() ? '+' : '!';
+    }
+
+    char smInd;
+    if (strlen(config.getSpoolmanURL()) == 0) {
+        smInd = '?';
+    } else {
+        smInd = '+';
+    }
+
+    char haInd;
+    if (!config.getHAEnabled()) {
+        haInd = '?';
+    } else if (strlen(config.getHAMqttHost()) == 0) {
+        haInd = '!';
+    } else {
+        haInd = '+';
+    }
+#else
+    // Native tests do not initialize network/BLE integrations.
+    char bleInd = '?';
+    char wifiInd = '?';
+    char prusaInd = '?';
+    char smInd = '?';
+    char haInd = '?';
+#endif
+
+    char line1[17];
+    char line2[17];
+    snprintf(line1, sizeof(line1), "NFC+ BLE%c Wifi%c", bleInd, wifiInd);
+    snprintf(line2, sizeof(line2), "PL%c SM%c HA%c", prusaInd, smInd, haInd);
+    lcdManager->updateScreen(line1, line2);
 }
 
 void ApplicationManager::handleMessage(const AppMessage& msg) {

@@ -48,6 +48,10 @@ void PrinterManager::setStrategy(IPrinterLinkStrategy* strat) {
     strategy = strat;
 }
 
+bool PrinterManager::isConnected() const {
+    return strategy != nullptr && strategy->isConnected();
+}
+
 void PrinterManager::poll() {
     if (!strategy) {
         return;

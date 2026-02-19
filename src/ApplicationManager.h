@@ -115,6 +115,7 @@ public:
     bool begin(LCDManager* lcd = nullptr);
     bool sendMessage(const AppMessage& msg, uint32_t waitMs = 0);
     void processMessages();
+    void showStatusOnLCD();
 
     // Public for testing
     void handleMessage(const AppMessage& msg);
