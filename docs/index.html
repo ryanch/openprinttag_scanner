@@ -506,6 +506,7 @@
                     <span id="device-version" style="color: #ccc;">—</span>
                 </div>
                 <form id="config-form">
+                    <div class="section-header" style="margin-top: 1.5rem;">WiFi</div>
                     <div class="form-group">
                         <label for="ssid">WiFi SSID</label>
                         <input type="text" id="ssid" name="ssid" required>
@@ -514,6 +515,8 @@
                         <label for="wifi_pass">WiFi Password (leave blank to keep existing)</label>
                         <input type="password" id="wifi_pass" name="wifi_pass">
                     </div>
+
+                    <div class="section-header" style="margin-top: 1.5rem;">PrusaLink</div>
                     <div class="form-group">
                         <label for="prusa_link_url">PrusaLink URL</label>
                         <input type="text" id="prusa_link_url" name="prusa_link_url" placeholder="e.g., http://192.168.1.100">
@@ -527,6 +530,12 @@
                         <div id="test-prusalink-result" style="margin-top: 0.5rem; font-size: 0.85rem; display: none;"></div>
                     </div>
                     <div class="form-group">
+                        <label for="poll_interval_ms">Poll Interval (ms)</label>
+                        <input type="number" id="poll_interval_ms" name="poll_interval_ms" min="1000">
+                    </div>
+
+                    <div class="section-header" style="margin-top: 1.5rem;">Spoolman</div>
+                    <div class="form-group">
                         <label for="spoolman_url">Spoolman URL (optional)</label>
                         <div style="display: flex; gap: 0.5rem;">
                             <input type="text" id="spoolman_url" name="spoolman_url" placeholder="e.g., http://192.168.1.100:7912" style="flex: 1;">
@@ -534,10 +543,8 @@
                         </div>
                         <div id="test-spoolman-result" style="margin-top: 0.5rem; font-size: 0.85rem; display: none;"></div>
                     </div>
-                    <div class="form-group">
-                        <label for="poll_interval_ms">Poll Interval (ms)</label>
-                        <input type="number" id="poll_interval_ms" name="poll_interval_ms" min="1000">
-                    </div>
+
+                    <div class="section-header" style="margin-top: 1.5rem;">LCD</div>
                     <div class="form-group">
                         <label for="lcd_timeout_minutes">LCD Auto-Off (minutes, 0 = never)</label>
                         <input type="number" id="lcd_timeout_minutes" name="lcd_timeout_minutes" min="0" step="1">
