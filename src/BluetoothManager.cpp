@@ -1,4 +1,5 @@
 #include "BluetoothManager.h"
+#include "ApplicationManager.h"
 #include "ConfigurationManager.h"
 #include "HomeAssistantManager.h"
 #include "NFCManager.h"
@@ -111,6 +112,7 @@ static void process_command(const char* json) {
     else if (strcmp(command, "write_config") == 0) {
         if (ConfigurationManager::getInstance().postConfigUpdate(json)) {
             lcdManager.setScreenTimeoutMs(ConfigurationManager::getInstance().getLcdTimeoutMs());
+            ApplicationManager::getInstance().showStatusOnLCD();
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
             Serial.printf("%s: Config updated successfully\n", TAG);
         } else {
