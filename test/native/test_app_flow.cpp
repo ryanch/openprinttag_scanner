@@ -5,6 +5,8 @@
 #include "FakeLCDManager.h"
 #include "test_helpers.h"
 #include "TestNFCManager.h"
+#include <thread>
+#include <chrono>
 
 // Include ApplicationManager implementation directly (unity build)
 #include "ApplicationManager.cpp"
@@ -374,6 +376,28 @@ int test_tag_removed_clears_display_state() {
     return 0;
 }
 
+// Test: TAG_REMOVED triggers status screen only after absence timeout
+int test_tag_removed_delayed_status_screen() {
+    setup_test();
+
+    g_app->injectMessage(createSpoolDetected("SPOOL_TIMEOUT", OPT_MATERIAL_TYPE_PLA, 0.500f, "PLA"));
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+
+    g_app->injectMessage(createTagRemoved("SPOOL_TIMEOUT", 0.500f));
+
+    ApplicationManager::getInstance().processMessages();
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+
+    std::this_thread::sleep_for(std::chrono::milliseconds(30));
+    ApplicationManager::getInstance().processMessages();
+
+    TEST_ASSERT_EQ(g_lcd->updateCount, 2);
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "NFC+");
+
+    teardown_test();
+    return 0;
+}
+
 // Test: Blank/unknown tags use scanned 4-line LCD treatment
 int test_blank_tag_shows_scanned_4line_message() {
     setup_test();
@@ -424,6 +448,7 @@ int main() {
     RUN_TEST(test_ha_write_works_in_both_modes);
     RUN_TEST(test_ha_update_remaining_enqueues_write);
     RUN_TEST(test_tag_removed_clears_display_state);
+    RUN_TEST(test_tag_removed_delayed_status_screen);
     RUN_TEST(test_blank_tag_shows_scanned_4line_message);
     RUN_TEST(test_default_automation_mode);
 

@@ -48,6 +48,7 @@ private:
     bool formatNewSpool();
     void sendSpoolDetectedMessage();
     void sendBlankTagMessage();
+    void sendTagRemovedMessage();
     void processWriteQueue();
     bool executeWrite(const NFCWriteRequest& request);
     void sendSpoolUpdatedMessage(uint32_t request_id, NFCWriteType type, bool success);

@@ -216,24 +216,7 @@ void NFCManager::scanLoop() {
                     Serial.println("NFCManager: Tag removed");
 
                     // Send TAG_REMOVED message before clearing state
-                    if (currentSpool.tag_data_valid) {
-                        AppMessage msg;
-                        memset(&msg, 0, sizeof(msg));
-                        msg.type = AppMessageType::TAG_REMOVED;
-                        strncpy(msg.payload.tagRemoved.spool_id, currentSpool.spool_id,
-                                sizeof(msg.payload.tagRemoved.spool_id) - 1);
-
-                        float full_weight = 0.0f, consumed = 0.0f;
-                        opt_get_actual_full_weight(&currentSpool.tag_data, &full_weight);
-                        opt_get_consumed_weight(&currentSpool.tag_data, &consumed);
-                        msg.payload.tagRemoved.last_remaining_kg = (full_weight - consumed) / 1000.0f;
-
-                        int32_t smId = -1;
-                        opt_get_gp_spoolman_id(&currentSpool.tag_data, &smId);
-                        msg.payload.tagRemoved.spoolman_id = smId;
-
-                        ApplicationManager::getInstance().sendMessage(msg);
-                    }
+                    sendTagRemovedMessage();
                 }
                 currentSpool.present = false;
                 currentSpool.blank_tag_present = false;
@@ -513,6 +496,30 @@ void NFCManager::sendBlankTagMessage() {
     strncpy(msg.payload.blankTag.spool_id, currentSpool.spool_id,
             sizeof(msg.payload.blankTag.spool_id) - 1);
     msg.payload.blankTag.spool_id[sizeof(msg.payload.blankTag.spool_id) - 1] = '\0';
+
+    ApplicationManager::getInstance().sendMessage(msg);
+}
+
+void NFCManager::sendTagRemovedMessage() {
+    AppMessage msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = AppMessageType::TAG_REMOVED;
+    strncpy(msg.payload.tagRemoved.spool_id, currentSpool.spool_id,
+            sizeof(msg.payload.tagRemoved.spool_id) - 1);
+    msg.payload.tagRemoved.spool_id[sizeof(msg.payload.tagRemoved.spool_id) - 1] = '\0';
+    msg.payload.tagRemoved.last_remaining_kg = 0.0f;
+    msg.payload.tagRemoved.spoolman_id = -1;
+
+    if (currentSpool.tag_data_valid) {
+        float full_weight = 0.0f, consumed = 0.0f;
+        opt_get_actual_full_weight(&currentSpool.tag_data, &full_weight);
+        opt_get_consumed_weight(&currentSpool.tag_data, &consumed);
+        msg.payload.tagRemoved.last_remaining_kg = (full_weight - consumed) / 1000.0f;
+
+        int32_t smId = -1;
+        opt_get_gp_spoolman_id(&currentSpool.tag_data, &smId);
+        msg.payload.tagRemoved.spoolman_id = smId;
+    }
 
     ApplicationManager::getInstance().sendMessage(msg);
 }
@@ -910,6 +917,9 @@ bool NFCManager::scanOnce() {
         processWriteQueue();
     } else {
         if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
+            if (lastSeenValid) {
+                sendTagRemovedMessage();
+            }
             currentSpool.present = false;
             currentSpool.blank_tag_present = false;
             lastSeenValid = false;

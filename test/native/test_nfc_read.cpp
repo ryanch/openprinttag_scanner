@@ -126,6 +126,38 @@ int test_read_error_not_formatted() {
     return 0;
 }
 
+// Test: Blank tag removal should still send TAG_REMOVED to ApplicationManager
+int test_blank_tag_removal_sends_tag_removed_message() {
+    setup_nfc_test();
+
+    uint8_t testUid[7] = {0x04, 0x10, 0x20, 0x30, 0x40, 0x50, 0x60};
+    uint8_t blankData[256] = {0};
+
+    g_stubNfc->setTagPresent(true);
+    g_stubNfc->setTagUid(testUid, 7);
+    g_stubNfc->setTagData(blankData, sizeof(blankData));
+    NFCManager::getInstance().scanOnce();
+
+    g_stubNfc->setTagPresent(false);
+    NFCManager::getInstance().scanOnce();
+
+    const auto& sent = ApplicationManager::getInstance().getSentMessages();
+    bool sawTagRemoved = false;
+    for (const auto& msg : sent) {
+        if (msg.type == AppMessageType::TAG_REMOVED) {
+            sawTagRemoved = true;
+            TEST_ASSERT_EQ(strcmp(msg.payload.tagRemoved.spool_id, "04102030405060"), 0);
+            TEST_ASSERT_EQ(msg.payload.tagRemoved.spoolman_id, -1);
+            break;
+        }
+    }
+
+    TEST_ASSERT(sawTagRemoved);
+
+    teardown_nfc_test();
+    return 0;
+}
+
 int main() {
     int passed = 0, failed = 0, total = 0;
 
@@ -134,6 +166,7 @@ int main() {
 
     RUN_TEST(test_blank_spool_not_formatted);
     RUN_TEST(test_read_error_not_formatted);
+    RUN_TEST(test_blank_tag_removal_sends_tag_removed_message);
 
     printf("\n=== Results: %d/%d passed ===\n", passed, total);
 

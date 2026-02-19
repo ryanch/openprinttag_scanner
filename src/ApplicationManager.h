@@ -133,6 +133,8 @@ public:
         spoolChangedDuringPrint = false;
         lastDisplayedSpoolId[0] = '\0';
         lastDisplayedBlankId[0] = '\0';
+        pendingStatusAfterTagRemoved = false;
+        tagRemovedAtMs = 0;
         automationMode = AutomationMode::SELF_DIRECTED;
     }
 #endif
@@ -155,6 +157,8 @@ private:
     bool spoolChangedDuringPrint = false;
     char lastDisplayedSpoolId[64] = {0};
     char lastDisplayedBlankId[64] = {0};
+    bool pendingStatusAfterTagRemoved = false;
+    uint32_t tagRemovedAtMs = 0;
 
     // Automation mode
     AutomationMode automationMode = AutomationMode::SELF_DIRECTED;

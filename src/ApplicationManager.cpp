@@ -17,6 +17,12 @@
 #endif
 #include <cstring>
 
+#ifdef NATIVE_TEST
+static constexpr uint32_t TAG_REMOVED_STATUS_DELAY_MS = 25;
+#else
+static constexpr uint32_t TAG_REMOVED_STATUS_DELAY_MS = 5000;
+#endif
+
 ApplicationManager& ApplicationManager::getInstance() {
     static ApplicationManager instance;
     return instance;
@@ -58,6 +64,14 @@ void ApplicationManager::processMessages() {
     AppMessage msg;
     while (xQueueReceive(messageQueue, &msg, 0) == pdTRUE) {
         handleMessage(msg);
+    }
+
+    if (pendingStatusAfterTagRemoved) {
+        uint32_t elapsedMs = static_cast<uint32_t>(millis() - tagRemovedAtMs);
+        if (elapsedMs >= TAG_REMOVED_STATUS_DELAY_MS) {
+            showStatusOnLCD();
+            pendingStatusAfterTagRemoved = false;
+        }
     }
 }
 
@@ -250,6 +264,8 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
         }
     }
 
+    pendingStatusAfterTagRemoved = false;
+
     // Update LCD with spool info (dedupe by spool_id)
     if (lcdManager && strcmp(lastDisplayedSpoolId, msg.payload.spoolDetected.spool_id) != 0) {
         strncpy(lastDisplayedSpoolId, msg.payload.spoolDetected.spool_id, sizeof(lastDisplayedSpoolId) - 1);
@@ -358,6 +374,8 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
 void ApplicationManager::handleBlankTagDetected(const AppMessage& msg) {
     Serial.printf("EVENT: BlankTagDetected - spool_id=%s\n",
         msg.payload.blankTag.spool_id);
+
+    pendingStatusAfterTagRemoved = false;
 
     if (lcdManager && strcmp(lastDisplayedBlankId, msg.payload.blankTag.spool_id) != 0) {
         strncpy(lastDisplayedBlankId, msg.payload.blankTag.spool_id, sizeof(lastDisplayedBlankId) - 1);
@@ -486,6 +504,8 @@ void ApplicationManager::handleTagRemoved(const AppMessage& msg) {
     // Clear displayed spool so next scan re-displays
     lastDisplayedSpoolId[0] = '\0';
     lastDisplayedBlankId[0] = '\0';
+    tagRemovedAtMs = millis();
+    pendingStatusAfterTagRemoved = true;
 
     // Publish tag removed to HA
     publishToHA("tag/state",
