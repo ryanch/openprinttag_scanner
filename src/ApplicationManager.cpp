@@ -339,8 +339,16 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
     }
 
 #ifndef NATIVE_TEST
-    // Trigger Spoolman sync after spool weight update
-    if (spoolmanConfigured && msg.payload.spoolUpdated.success) {
+    // Avoid sync loops:
+    // - FORMAT_NEW is followed by SPOOL_DETECTED, which already triggers sync
+    // - WRITE_SPOOLMAN_ID would cause sync->writeback->sync feedback
+    const uint8_t updateType = msg.payload.spoolUpdated.update_type;
+    const bool shouldSyncAfterUpdate =
+        updateType != static_cast<uint8_t>(NFCWriteType::FORMAT_NEW) &&
+        updateType != static_cast<uint8_t>(NFCWriteType::WRITE_SPOOLMAN_ID);
+
+    // Trigger Spoolman sync after relevant successful tag updates
+    if (spoolmanConfigured && msg.payload.spoolUpdated.success && shouldSyncAfterUpdate) {
         // Read current spool state from NFCManager to get full tag data
         CurrentSpoolState state;
         if (NFCManager::getInstance().getCurrentSpoolState(state) && state.tag_data_valid) {

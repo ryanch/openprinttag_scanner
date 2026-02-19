@@ -740,6 +740,8 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
 }
 
 void NFCManager::sendSpoolUpdatedMessage(uint32_t request_id, NFCWriteType type, bool success) {
+    (void)request_id;
+
     AppMessage msg;
     msg.type = AppMessageType::SPOOL_UPDATED;
 
