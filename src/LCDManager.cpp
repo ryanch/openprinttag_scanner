@@ -6,8 +6,7 @@
 LCDManager::LCDManager(uint8_t lcd_Addr, uint8_t lcd_cols, uint8_t lcd_rows)
     : _lcd(lcd_Addr, lcd_cols, lcd_rows), _lcd_cols(lcd_cols), _messageQueue(nullptr), _taskHandle(nullptr),
       _activeLineCount(2), _currentPage(0), _lastPageSwitchTimeMs(0), _lastChangeTime(0),
-      _screenOff(false), _screenTimeoutMs(DEFAULT_SCREEN_TIMEOUT_MS), _stateMux(portMUX_INITIALIZER_UNLOCKED) {
-}
+      _screenOff(false), _screenTimeoutMs(DEFAULT_SCREEN_TIMEOUT_MS), _stateMux(portMUX_INITIALIZER_UNLOCKED) {}
 
 void LCDManager::begin() {
     _lcd.init();
@@ -21,9 +20,23 @@ void LCDManager::updateScreen(const std::string& line1, const std::string& line2
     ScreenMessage msg;
     memset(&msg, 0, sizeof(msg));
     size_t copyLen = std::min(static_cast<size_t>(_lcd_cols), sizeof(msg.line1) - 1);
-    strncpy(msg.line1, line1.c_str(), copyLen);
-    strncpy(msg.line2, line2.c_str(), copyLen);
-    msg.lineCount = 2;
+    auto copyLine = [copyLen](char* dst, const std::string& src) {
+        strncpy(dst, src.c_str(), copyLen);
+        dst[copyLen] = '\0';
+    };
+
+    unsigned long nowMs = millis();
+    LCDDisplayMessage displayMsg;
+    taskENTER_CRITICAL(&_stateMux);
+    displayMsg = _displayLogic.prepareTwoLineMessage(line1, line2, nowMs);
+    taskEXIT_CRITICAL(&_stateMux);
+
+    copyLine(msg.line1, displayMsg.line1);
+    copyLine(msg.line2, displayMsg.line2);
+    copyLine(msg.line3, displayMsg.line3);
+    copyLine(msg.line4, displayMsg.line4);
+    msg.lineCount = displayMsg.lineCount;
+
     xQueueSend(_messageQueue, &msg, 0);
 }
 
@@ -31,11 +44,22 @@ void LCDManager::updateScreen(const std::string& line1, const std::string& line2
     ScreenMessage msg;
     memset(&msg, 0, sizeof(msg));
     size_t copyLen = std::min(static_cast<size_t>(_lcd_cols), sizeof(msg.line1) - 1);
-    strncpy(msg.line1, line1.c_str(), copyLen);
-    strncpy(msg.line2, line2.c_str(), copyLen);
-    strncpy(msg.line3, line3.c_str(), copyLen);
-    strncpy(msg.line4, line4.c_str(), copyLen);
-    msg.lineCount = 4;
+    auto copyLine = [copyLen](char* dst, const std::string& src) {
+        strncpy(dst, src.c_str(), copyLen);
+        dst[copyLen] = '\0';
+    };
+
+    LCDDisplayMessage displayMsg;
+    taskENTER_CRITICAL(&_stateMux);
+    displayMsg = _displayLogic.prepareFourLineMessage(line1, line2, line3, line4);
+    taskEXIT_CRITICAL(&_stateMux);
+
+    copyLine(msg.line1, displayMsg.line1);
+    copyLine(msg.line2, displayMsg.line2);
+    copyLine(msg.line3, displayMsg.line3);
+    copyLine(msg.line4, displayMsg.line4);
+    msg.lineCount = displayMsg.lineCount;
+
     xQueueSend(_messageQueue, &msg, 0);
 }
 
@@ -122,6 +146,7 @@ void LCDManager::processQueue() {
 
     ScreenMessage msg;
     if (xQueueReceive(_messageQueue, &msg, 0) == pdTRUE) {
+        uint8_t previousActiveLineCount = _activeLineCount;
         _activeLine1 = std::string(msg.line1);
         _activeLine2 = std::string(msg.line2);
         _activeLine3 = std::string(msg.line3);
@@ -133,6 +158,19 @@ void LCDManager::processQueue() {
         bool changed = renderLines(_activeLine1, _activeLine2);
         if (changed) {
             markScreenActivity();
+        }
+
+        if (changed || previousActiveLineCount != _activeLineCount) {
+            unsigned long nowMs = millis();
+            LCDDisplayMessage displayedMsg;
+            displayedMsg.line1 = msg.line1;
+            displayedMsg.line2 = msg.line2;
+            displayedMsg.line3 = msg.line3;
+            displayedMsg.line4 = msg.line4;
+            displayedMsg.lineCount = _activeLineCount;
+            taskENTER_CRITICAL(&_stateMux);
+            _displayLogic.noteDisplayedMessage(displayedMsg, nowMs);
+            taskEXIT_CRITICAL(&_stateMux);
         }
     }
 

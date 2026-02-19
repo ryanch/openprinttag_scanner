@@ -78,7 +78,7 @@ int test_complete_print_cycle() {
     // 4. Print finishes with 50g used
     g_app->injectMessage(createPrintFinished(123, 50.0f));
     TEST_ASSERT_EQ(g_app->getState(), AppState::IDLE);
-    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Updating spool");
+    TEST_ASSERT(g_lcd->lastScreenContains("Updating spool"));
 
     // Verify NFC write was enqueued with correct data
     auto& nfcMgr = NFCManager::getInstance();
@@ -151,7 +151,7 @@ int test_no_spool_during_print() {
 
     // Print finishes
     g_app->injectMessage(createPrintFinished(111, 20.0f));
-    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "No spool");
+    TEST_ASSERT(g_lcd->lastScreenContains("No spool"));
 
     teardown_test();
     return 0;
@@ -224,7 +224,7 @@ int test_high_progress_disappearance_deducts_filament() {
     //    with total filament (e.g. 75g) instead of PRINT_CANCELED with 0g
     g_app->injectMessage(createPrintFinished(999, 75.0f));
     TEST_ASSERT_EQ(g_app->getState(), AppState::IDLE);
-    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Updating spool");
+    TEST_ASSERT(g_lcd->lastScreenContains("Updating spool"));
 
     // Verify NFC write was enqueued with correct filament amount
     auto& nfcMgr = NFCManager::getInstance();

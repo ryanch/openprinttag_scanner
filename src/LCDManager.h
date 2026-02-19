@@ -7,6 +7,7 @@
 #include <freertos/FreeRTOS.h>
 #include <freertos/queue.h>
 #include <freertos/task.h>
+#include "LCDDisplayLogic.h"
 
 struct ScreenMessage {
     char line1[17];
@@ -46,6 +47,7 @@ private:
     unsigned long _lastChangeTime;
     bool _screenOff;
     uint32_t _screenTimeoutMs;
+    LCDDisplayLogic _displayLogic;
     portMUX_TYPE _stateMux;
     static const uint32_t DEFAULT_SCREEN_TIMEOUT_MS = 15 * 60 * 1000; // 15 minutes
     static const uint32_t FOUR_LINE_PAGE_DURATION_MS = 5000;

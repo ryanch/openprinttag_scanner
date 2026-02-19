@@ -20,10 +20,14 @@ NFC_READ_TARGET = test_nfc_read_runner
 BGCODE_SRCS = test_bgcode_parser.cpp NativePlatform.cpp
 BGCODE_TARGET = test_bgcode_parser
 
-all: $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET)
+LCD_MANAGER_SRCS = test_lcd_manager.cpp NativePlatform.cpp
+LCD_MANAGER_TARGET = test_lcd_manager_runner
+
+all: $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(LCD_MANAGER_TARGET)
 	./$(APP_FLOW_TARGET)
 	./$(NFC_READ_TARGET)
 	./$(BGCODE_TARGET)
+	./$(LCD_MANAGER_TARGET)
 
 # Compile C library objects
 openprinttag_lib.o: ../../lib/openprinttag/openprinttag_lib.c
@@ -41,6 +45,9 @@ $(NFC_READ_TARGET): $(NFC_READ_SRCS) $(OPT_OBJS)
 $(BGCODE_TARGET): $(BGCODE_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(BGCODE_SRCS) -o $(BGCODE_TARGET)
 
+$(LCD_MANAGER_TARGET): $(LCD_MANAGER_SRCS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LCD_MANAGER_SRCS) -o $(LCD_MANAGER_TARGET)
+
 run-app-flow: $(APP_FLOW_TARGET)
 	./$(APP_FLOW_TARGET)
 
@@ -50,7 +57,10 @@ run-nfc-read: $(NFC_READ_TARGET)
 run-bgcode: $(BGCODE_TARGET)
 	./$(BGCODE_TARGET)
 
-clean:
-	rm -f $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(OPT_OBJS)
+run-lcd-manager: $(LCD_MANAGER_TARGET)
+	./$(LCD_MANAGER_TARGET)
 
-.PHONY: all clean run-app-flow run-nfc-read run-bgcode
+clean:
+	rm -f $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(LCD_MANAGER_TARGET) $(OPT_OBJS)
+
+.PHONY: all clean run-app-flow run-nfc-read run-bgcode run-lcd-manager

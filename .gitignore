@@ -13,3 +13,4 @@ test/build/test_openprinttag
 test/build
 test/build/test_openprinttag
 test/integration/ha
+test/native/test_lcd_manager_runner

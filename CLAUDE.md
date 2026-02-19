@@ -57,6 +57,7 @@ src/HomeAssistantManager.cpp / .h — MQTT client task, publish/subscribe, HA di
 
 UI / UX
 src/LCDManager.cpp / .h — I2C LCD task + status updates
+src/LCDDisplayLogic.h — Shared LCD message merge/timing rules
 src/BluetoothManager.cpp / .h — BLE services + connections
 docs/index.html — BLE config UI (device setup + spool editing)
 
@@ -76,6 +77,7 @@ test/native/NativePlatform.cpp — Stub Serial
 Native Tests
 test/native/test_app_flow.cpp — App state transitions
 test/native/test_bgcode_parser.cpp — Parser validation
+test/native/test_lcd_manager.cpp — LCD message merge timing behavior
 test/native/test_nfc_read.cpp — NFC read behavior
 test/native/TestableApplicationManager.h — Queue bypass harness
 test/native/TestNFCManager.h — Write queue tracker
