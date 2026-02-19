@@ -79,6 +79,16 @@ inline AppMessage createTagRemoved(const char* spoolId, float lastRemainingKg = 
     return msg;
 }
 
+inline AppMessage createBlankTagDetected(const char* spoolId) {
+    AppMessage msg;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = AppMessageType::BLANK_TAG_DETECTED;
+    strncpy(msg.payload.blankTag.spool_id, spoolId,
+            sizeof(msg.payload.blankTag.spool_id) - 1);
+    msg.payload.blankTag.spool_id[sizeof(msg.payload.blankTag.spool_id) - 1] = '\0';
+    return msg;
+}
+
 inline AppMessage createHAWriteTag(const char* expectedUid, uint8_t materialType,
                                     const uint8_t* color, const char* manufacturer,
                                     float initialWeightG, float remainingG,

@@ -202,7 +202,7 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
         char line2[17];
         snprintf(line1, sizeof(line1), "Type: %.10s", msg.payload.spoolDetected.material_name);
         snprintf(line2, sizeof(line2), "Remain: %.0fg", msg.payload.spoolDetected.kg_remaining * 1000.0f);
-        lcdManager->updateScreen(line1, line2);
+        lcdManager->updateScreen("**** Spool ****", "*** Scanned ***", line1, line2);
     } else if (lcdManager) {
         Serial.printf("ApplicationManager: Skipping LCD update for already displayed spool %s\n", msg.payload.spoolDetected.spool_id);
     }
@@ -306,7 +306,7 @@ void ApplicationManager::handleBlankTagDetected(const AppMessage& msg) {
         lastDisplayedBlankId[sizeof(lastDisplayedBlankId) - 1] = '\0';
         lastDisplayedSpoolId[0] = '\0';  // Clear so valid spool re-displays if swapped
 
-        lcdManager->updateScreen("Unknown Tag", "Use app to setup");
+        lcdManager->updateScreen("**** Spool ****", "*** Scanned ***", "Unknown Tag", "Use app to setup");
     }
 
     // Publish blank tag state to HA

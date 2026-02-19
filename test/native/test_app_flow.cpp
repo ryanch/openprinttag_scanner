@@ -35,8 +35,10 @@ int test_spool_detected_shows_lcd() {
     g_app->injectMessage(createSpoolDetected("SPOOL001", OPT_MATERIAL_TYPE_PLA, 0.850f, "PLA"));
 
     TEST_ASSERT_EQ(g_lcd->updateCount, 1);
-    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "PLA");
-    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine2, "850");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Spool");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine2, "Scanned");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine3, "PLA");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine4, "850");
 
     teardown_test();
     return 0;
@@ -62,7 +64,8 @@ int test_complete_print_cycle() {
 
     // 1. Spool detected at boot
     g_app->injectMessage(createSpoolDetected("SPOOL001", OPT_MATERIAL_TYPE_PLA, 0.850f, "PLA"));
-    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "PLA");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Spool");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine3, "PLA");
 
     // 2. Print starts
     g_app->injectMessage(createPrintStarted(123));
@@ -371,6 +374,22 @@ int test_tag_removed_clears_display_state() {
     return 0;
 }
 
+// Test: Blank/unknown tags use scanned 4-line LCD treatment
+int test_blank_tag_shows_scanned_4line_message() {
+    setup_test();
+
+    g_app->injectMessage(createBlankTagDetected("BLANK001"));
+
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Spool");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine2, "Scanned");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine3, "Unknown Tag");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine4, "Use app");
+
+    teardown_test();
+    return 0;
+}
+
 // Test: Default automation mode is SELF_DIRECTED (existing tests unaffected)
 int test_default_automation_mode() {
     setup_test();
@@ -405,6 +424,7 @@ int main() {
     RUN_TEST(test_ha_write_works_in_both_modes);
     RUN_TEST(test_ha_update_remaining_enqueues_write);
     RUN_TEST(test_tag_removed_clears_display_state);
+    RUN_TEST(test_blank_tag_shows_scanned_4line_message);
     RUN_TEST(test_default_automation_mode);
 
     printf("\n=== Results: %d/%d passed ===\n", passed, total);

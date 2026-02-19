@@ -1,10 +1,12 @@
 #include "LCDManager.h"
 #include <Arduino.h>
 #include <cstring>
+#include <algorithm>
 
 LCDManager::LCDManager(uint8_t lcd_Addr, uint8_t lcd_cols, uint8_t lcd_rows)
     : _lcd(lcd_Addr, lcd_cols, lcd_rows), _lcd_cols(lcd_cols), _messageQueue(nullptr), _taskHandle(nullptr),
-      _lastChangeTime(0), _screenOff(false), _screenTimeoutMs(DEFAULT_SCREEN_TIMEOUT_MS), _stateMux(portMUX_INITIALIZER_UNLOCKED) {
+      _activeLineCount(2), _currentPage(0), _lastPageSwitchTimeMs(0), _lastChangeTime(0),
+      _screenOff(false), _screenTimeoutMs(DEFAULT_SCREEN_TIMEOUT_MS), _stateMux(portMUX_INITIALIZER_UNLOCKED) {
 }
 
 void LCDManager::begin() {
@@ -18,8 +20,22 @@ void LCDManager::begin() {
 void LCDManager::updateScreen(const std::string& line1, const std::string& line2) {
     ScreenMessage msg;
     memset(&msg, 0, sizeof(msg));
-    strncpy(msg.line1, line1.c_str(), _lcd_cols);
-    strncpy(msg.line2, line2.c_str(), _lcd_cols);
+    size_t copyLen = std::min(static_cast<size_t>(_lcd_cols), sizeof(msg.line1) - 1);
+    strncpy(msg.line1, line1.c_str(), copyLen);
+    strncpy(msg.line2, line2.c_str(), copyLen);
+    msg.lineCount = 2;
+    xQueueSend(_messageQueue, &msg, 0);
+}
+
+void LCDManager::updateScreen(const std::string& line1, const std::string& line2, const std::string& line3, const std::string& line4) {
+    ScreenMessage msg;
+    memset(&msg, 0, sizeof(msg));
+    size_t copyLen = std::min(static_cast<size_t>(_lcd_cols), sizeof(msg.line1) - 1);
+    strncpy(msg.line1, line1.c_str(), copyLen);
+    strncpy(msg.line2, line2.c_str(), copyLen);
+    strncpy(msg.line3, line3.c_str(), copyLen);
+    strncpy(msg.line4, line4.c_str(), copyLen);
+    msg.lineCount = 4;
     xQueueSend(_messageQueue, &msg, 0);
 }
 
@@ -63,10 +79,7 @@ void LCDManager::taskLoop() {
 }
 
 void LCDManager::processQueue() {
-    ScreenMessage msg;
-    if (xQueueReceive(_messageQueue, &msg, 0) == pdTRUE) {
-        std::string line1(msg.line1);
-        std::string line2(msg.line2);
+    auto renderLines = [this](const std::string& line1, const std::string& line2) {
         bool changed = false;
 
         if (line1 != _currentLine1) {
@@ -89,20 +102,54 @@ void LCDManager::processQueue() {
             changed = true;
         }
 
-        if (changed) {
-            bool wakeScreen = false;
-            taskENTER_CRITICAL(&_stateMux);
-            _lastChangeTime = millis();
-            if (_screenOff) {
-                _screenOff = false;
-                wakeScreen = true;
-            }
-            taskEXIT_CRITICAL(&_stateMux);
+        return changed;
+    };
 
-            if (wakeScreen) {
-                _lcd.backlight();
-            }
+    auto markScreenActivity = [this]() {
+        bool wakeScreen = false;
+        taskENTER_CRITICAL(&_stateMux);
+        _lastChangeTime = millis();
+        if (_screenOff) {
+            _screenOff = false;
+            wakeScreen = true;
         }
+        taskEXIT_CRITICAL(&_stateMux);
+
+        if (wakeScreen) {
+            _lcd.backlight();
+        }
+    };
+
+    ScreenMessage msg;
+    if (xQueueReceive(_messageQueue, &msg, 0) == pdTRUE) {
+        _activeLine1 = std::string(msg.line1);
+        _activeLine2 = std::string(msg.line2);
+        _activeLine3 = std::string(msg.line3);
+        _activeLine4 = std::string(msg.line4);
+        _activeLineCount = (msg.lineCount == 4) ? 4 : 2;
+        _currentPage = 0;
+        _lastPageSwitchTimeMs = millis();
+
+        bool changed = renderLines(_activeLine1, _activeLine2);
+        if (changed) {
+            markScreenActivity();
+        }
+    }
+
+    bool pageSwitched = false;
+    if (_activeLineCount == 4 && (millis() - _lastPageSwitchTimeMs >= FOUR_LINE_PAGE_DURATION_MS)) {
+        _currentPage = (_currentPage == 0) ? 1 : 0;
+        _lastPageSwitchTimeMs = millis();
+        pageSwitched = true;
+    }
+
+    if (pageSwitched) {
+        if (_currentPage == 0) {
+            renderLines(_activeLine1, _activeLine2);
+        } else {
+            renderLines(_activeLine3, _activeLine4);
+        }
+        markScreenActivity();
     }
 
     // Turn off screen after timeout. A timeout of 0 disables auto-off.
