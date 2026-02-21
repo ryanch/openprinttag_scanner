@@ -111,6 +111,14 @@ void NFCManager::scanLoop() {
 
     Serial.println("NFCManager: scanLoop() started, polling every 50ms");
 
+#ifndef NATIVE_TEST
+    // Register this task with the ESP32 hardware watchdog.
+    // If scanLoop() hangs for >NFC_WDT_TIMEOUT_S (e.g., stuck in driver I/O),
+    // the watchdog triggers a system reset automatically.
+    esp_task_wdt_init(NFC_WDT_TIMEOUT_S, true);
+    esp_task_wdt_add(NULL);
+#endif
+
     // Initial reset + RF setup
     connection_->reset();
     connection_->setupRF();
@@ -121,6 +129,9 @@ void NFCManager::scanLoop() {
 #endif
 
     while (true) {
+#ifndef NATIVE_TEST
+        esp_task_wdt_reset();
+#endif
         uint8_t uid[8];
         uint8_t uidLength = 0;
         scanCount++;
@@ -139,7 +150,7 @@ void NFCManager::scanLoop() {
             ESP.restart();
 #endif
         }
-        if (consecutiveFailures_ > 0 && consecutiveFailures_ == RECOVERY_THRESHOLD) {
+        if (consecutiveFailures_ > 0 && (consecutiveFailures_ % RECOVERY_THRESHOLD) == 0) {
             attemptRecovery();
         }
 

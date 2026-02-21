@@ -553,7 +553,12 @@ ISO15693ErrorCode PN5180ISO15693::issueISO15693Command(uint8_t *cmd, uint8_t cmd
   if (0 == (status & RX_SOF_DET_IRQ_STAT)) {
     return EC_NO_CARD;
   }
+  unsigned long rxStart = millis();
   while (0 == (status & RX_IRQ_STAT)) {
+    if (millis() - rxStart > 1000) {
+      PN5180DEBUG(F("TIMEOUT waiting for RX_IRQ after SOF detected\n"));
+      return ISO15693_EC_UNKNOWN_ERROR;
+    }
     delay(10);
     status = getIRQStatus();
   }
