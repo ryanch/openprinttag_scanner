@@ -8,6 +8,9 @@ The device can be configured via a web interface served over Bluetooth Low Energ
 
 More details available on the printables website: https://www.printables.com/model/1581648-openprinttag-scanner 
 
+## Compatibility
+Validated by the model author with a Prusa MK4S + MMU3 setup using PrusaLink. The same flow can work with other printers/controllers that expose compatible status and job data.
+
 ## How to configure
 1.  On first boot, or when WiFi is not configured, the device will start a BLE service.
 2.  Connect to the device named "OpenPrintTag" from your computer or phone.
@@ -19,10 +22,11 @@ More details available on the printables website: https://www.printables.com/mod
 *   **NFC Tag Reading/Writing:** Reads and writes data to NFC tags formatted according to the OpenPrintTag specification.
 *   **Printer Integration:** Communicates with PrusaLink and OctoPrint to:
     *   Notify the printer when a spool has been selected.
-    *   Automatically subtract filament weight from the tag after a print is completed.
+    *   Automatically subtract filament weight from the tag after a print is completed or canceled (canceled prints are estimated from progress).
 *   **LCD Display:** Shows the current status of the device, including WiFi connection, NFC scans, and printer status.
 *   **Bluetooth Configuration:** Provides a web-based UI over BLE for easy setup.
 *   **Extensible Printer Strategy:** The `IPrinterLinkStrategy` interface allows for adding support for other printer control software in the future.
+*   **Polling Cadence:** Polls printer state on a short interval (about every 10 seconds in the model description) and syncs spool weight accordingly.
 
 # Hardware Setup
 
@@ -30,6 +34,19 @@ More details available on the printables website: https://www.printables.com/mod
 *   NFC Reader/Writer: PN5180 NFC module (ISO 15693)
 *   LCD Screen: [16x2 I2C LCD](https://a.co/d/dryhwvd) (only 1 needed)
 *   ESP32: [ESP32 DevKitC V4](https://a.co/d/gW3zBIJ) (only 1 needed)
+*   USB Cable: USB-A to USB-C (1)
+*   Jumper wires: male-to-female Dupont wires (9)
+
+### Printables BOM (non-printed parts)
+The model page lists this BOM:
+
+| Item | Qty | 
+|---|---:|---|
+| PN5180 NFC module | 1 | 
+| ESP32-WROOM-32 (40 pin) | 1 |
+| 16x2 I2C LCD module | 1 | 
+| USB-A to USB-C cable | 1 | 
+| Dupont jumper wires (M/F) | 9 | 
 
 ## Hardware Configuration
 Connect the components to the ESP32 as follows:
