@@ -1,3 +1,4 @@
+#include "DebugLogBuffer.h"
 #include "PrinterManager.h"
 #include "ConfigurationManager.h"
 #include "ApplicationManager.h"
@@ -13,12 +14,12 @@ void PrinterManager::begin() {
     currentJobId = -1;
     currentJobTotalFilamentG = 0.0f;
     lastProgressPercent = 0.0f;
-    Serial.println("PrinterManager: Initialized");
+    DBG_LOGLN("PrinterManager: Initialized");
 }
 
 void PrinterManager::startPollingTask() {
     if (pollingTaskHandle != nullptr) {
-        Serial.println("PrinterManager: Polling task already running");
+        DBG_LOGLN("PrinterManager: Polling task already running");
         return;
     }
 
@@ -31,7 +32,7 @@ void PrinterManager::startPollingTask() {
         &pollingTaskHandle
     );
 
-    Serial.println("PrinterManager: Polling task started");
+    DBG_LOGLN("PrinterManager: Polling task started");
 }
 
 void PrinterManager::pollingTaskFunc(void* param) {
@@ -125,10 +126,10 @@ void PrinterManager::handleJobDetected(int jobId, float totalFilamentG) {
     ApplicationManager::getInstance().sendMessage(msg);
 
     if (totalFilamentG <= 0) {
-        Serial.printf("PrinterManager: WARNING - No filament data from API for job %d\n", jobId);
+        DBG_LOGF("PrinterManager: WARNING - No filament data from API for job %d\n", jobId);
     }
 
-    Serial.printf("PrinterManager: Now tracking job %d (total filament: %.2fg)\n",
+    DBG_LOGF("PrinterManager: Now tracking job %d (total filament: %.2fg)\n",
         jobId, totalFilamentG);
 }
 
@@ -137,7 +138,7 @@ void PrinterManager::handleJobFinished(int jobId, float filamentUsedG) {
         float deferred = strategy->fetchDeferredFilament();
         if (deferred > 0.0f) {
             filamentUsedG = deferred;
-            Serial.printf("PrinterManager: Got deferred filament: %.2fg\n", deferred);
+            DBG_LOGF("PrinterManager: Got deferred filament: %.2fg\n", deferred);
         }
     }
 
@@ -147,7 +148,7 @@ void PrinterManager::handleJobFinished(int jobId, float filamentUsedG) {
     msg.payload.printFinished.filament_used_grams = filamentUsedG;
     ApplicationManager::getInstance().sendMessage(msg);
 
-    Serial.printf("PrinterManager: Job %d finished (filament: %.2fg)\n",
+    DBG_LOGF("PrinterManager: Job %d finished (filament: %.2fg)\n",
         jobId, filamentUsedG);
 
     state = PrinterState::IDLE;
@@ -165,7 +166,7 @@ void PrinterManager::handleJobCanceled(int jobId, float progressPercent) {
     msg.payload.printCanceled.est_filament_used_grams = estimatedFilament;
     ApplicationManager::getInstance().sendMessage(msg);
 
-    Serial.printf("PrinterManager: Job %d canceled at %.1f%% (est filament: %.2fg)\n",
+    DBG_LOGF("PrinterManager: Job %d canceled at %.1f%% (est filament: %.2fg)\n",
         jobId, progressPercent, estimatedFilament);
 
     state = PrinterState::IDLE;
@@ -179,13 +180,13 @@ void PrinterManager::handleJobDisappeared() {
         float deferred = strategy->fetchDeferredFilament();
         if (deferred > 0.0f) {
             currentJobTotalFilamentG = deferred;
-            Serial.printf("PrinterManager: Got deferred filament: %.2fg\n", deferred);
+            DBG_LOGF("PrinterManager: Got deferred filament: %.2fg\n", deferred);
         }
     }
 
     if (lastProgressPercent >= 95.0f) {
         // High progress — almost certainly a completed print
-        Serial.printf("PrinterManager: Job %d disappeared at %.1f%% - treating as finished (filament: %.2fg)\n",
+        DBG_LOGF("PrinterManager: Job %d disappeared at %.1f%% - treating as finished (filament: %.2fg)\n",
             currentJobId, lastProgressPercent, currentJobTotalFilamentG);
         handleJobFinished(currentJobId, currentJobTotalFilamentG);
     } else {
@@ -197,7 +198,7 @@ void PrinterManager::handleJobDisappeared() {
         msg.payload.printCanceled.est_filament_used_grams = estimatedFilament;
         ApplicationManager::getInstance().sendMessage(msg);
 
-        Serial.printf("PrinterManager: Job %d disappeared at %.1f%% (est filament: %.2fg)\n",
+        DBG_LOGF("PrinterManager: Job %d disappeared at %.1f%% (est filament: %.2fg)\n",
             currentJobId, lastProgressPercent, estimatedFilament);
 
         state = PrinterState::IDLE;

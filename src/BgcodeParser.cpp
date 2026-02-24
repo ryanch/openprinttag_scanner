@@ -1,3 +1,4 @@
+#include "DebugLogBuffer.h"
 #include "BgcodeParser.h"
 #include <cstring>
 #include <cstdlib>

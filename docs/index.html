@@ -51,6 +51,10 @@
             animation: fadeIn 0.5s ease-out forwards;
         }
 
+        .container.logs-expanded {
+            max-width: 90vw;
+        }
+
         @keyframes fadeIn {
             to {
                 opacity: 1;
@@ -483,6 +487,43 @@
         .format-spool-card button {
             min-width: 160px;
         }
+
+        .log-controls {
+            display: flex;
+            gap: 0.75rem;
+            margin-bottom: 1rem;
+        }
+
+        .log-controls button {
+            flex: 1;
+        }
+
+        .log-status {
+            font-size: 0.8rem;
+            color: var(--prusa-light-gray);
+            margin-bottom: 0.75rem;
+        }
+
+        .log-view {
+            background-color: #111;
+            border: 1px solid #444;
+            border-radius: 4px;
+            min-height: 320px;
+            max-height: 420px;
+            overflow-y: auto;
+            padding: 0.75rem;
+            font-family: monospace;
+            font-size: 0.8rem;
+            line-height: 1.35;
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
+
+        .log-line {
+            margin: 0;
+            padding: 0 0 2px 0;
+            color: #d2d2d2;
+        }
     </style>
 </head>
 <body>
@@ -505,6 +546,7 @@
             <nav class="tab-nav">
                 <button class="tab-btn active" data-tab="spools">Spools</button>
                 <button class="tab-btn" data-tab="settings">Settings</button>
+                <button class="tab-btn" data-tab="logs">Logs</button>
             </nav>
 
             <!-- Spools Tab -->
@@ -619,6 +661,17 @@
 
                 <div id="settings-status-area" class="status-area" style="margin-top: 1rem; padding: 1rem; background-color: var(--prusa-medium-gray); border-radius: 4px; font-family: monospace; font-size: 0.8rem; color: #aaa; max-height: 120px; overflow-y: auto; display: none;"></div>
             </div>
+
+            <!-- Logs Tab -->
+            <div id="tab-logs" class="tab-content">
+                <div class="log-controls">
+                    <button type="button" id="refresh-logs-btn">Refresh</button>
+                    <button type="button" id="auto-logs-btn" class="secondary">Auto: Off</button>
+                    <button type="button" id="clear-logs-btn" class="secondary">Clear View</button>
+                </div>
+                <div id="logs-status" class="log-status">Idle</div>
+                <div id="logs-view" class="log-view"></div>
+            </div>
         </div>
     </div>
 
@@ -685,6 +738,12 @@
         const settingsStatusArea = document.getElementById('settings-status-area');
         const configForm = document.getElementById('config-form');
         const saveButton = document.getElementById('save-button');
+        const appContainer = document.querySelector('.container');
+        const refreshLogsButton = document.getElementById('refresh-logs-btn');
+        const autoLogsButton = document.getElementById('auto-logs-btn');
+        const clearLogsButton = document.getElementById('clear-logs-btn');
+        const logsStatus = document.getElementById('logs-status');
+        const logsView = document.getElementById('logs-view');
 
         // Tab elements
         const tabButtons = document.querySelectorAll('.tab-btn');
@@ -721,8 +780,12 @@
         let currentSpoolData = null;
         let recentSpoolsData = [];
         let spoolPollInterval = null;
+        let logPollInterval = null;
+        let logCursor = 0;
+        let isLogsAutoEnabled = false;
         let cachedSpoolmanUrl = '';
         const SPOOL_POLL_INTERVAL_MS = 3000;
+        const LOG_POLL_INTERVAL_MS = 2000;
         const textDecoder = new TextDecoder('utf-8');
         const textEncoder = new TextEncoder();
 
@@ -777,6 +840,11 @@
 
                 btn.classList.add('active');
                 document.getElementById(`tab-${tabId}`).classList.add('active');
+                appContainer.classList.toggle('logs-expanded', tabId === 'logs');
+
+                if (tabId === 'logs') {
+                    refreshLogs();
+                }
             });
         });
 
@@ -1095,6 +1163,7 @@
                 // Load data
                 await loadSpools();
                 await loadConfig();
+                setLogsStatus('Connected');
 
                 // Start polling for spool updates
                 startSpoolPolling();
@@ -1265,6 +1334,7 @@
 
         function onDisconnected() {
             stopSpoolPolling();
+            stopLogPolling();
             log('Device disconnected.', 'error');
             connectionUI.style.display = 'block';
             appUI.style.display = 'none';
@@ -1273,6 +1343,8 @@
             configReadCharacteristic = null;
             currentSpoolData = null;
             recentSpoolsData = [];
+            logCursor = 0;
+            setLogsStatus('Disconnected', true);
         }
 
         // Test connection handlers
@@ -1427,12 +1499,139 @@
             }
         }
 
+        function setLogsStatus(text, isError = false) {
+            logsStatus.textContent = text;
+            logsStatus.style.color = isError ? 'var(--prusa-red)' : 'var(--prusa-light-gray)';
+        }
+
+        function appendLogLine(line) {
+            const p = document.createElement('p');
+            p.className = 'log-line';
+            p.textContent = line || '';
+            logsView.appendChild(p);
+            logsView.scrollTop = logsView.scrollHeight;
+        }
+
+        async function fetchLogMeta() {
+            if (!configWriteCharacteristic) throw new Error('Not connected');
+
+            return enqueueCommand(async () => {
+                await configWriteCharacteristic.writeValue(
+                    textEncoder.encode('{"command":"log_meta"}')
+                );
+                const responseValue = await configWriteCharacteristic.readValue();
+                return JSON.parse(textDecoder.decode(responseValue));
+            });
+        }
+
+        async function fetchLogLine(seq) {
+            if (!configWriteCharacteristic || !configReadCharacteristic) throw new Error('Not connected');
+
+            return enqueueCommand(async () => {
+                await configWriteCharacteristic.writeValue(
+                    textEncoder.encode(JSON.stringify({ command: 'log_line', seq }))
+                );
+
+                const statusValue = await configWriteCharacteristic.readValue();
+                const status = JSON.parse(textDecoder.decode(statusValue));
+                if (status.status === 'ok') {
+                    const lineValue = await configReadCharacteristic.readValue();
+                    status.line = textDecoder.decode(lineValue);
+                }
+                return status;
+            });
+        }
+
+        async function refreshLogs() {
+            if (!configWriteCharacteristic || !configReadCharacteristic) {
+                setLogsStatus('Not connected', true);
+                return;
+            }
+
+            try {
+                setLogsStatus('Fetching...');
+                const meta = await fetchLogMeta();
+                if (meta.status !== 'ok') {
+                    throw new Error('Failed to fetch log metadata');
+                }
+
+                if (logCursor < meta.oldest_seq || logCursor > meta.next_seq) {
+                    logCursor = meta.oldest_seq;
+                }
+
+                let fetched = 0;
+                let staleResetCount = 0;
+                const MAX_LINES_PER_REFRESH = 200;
+
+                while (fetched < MAX_LINES_PER_REFRESH) {
+                    const lineResponse = await fetchLogLine(logCursor);
+                    if (lineResponse.status === 'ok') {
+                        appendLogLine(lineResponse.line);
+                        logCursor = lineResponse.next_seq;
+                        fetched++;
+                        continue;
+                    }
+
+                    if (lineResponse.status === 'stale') {
+                        if (staleResetCount > 0) {
+                            break;
+                        }
+                        staleResetCount++;
+                        logCursor = lineResponse.oldest_seq;
+                        continue;
+                    }
+
+                    if (lineResponse.status === 'eof') {
+                        logCursor = lineResponse.next_seq;
+                        break;
+                    }
+
+                    throw new Error('Unexpected log response');
+                }
+
+                setLogsStatus(`Fetched ${fetched} line(s). next=${logCursor}`);
+            } catch (error) {
+                setLogsStatus(`Log fetch failed: ${error}`, true);
+            }
+        }
+
+        function startLogPolling() {
+            stopLogPolling();
+            logPollInterval = setInterval(refreshLogs, LOG_POLL_INTERVAL_MS);
+        }
+
+        function stopLogPolling() {
+            if (logPollInterval) {
+                clearInterval(logPollInterval);
+                logPollInterval = null;
+            }
+        }
+
+        function toggleAutoLogs() {
+            isLogsAutoEnabled = !isLogsAutoEnabled;
+            autoLogsButton.textContent = isLogsAutoEnabled ? 'Auto: On' : 'Auto: Off';
+            autoLogsButton.classList.toggle('secondary', !isLogsAutoEnabled);
+
+            if (isLogsAutoEnabled) {
+                startLogPolling();
+                refreshLogs();
+            } else {
+                stopLogPolling();
+            }
+        }
+
         // Event Listeners
         connectButton.addEventListener('click', handleConnect);
         configForm.addEventListener('submit', handleSave);
         document.getElementById('test-spoolman-btn').addEventListener('click', handleTestSpoolman);
         document.getElementById('test-prusalink-btn').addEventListener('click', handleTestPrusalink);
         document.getElementById('test-mqtt-btn').addEventListener('click', handleTestMqtt);
+        refreshLogsButton.addEventListener('click', refreshLogs);
+        autoLogsButton.addEventListener('click', toggleAutoLogs);
+        clearLogsButton.addEventListener('click', () => {
+            logsView.innerHTML = '';
+            setLogsStatus('Cleared view');
+        });
     </script>
 </body>
 </html>

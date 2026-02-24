@@ -1,3 +1,4 @@
+#include "DebugLogBuffer.h"
 #include "ConfigurationManager.h"
 #include <Preferences.h>
 #include <ArduinoJson.h>
@@ -31,14 +32,14 @@ bool ConfigurationManager::begin() {
     loadFromNVS();
 
     _initialized = true;
-    Serial.println("ConfigurationManager: Initialized");
+    DBG_LOGLN("ConfigurationManager: Initialized");
     return true;
 }
 
 bool ConfigurationManager::loadFromNVS() {
     Preferences prefs;
     if (!prefs.begin(NVS_NAMESPACE, true)) {  // Read-only mode
-        Serial.println("ConfigurationManager: No NVS namespace found, using defaults");
+        DBG_LOGLN("ConfigurationManager: No NVS namespace found, using defaults");
         return false;
     }
 
@@ -83,14 +84,14 @@ bool ConfigurationManager::loadFromNVS() {
     }
 
     prefs.end();
-    Serial.println("ConfigurationManager: Loaded config from NVS");
+    DBG_LOGLN("ConfigurationManager: Loaded config from NVS");
     return true;
 }
 
 bool ConfigurationManager::saveToNVS() {
     Preferences prefs;
     if (!prefs.begin(NVS_NAMESPACE, false)) {  // Read-write mode
-        Serial.println("ConfigurationManager: Failed to open NVS for writing");
+        DBG_LOGLN("ConfigurationManager: Failed to open NVS for writing");
         return false;
     }
 
@@ -109,7 +110,7 @@ bool ConfigurationManager::saveToNVS() {
     prefs.putUChar("auto_mode", _automationMode);
 
     prefs.end();
-    Serial.println("ConfigurationManager: Saved config to NVS");
+    DBG_LOGLN("ConfigurationManager: Saved config to NVS");
     return true;
 }
 
@@ -141,8 +142,8 @@ bool ConfigurationManager::postConfigUpdate(const char* json) {
     DeserializationError error = deserializeJson(doc, json);
 
     if (error) {
-        Serial.print("ConfigurationManager: JSON parse error: ");
-        Serial.println(error.c_str());
+        DBG_LOG("ConfigurationManager: JSON parse error: ");
+        DBG_LOGLN(error.c_str());
         return false;
     }
 

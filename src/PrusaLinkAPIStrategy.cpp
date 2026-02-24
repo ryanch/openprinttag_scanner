@@ -1,9 +1,19 @@
+#include "DebugLogBuffer.h"
 #include "PrusaLinkAPIStrategy.h"
 #include "BgcodeParser.h"
 #include "ConfigurationManager.h"
+#include <Arduino.h>
 #include <HTTPClient.h>
 #include <WiFiClient.h>
 #include <ArduinoJson.h>
+#include "esp_heap_caps.h"
+
+static void logHeapSnapshot(const char* stage) {
+    DBG_LOGF("PrusaLinkAPIStrategy: Heap %s free=%u largest=%u\n",
+             stage,
+             static_cast<unsigned>(ESP.getFreeHeap()),
+             static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
+}
 
 void PrusaLinkAPIStrategy::update() {
     auto& config = ConfigurationManager::getInstance();
@@ -20,7 +30,7 @@ void PrusaLinkAPIStrategy::update() {
     bool mutexHeld = false;
     if (httpMutex_ != nullptr) {
         if (xSemaphoreTake(httpMutex_, pdMS_TO_TICKS(10000)) != pdTRUE) {
-            Serial.println("PrusaLinkAPIStrategy: Could not acquire HTTP mutex");
+            DBG_LOGLN("PrusaLinkAPIStrategy: Could not acquire HTTP mutex");
             return;
         }
         mutexHeld = true;
@@ -29,27 +39,31 @@ void PrusaLinkAPIStrategy::update() {
     // RAII-style cleanup: all paths must go through 'done' label or fall through
     do {
         HTTPClient http;
+        http.useHTTP10(true);
 
         // Get quick status
         String statusUrl = String(config.getPrusaLinkURL()) + "/api/v1/status";
         http.begin(statusUrl);
         http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
 
+        logHeapSnapshot("before_status_get");
         int statusCode = http.GET();
         if (statusCode != 200) {
-            Serial.printf("PrusaLinkAPIStrategy: Status request failed: %d\n", statusCode);
+            DBG_LOGF("PrusaLinkAPIStrategy: Status request failed: %d\n", statusCode);
+            logHeapSnapshot("status_get_failed");
             http.end();
             break;
         }
+        logHeapSnapshot("after_status_get");
 
         connected = true;
-        String statusPayload = http.getString();
-        http.end();
-
         JsonDocument statusDoc;
-        DeserializationError statusErr = deserializeJson(statusDoc, statusPayload);
+        logHeapSnapshot("before_status_deserialize");
+        DeserializationError statusErr = deserializeJson(statusDoc, http.getStream());
+        logHeapSnapshot("after_status_deserialize");
+        http.end();
         if (statusErr) {
-            Serial.printf("PrusaLinkAPIStrategy: Status JSON parse error: %s\n", statusErr.c_str());
+            DBG_LOGF("PrusaLinkAPIStrategy: Status JSON parse error: %s\n", statusErr.c_str());
             break;
         }
 
@@ -69,20 +83,23 @@ void PrusaLinkAPIStrategy::update() {
         http.begin(jobUrl);
         http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
 
+        logHeapSnapshot("before_job_get");
         int jobStatusCode = http.GET();
         if (jobStatusCode != 200) {
-            Serial.printf("PrusaLinkAPIStrategy: Job request failed: %d\n", jobStatusCode);
+            DBG_LOGF("PrusaLinkAPIStrategy: Job request failed: %d\n", jobStatusCode);
+            logHeapSnapshot("job_get_failed");
             http.end();
             break;
         }
-
-        String jobPayload = http.getString();
-        http.end();
+        logHeapSnapshot("after_job_get");
 
         JsonDocument jobDoc;
-        DeserializationError jobErr = deserializeJson(jobDoc, jobPayload);
+        logHeapSnapshot("before_job_deserialize");
+        DeserializationError jobErr = deserializeJson(jobDoc, http.getStream());
+        logHeapSnapshot("after_job_deserialize");
+        http.end();
         if (jobErr) {
-            Serial.printf("PrusaLinkAPIStrategy: Job JSON parse error: %s\n", jobErr.c_str());
+            DBG_LOGF("PrusaLinkAPIStrategy: Job JSON parse error: %s\n", jobErr.c_str());
             break;
         }
 
@@ -148,31 +165,34 @@ float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const String& downloadRef) {
     for (int attempt = 1; attempt <= maxAttempts; attempt++) {
         if (attempt > 1) {
             int delayMs = baseDelayMs * (attempt - 1);
-            Serial.printf("PrusaLinkAPIStrategy: bgcode fetch attempt %d/%d after %dms delay\n", attempt, maxAttempts, delayMs);
+            DBG_LOGF("PrusaLinkAPIStrategy: bgcode fetch attempt %d/%d after %dms delay\n", attempt, maxAttempts, delayMs);
             vTaskDelay(pdMS_TO_TICKS(delayMs));
             http.end();
             http.begin(client, host, port, downloadRef);
             http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
             http.addHeader("Range", "bytes=0-8191");
         }
+        logHeapSnapshot("before_bgcode_get");
         code = http.GET();
         if (code == 200 || code == 206) break;
-        Serial.printf("PrusaLinkAPIStrategy: bgcode fetch attempt %d/%d failed: %d\n", attempt, maxAttempts, code);
+        DBG_LOGF("PrusaLinkAPIStrategy: bgcode fetch attempt %d/%d failed: %d\n", attempt, maxAttempts, code);
+        logHeapSnapshot("bgcode_get_failed");
     }
 
     if (code != 200 && code != 206) {
-        Serial.printf("PrusaLinkAPIStrategy: bgcode header fetch failed after %d attempts (path: %s)\n", maxAttempts, downloadRef.c_str());
+        DBG_LOGF("PrusaLinkAPIStrategy: bgcode header fetch failed after %d attempts (path: %s)\n", maxAttempts, downloadRef.c_str());
         http.end();
         return 0.0f;
     }
 
     if (code == 200) {
-        Serial.println("PrusaLinkAPIStrategy: Server ignored Range header, reading first 8KB only");
+        DBG_LOGLN("PrusaLinkAPIStrategy: Server ignored Range header, reading first 8KB only");
     }
 
     const size_t BUF_SIZE = 8192;
     uint8_t* buf = (uint8_t*)malloc(BUF_SIZE);
     if (!buf) {
+        logHeapSnapshot("bgcode_buf_alloc_failed");
         http.end();
         return 0.0f;
     }
@@ -203,9 +223,9 @@ float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const String& downloadRef) {
     free(buf);
 
     if (result > 0.0f) {
-        Serial.printf("PrusaLinkAPIStrategy: Parsed filament from bgcode header: %.2fg\n", result);
+        DBG_LOGF("PrusaLinkAPIStrategy: Parsed filament from bgcode header: %.2fg\n", result);
     } else {
-        Serial.printf("PrusaLinkAPIStrategy: Could not parse filament from bgcode header (%zu bytes read)\n", bytesRead);
+        DBG_LOGF("PrusaLinkAPIStrategy: Could not parse filament from bgcode header (%zu bytes read)\n", bytesRead);
     }
 
     return result;
@@ -227,23 +247,29 @@ float PrusaLinkAPIStrategy::fetchDeferredFilament() {
 
     // Try job API first — may have metadata now that print is done
     HTTPClient http;
+    http.useHTTP10(true);
     String jobUrl = String(config.getPrusaLinkURL()) + "/api/v1/job/" + String(savedDownloadRefJobId);
     http.begin(jobUrl);
     http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
+    logHeapSnapshot("before_deferred_job_get");
     int code = http.GET();
     if (code == 200) {
-        String payload = http.getString();
-        http.end();
         JsonDocument doc;
-        if (!deserializeJson(doc, payload)) {
+        logHeapSnapshot("before_deferred_job_deserialize");
+        if (!deserializeJson(doc, http.getStream())) {
+            logHeapSnapshot("after_deferred_job_deserialize");
             JsonVariant filamentUsed = doc["file"]["meta"]["filament used [g]"];
             if (!filamentUsed.isNull()) {
                 result = filamentUsed.as<float>();
-                Serial.printf("PrusaLinkAPIStrategy: Got deferred filament from job API: %.2fg\n", result);
+                DBG_LOGF("PrusaLinkAPIStrategy: Got deferred filament from job API: %.2fg\n", result);
             }
+        } else {
+            logHeapSnapshot("deferred_job_deserialize_failed");
         }
+        http.end();
     } else {
-        Serial.printf("PrusaLinkAPIStrategy: Deferred job API request failed: %d\n", code);
+        DBG_LOGF("PrusaLinkAPIStrategy: Deferred job API request failed: %d\n", code);
+        logHeapSnapshot("deferred_job_get_failed");
         http.end();
     }
 

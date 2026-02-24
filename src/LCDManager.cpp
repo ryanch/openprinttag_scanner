@@ -1,3 +1,4 @@
+#include "DebugLogBuffer.h"
 #include "LCDManager.h"
 #include <Arduino.h>
 #include <cstring>
@@ -87,7 +88,7 @@ void LCDManager::startTask() {
         &_taskHandle,
         0  // Run on core 0
     );
-    Serial.println("LCDManager: Task started on core 0");
+    DBG_LOGLN("LCDManager: Task started on core 0");
 }
 
 void LCDManager::taskFunc(void* param) {

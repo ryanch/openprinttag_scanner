@@ -1,3 +1,4 @@
+#include "DebugLogBuffer.h"
 #include "BluetoothManager.h"
 #include "ApplicationManager.h"
 #include "ConfigurationManager.h"
@@ -94,7 +95,7 @@ static void process_command(const char* json) {
     DeserializationError error = deserializeJson(doc, json);
 
     if (error) {
-        Serial.printf("%s: JSON parse error: %s\n", TAG, error.c_str());
+        DBG_LOGF("%s: JSON parse error: %s\n", TAG, error.c_str());
         snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Invalid JSON\"}");
         return;
     }
@@ -107,17 +108,17 @@ static void process_command(const char* json) {
             s_config_read_char->setValue(config.c_str());
         }
         snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-        Serial.printf("%s: Config read requested, len=%d\n", TAG, config.length());
+        DBG_LOGF("%s: Config read requested, len=%d\n", TAG, config.length());
     }
     else if (strcmp(command, "write_config") == 0) {
         if (ConfigurationManager::getInstance().postConfigUpdate(json)) {
             lcdManager.setScreenTimeoutMs(ConfigurationManager::getInstance().getLcdTimeoutMs());
             ApplicationManager::getInstance().showStatusOnLCD();
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-            Serial.printf("%s: Config updated successfully\n", TAG);
+            DBG_LOGF("%s: Config updated successfully\n", TAG);
         } else {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Failed to save config\"}");
-            Serial.printf("%s: Config update failed\n", TAG);
+            DBG_LOGF("%s: Config update failed\n", TAG);
         }
     }
     else if (strcmp(command, "list_spools") == 0) {
@@ -203,7 +204,7 @@ static void process_command(const char* json) {
             s_config_read_char->setValue(response.c_str());
         }
         snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-        //Serial.printf("%s: list_spools completed\n", TAG);
+        //DBG_LOGF("%s: list_spools completed\n", TAG);
     }
     else if (strcmp(command, "format_spool") == 0) {
         CurrentSpoolState spool;
@@ -217,12 +218,12 @@ static void process_command(const char* json) {
 
         if (!spool.present) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
-            Serial.printf("%s: format_spool failed - no tag present\n", TAG);
+            DBG_LOGF("%s: format_spool failed - no tag present\n", TAG);
         } else {
             const char* requestedId = doc["id"] | "";
             if (requestedId[0] != '\0' && strcmp(requestedId, spool.spool_id) != 0) {
                 snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
-                Serial.printf("%s: format_spool failed - ID mismatch\n", TAG);
+                DBG_LOGF("%s: format_spool failed - ID mismatch\n", TAG);
             } else {
                 NFCWriteRequest req;
                 memset(&req, 0, sizeof(req));
@@ -231,7 +232,7 @@ static void process_command(const char* json) {
                 strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
                 NFCManager::getInstance().enqueueWrite(req);
                 snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-                Serial.printf("%s: format_spool - enqueued FORMAT_NEW\n", TAG);
+                DBG_LOGF("%s: format_spool - enqueued FORMAT_NEW\n", TAG);
             }
         }
     }
@@ -247,13 +248,13 @@ static void process_command(const char* json) {
 
         if (!spool.present) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
-            Serial.printf("%s: update_spool failed - no tag present\n", TAG);
+            DBG_LOGF("%s: update_spool failed - no tag present\n", TAG);
         } else if (spool.blank_tag_present) {
             // Blank tag — enqueue FORMAT_NEW
             const char* requestedId = doc["id"] | "";
             if (requestedId[0] != '\0' && strcmp(requestedId, spool.spool_id) != 0) {
                 snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
-                Serial.printf("%s: update_spool (format) failed - ID mismatch\n", TAG);
+                DBG_LOGF("%s: update_spool (format) failed - ID mismatch\n", TAG);
             } else {
                 NFCWriteRequest req;
                 memset(&req, 0, sizeof(req));
@@ -262,17 +263,17 @@ static void process_command(const char* json) {
                 strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
                 NFCManager::getInstance().enqueueWrite(req);
                 snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-                Serial.printf("%s: update_spool - enqueued FORMAT_NEW for blank tag\n", TAG);
+                DBG_LOGF("%s: update_spool - enqueued FORMAT_NEW for blank tag\n", TAG);
             }
         } else if (!spool.tag_data_valid) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
-            Serial.printf("%s: update_spool failed - tag data not valid\n", TAG);
+            DBG_LOGF("%s: update_spool failed - tag data not valid\n", TAG);
         } else {
             // Verify spool ID matches
             const char* requestedId = doc["id"] | "";
             if (requestedId[0] != '\0' && strcmp(requestedId, spool.spool_id) != 0) {
                 snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
-                Serial.printf("%s: update_spool failed - ID mismatch\n", TAG);
+                DBG_LOGF("%s: update_spool failed - ID mismatch\n", TAG);
             } else {
                 bool queued = false;
 
@@ -351,7 +352,7 @@ static void process_command(const char* json) {
                 }
 
                 snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-                Serial.printf("%s: update_spool completed, queued=%d\n", TAG, queued);
+                DBG_LOGF("%s: update_spool completed, queued=%d\n", TAG, queued);
             }
         }
     }
@@ -387,7 +388,7 @@ static void process_command(const char* json) {
                     snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
                 }
             }
-            Serial.printf("%s: test_spoolman %s -> %d\n", TAG, testUrl.c_str(), httpCode);
+            DBG_LOGF("%s: test_spoolman %s -> %d\n", TAG, testUrl.c_str(), httpCode);
         }
     }
     else if (strcmp(command, "test_mqtt") == 0) {
@@ -409,7 +410,7 @@ static void process_command(const char* json) {
                 snprintf(s_response_buffer, sizeof(s_response_buffer),
                          "{\"status\":\"error\",\"message\":\"MQTT state %d\"}", mqttState);
             }
-            Serial.printf("%s: test_mqtt restart -> %s (state=%d)\n", TAG,
+            DBG_LOGF("%s: test_mqtt restart -> %s (state=%d)\n", TAG,
                           connected ? "OK" : "FAIL", mqttState);
         }
     }
@@ -438,12 +439,52 @@ static void process_command(const char* json) {
                 snprintf(s_response_buffer, sizeof(s_response_buffer),
                     "{\"status\":\"error\",\"message\":\"HTTP %d\",\"code\":%d}", httpCode, httpCode);
             }
-            Serial.printf("%s: test_prusalink %s -> %d\n", TAG, testUrl.c_str(), httpCode);
+            DBG_LOGF("%s: test_prusalink %s -> %d\n", TAG, testUrl.c_str(), httpCode);
+        }
+    }
+    else if (strcmp(command, "log_meta") == 0) {
+        DebugLogBuffer::SnapshotMeta meta = DebugLogBuffer::getInstance().getSnapshotMeta();
+        snprintf(s_response_buffer, sizeof(s_response_buffer),
+                 "{\"status\":\"ok\",\"oldest_seq\":%lu,\"next_seq\":%lu,\"count\":%u}",
+                 static_cast<unsigned long>(meta.oldestSeq),
+                 static_cast<unsigned long>(meta.nextSeq),
+                 static_cast<unsigned>(meta.count));
+    }
+    else if (strcmp(command, "log_line") == 0) {
+        uint32_t seq = doc["seq"] | 0;
+        char line[DebugLogBuffer::MAX_LINE_LENGTH + 1];
+        DebugLogBuffer::LookupResult result =
+            DebugLogBuffer::getInstance().getLineBySeq(seq, line, sizeof(line));
+        DebugLogBuffer::SnapshotMeta meta = DebugLogBuffer::getInstance().getSnapshotMeta();
+
+        if (result == DebugLogBuffer::LookupResult::Ok) {
+            if (s_config_read_char) {
+                s_config_read_char->setValue(line);
+            }
+            snprintf(s_response_buffer, sizeof(s_response_buffer),
+                     "{\"status\":\"ok\",\"seq\":%lu,\"next_seq\":%lu}",
+                     static_cast<unsigned long>(seq),
+                     static_cast<unsigned long>(seq + 1));
+        } else if (result == DebugLogBuffer::LookupResult::Stale) {
+            if (s_config_read_char) {
+                s_config_read_char->setValue("");
+            }
+            snprintf(s_response_buffer, sizeof(s_response_buffer),
+                     "{\"status\":\"stale\",\"oldest_seq\":%lu,\"next_seq\":%lu}",
+                     static_cast<unsigned long>(meta.oldestSeq),
+                     static_cast<unsigned long>(meta.nextSeq));
+        } else {
+            if (s_config_read_char) {
+                s_config_read_char->setValue("");
+            }
+            snprintf(s_response_buffer, sizeof(s_response_buffer),
+                     "{\"status\":\"eof\",\"next_seq\":%lu}",
+                     static_cast<unsigned long>(meta.nextSeq));
         }
     }
     else {
         snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Unknown command\"}");
-        Serial.printf("%s: Unknown command: %s\n", TAG, command);
+        DBG_LOGF("%s: Unknown command: %s\n", TAG, command);
     }
 
     // Update write characteristic with response
@@ -461,12 +502,12 @@ class ServerCallbacks : public BLEServerCallbacks {
         s_is_advertising = false;
         s_write_buffer = "";
         s_response_buffer[0] = '\0';
-        Serial.printf("%s: Client connected\n", TAG);
+        DBG_LOGF("%s: Client connected\n", TAG);
     }
 
     void onDisconnect(BLEServer* pServer) override {
         s_is_connected = false;
-        Serial.printf("%s: Client disconnected, restarting advertising\n", TAG);
+        DBG_LOGF("%s: Client disconnected, restarting advertising\n", TAG);
         // Restart advertising
         BLEDevice::startAdvertising();
         s_is_advertising = true;
@@ -480,7 +521,7 @@ class WriteCallbacks : public BLECharacteristicCallbacks {
     void onWrite(BLECharacteristic* pCharacteristic) override {
         std::string value = pCharacteristic->getValue();
         if (value.length() > 0) {
-            //Serial.printf("%s: Write received, len=%d\n", TAG, value.length());
+            //DBG_LOGF("%s: Write received, len=%d\n", TAG, value.length());
             process_command(value.c_str());
         }
     }
@@ -498,46 +539,46 @@ BluetoothManager& BluetoothManager::getInstance() {
 }
 
 bool BluetoothManager::begin() {
-    Serial.printf("%s: Initializing Bluetooth manager\n", TAG);
+    DBG_LOGF("%s: Initializing Bluetooth manager\n", TAG);
 
     // Generate device name from MAC
     uint8_t mac[6];
     esp_read_mac(mac, ESP_MAC_BT);
     char device_name[24];
     snprintf(device_name, sizeof(device_name), "OpenPrintTag-%02X%02X", mac[4], mac[5]);
-    Serial.printf("%s: BLE device name: %s\n", TAG, device_name);
+    DBG_LOGF("%s: BLE device name: %s\n", TAG, device_name);
 
     // Debug: Check controller state
     esp_bt_controller_status_t status = esp_bt_controller_get_status();
-    Serial.printf("%s: BT controller status: %d (0=IDLE, 1=INITED, 2=ENABLED)\n", TAG, status);
+    DBG_LOGF("%s: BT controller status: %d (0=IDLE, 1=INITED, 2=ENABLED)\n", TAG, status);
 
     // Release classic BT memory first
     esp_err_t ret = esp_bt_controller_mem_release(ESP_BT_MODE_CLASSIC_BT);
-    Serial.printf("%s: mem_release result: %d\n", TAG, ret);
+    DBG_LOGF("%s: mem_release result: %d\n", TAG, ret);
 
     // Initialize controller if not already
     if (status == ESP_BT_CONTROLLER_STATUS_IDLE) {
         esp_bt_controller_config_t bt_cfg = BT_CONTROLLER_INIT_CONFIG_DEFAULT();
         ret = esp_bt_controller_init(&bt_cfg);
-        Serial.printf("%s: controller_init result: %d (0=OK, 259=INVALID_STATE)\n", TAG, ret);
+        DBG_LOGF("%s: controller_init result: %d (0=OK, 259=INVALID_STATE)\n", TAG, ret);
         if (ret != ESP_OK) {
             return false;
         }
     }
 
     status = esp_bt_controller_get_status();
-    Serial.printf("%s: BT controller status after init: %d\n", TAG, status);
+    DBG_LOGF("%s: BT controller status after init: %d\n", TAG, status);
 
     // Enable controller
     if (status == ESP_BT_CONTROLLER_STATUS_INITED) {
         ret = esp_bt_controller_enable(ESP_BT_MODE_BLE);
-        Serial.printf("%s: controller_enable result: %d\n", TAG, ret);
+        DBG_LOGF("%s: controller_enable result: %d\n", TAG, ret);
         if (ret != ESP_OK) {
             return false;
         }
     }
 
-    Serial.printf("%s: BT controller enabled, initializing bluedroid\n", TAG);
+    DBG_LOGF("%s: BT controller enabled, initializing bluedroid\n", TAG);
 
     // Initialize BLE stack
     BLEDevice::init(device_name);
@@ -545,7 +586,7 @@ bool BluetoothManager::begin() {
     // Create server
     s_server = BLEDevice::createServer();
     if (!s_server) {
-        Serial.printf("%s: Failed to create BLE server\n", TAG);
+        DBG_LOGF("%s: Failed to create BLE server\n", TAG);
         return false;
     }
     s_server->setCallbacks(&s_server_callbacks);
@@ -553,7 +594,7 @@ bool BluetoothManager::begin() {
     // Create service
     BLEService* service = s_server->createService(SERVICE_UUID);
     if (!service) {
-        Serial.printf("%s: Failed to create BLE service\n", TAG);
+        DBG_LOGF("%s: Failed to create BLE service\n", TAG);
         return false;
     }
 
@@ -563,7 +604,7 @@ bool BluetoothManager::begin() {
         BLECharacteristic::PROPERTY_READ
     );
     if (!s_config_read_char) {
-        Serial.printf("%s: Failed to create read characteristic\n", TAG);
+        DBG_LOGF("%s: Failed to create read characteristic\n", TAG);
         return false;
     }
 
@@ -573,14 +614,14 @@ bool BluetoothManager::begin() {
         BLECharacteristic::PROPERTY_READ | BLECharacteristic::PROPERTY_WRITE
     );
     if (!s_config_write_char) {
-        Serial.printf("%s: Failed to create write characteristic\n", TAG);
+        DBG_LOGF("%s: Failed to create write characteristic\n", TAG);
         return false;
     }
     s_config_write_char->setCallbacks(&s_write_callbacks);
 
     // Start service
     service->start();
-    Serial.printf("%s: Service started\n", TAG);
+    DBG_LOGF("%s: Service started\n", TAG);
 
     // Start advertising
     BLEAdvertising* advertising = BLEDevice::getAdvertising();
@@ -591,13 +632,13 @@ bool BluetoothManager::begin() {
     BLEDevice::startAdvertising();
     s_is_advertising = true;
 
-    Serial.printf("%s: Advertising started\n", TAG);
-    Serial.printf("%s: Initialized successfully\n", TAG);
+    DBG_LOGF("%s: Advertising started\n", TAG);
+    DBG_LOGF("%s: Initialized successfully\n", TAG);
     return true;
 }
 
 void BluetoothManager::end() {
-    Serial.printf("%s: Shutting down Bluetooth manager\n", TAG);
+    DBG_LOGF("%s: Shutting down Bluetooth manager\n", TAG);
 
     // Stop advertising
     if (s_is_advertising) {
@@ -615,7 +656,7 @@ void BluetoothManager::end() {
     s_is_connected = false;
     s_is_advertising = false;
 
-    Serial.printf("%s: Shutdown complete\n", TAG);
+    DBG_LOGF("%s: Shutdown complete\n", TAG);
 }
 
 bool BluetoothManager::isAdvertising() const {

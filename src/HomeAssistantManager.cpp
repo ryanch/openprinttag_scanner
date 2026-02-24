@@ -1,3 +1,4 @@
+#include "DebugLogBuffer.h"
 #include "HomeAssistantManager.h"
 #include "ApplicationManager.h"
 #include "ConfigurationManager.h"
@@ -47,21 +48,21 @@ bool HomeAssistantManager::isConnected() const {
 bool HomeAssistantManager::begin() {
     publishQueue = xQueueCreate(QUEUE_SIZE, sizeof(HAPublishRequest));
     if (publishQueue == nullptr) {
-        Serial.println("HomeAssistantManager: Failed to create publish queue");
+        DBG_LOGLN("HomeAssistantManager: Failed to create publish queue");
         return false;
     }
 #ifndef NATIVE_TEST
     if (taskControlMutex == nullptr) {
         taskControlMutex = xSemaphoreCreateMutex();
         if (taskControlMutex == nullptr) {
-            Serial.println("HomeAssistantManager: Failed to create task control mutex");
+            DBG_LOGLN("HomeAssistantManager: Failed to create task control mutex");
             return false;
         }
     }
 #endif
 
     getDeviceId(deviceId_, sizeof(deviceId_));
-    Serial.printf("HomeAssistantManager: Initialized (device_id=%s)\n", deviceId_);
+    DBG_LOGF("HomeAssistantManager: Initialized (device_id=%s)\n", deviceId_);
     return true;
 }
 
@@ -75,11 +76,11 @@ bool HomeAssistantManager::enqueuePublish(const HAPublishRequest& req) {
 
 void HomeAssistantManager::startTask() {
     if (taskControlMutex == nullptr) {
-        Serial.println("HomeAssistantManager: task control mutex not initialized");
+        DBG_LOGLN("HomeAssistantManager: task control mutex not initialized");
         return;
     }
     if (xSemaphoreTake(taskControlMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-        Serial.println("HomeAssistantManager: startTask mutex timeout");
+        DBG_LOGLN("HomeAssistantManager: startTask mutex timeout");
         return;
     }
 
@@ -88,7 +89,7 @@ void HomeAssistantManager::startTask() {
     size_t hostLen = strlen(host);
     bool enabled = config.getHAEnabled();
 
-    Serial.printf("HomeAssistantManager: Config snapshot enabled=%s host='%s' host_len=%u port=%u user_set=%s\n",
+    DBG_LOGF("HomeAssistantManager: Config snapshot enabled=%s host='%s' host_len=%u port=%u user_set=%s\n",
                   enabled ? "true" : "false",
                   host,
                   static_cast<unsigned>(hostLen),
@@ -96,7 +97,7 @@ void HomeAssistantManager::startTask() {
                   strlen(config.getHAMqttUser()) > 0 ? "true" : "false");
 
     if (!isConfigured()) {
-        Serial.printf("HomeAssistantManager: Not configured, skipping task start (enabled=%s, host_len=%u)\n",
+        DBG_LOGF("HomeAssistantManager: Not configured, skipping task start (enabled=%s, host_len=%u)\n",
                       enabled ? "true" : "false",
                       static_cast<unsigned>(hostLen));
         xSemaphoreGive(taskControlMutex);
@@ -104,7 +105,7 @@ void HomeAssistantManager::startTask() {
     }
 
     if (taskHandle != nullptr) {
-        Serial.println("HomeAssistantManager: Task already running");
+        DBG_LOGLN("HomeAssistantManager: Task already running");
         xSemaphoreGive(taskControlMutex);
         return;
     }
@@ -126,7 +127,7 @@ void HomeAssistantManager::startTask() {
     );
     if (rc != pdPASS || taskHandle == nullptr) {
         size_t free8bit = heap_caps_get_free_size(MALLOC_CAP_8BIT);
-        Serial.printf("HomeAssistantManager: Failed to start task (rc=%ld, free_heap=%u)\n",
+        DBG_LOGF("HomeAssistantManager: Failed to start task (rc=%ld, free_heap=%u)\n",
                       static_cast<long>(rc),
                       static_cast<unsigned>(free8bit));
         taskHandle = nullptr;
@@ -134,21 +135,21 @@ void HomeAssistantManager::startTask() {
         return;
     }
 
-    Serial.printf("HomeAssistantManager: Task started (stack=%u, free_heap=%u)\n",
+    DBG_LOGF("HomeAssistantManager: Task started (stack=%u, free_heap=%u)\n",
                   static_cast<unsigned>(TASK_STACK_SIZE),
                   static_cast<unsigned>(heap_caps_get_free_size(MALLOC_CAP_8BIT)));
     xSemaphoreGive(taskControlMutex);
 }
 
 void HomeAssistantManager::taskFunc(void* param) {
-    Serial.println("HomeAssistantManager: taskFunc entered");
+    DBG_LOGLN("HomeAssistantManager: taskFunc entered");
     static_cast<HomeAssistantManager*>(param)->taskLoop();
 }
 
 void HomeAssistantManager::stopTask() {
     if (taskControlMutex == nullptr) return;
     if (xSemaphoreTake(taskControlMutex, pdMS_TO_TICKS(1000)) != pdTRUE) {
-        Serial.println("HomeAssistantManager: stopTask mutex timeout");
+        DBG_LOGLN("HomeAssistantManager: stopTask mutex timeout");
         return;
     }
 
@@ -170,7 +171,7 @@ void HomeAssistantManager::stopTask() {
             if (stopped) break;
         }
         if (millis() - startMs >= 5000) {
-            Serial.println("HomeAssistantManager: stopTask timeout waiting for task exit");
+            DBG_LOGLN("HomeAssistantManager: stopTask timeout waiting for task exit");
             break;
         }
         vTaskDelay(pdMS_TO_TICKS(50));
@@ -207,7 +208,7 @@ bool HomeAssistantManager::restartAndTestConnection(uint32_t timeoutMs, int* mqt
 }
 
 void HomeAssistantManager::taskLoop() {
-    Serial.printf("HomeAssistantManager: taskLoop entered (core=%d, wifi_status=%d)\n",
+    DBG_LOGF("HomeAssistantManager: taskLoop entered (core=%d, wifi_status=%d)\n",
                   xPortGetCoreID(), static_cast<int>(WiFi.status()));
     auto& config = ConfigurationManager::getInstance();
 
@@ -216,25 +217,29 @@ void HomeAssistantManager::taskLoop() {
     mqttClient.setBufferSize(1024);
     mqttClient.setCallback(mqttCallback);
 
-    Serial.printf("HomeAssistantManager: Connecting to MQTT broker %s:%d\n",
+    DBG_LOGF("HomeAssistantManager: Connecting to MQTT broker %s:%d\n",
                   config.getHAMqttHost(), config.getHAMqttPort());
 
     uint32_t lastHeartbeatMs = 0;
     while (true) {
         if (stopRequested_) {
-            Serial.println("HomeAssistantManager: Stop requested");
+            DBG_LOGLN("HomeAssistantManager: Stop requested");
             break;
         }
 
+        
         uint32_t now = millis();
+
+        /*
         if (now - lastHeartbeatMs >= 5000) {
             lastHeartbeatMs = now;
-            Serial.printf("HomeAssistantManager: heartbeat connected=%s wifi=%d mqtt_state=%d stack_hw=%u\n",
+            DBG_LOGF("HomeAssistantManager: heartbeat connected=%s wifi=%d mqtt_state=%d stack_hw=%u\n",
                           mqttClient.connected() ? "true" : "false",
                           static_cast<int>(WiFi.status()),
                           mqttClient.state(),
                           static_cast<unsigned>(uxTaskGetStackHighWaterMark(nullptr)));
         }
+        */
 
         if (!mqttClient.connected()) {
             if (now - lastReconnectAttempt_ >= reconnectDelay_) {
@@ -243,19 +248,19 @@ void HomeAssistantManager::taskLoop() {
                     connected_ = true;
                     lastMqttState_ = 0;
                     reconnectDelay_ = 1000; // Reset backoff
-                    Serial.println("HomeAssistantManager: MQTT connected, publishing discovery/state");
+                    DBG_LOGLN("HomeAssistantManager: MQTT connected, publishing discovery/state");
                     publishDiscovery();
                     subscribeCommands();
                     publishAvailability("online");
                     publishCurrentTagState();
-                    Serial.println("HomeAssistantManager: Connected to MQTT broker");
+                    DBG_LOGLN("HomeAssistantManager: Connected to MQTT broker");
                 } else {
                     connected_ = false;
                     // Exponential backoff
                     reconnectDelay_ = (reconnectDelay_ < MAX_RECONNECT_DELAY)
                         ? reconnectDelay_ * 2 : MAX_RECONNECT_DELAY;
                     lastMqttState_ = mqttClient.state();
-                    Serial.printf("HomeAssistantManager: MQTT connect failed, retry in %lums\n",
+                    DBG_LOGF("HomeAssistantManager: MQTT connect failed, retry in %lums\n",
                                   reconnectDelay_);
                 }
             }
@@ -301,7 +306,7 @@ void HomeAssistantManager::taskLoop() {
         taskHandle = nullptr;
         stopRequested_ = false;
     }
-    Serial.println("HomeAssistantManager: taskLoop exiting");
+    DBG_LOGLN("HomeAssistantManager: taskLoop exiting");
     vTaskDelete(nullptr);
 }
 
@@ -328,7 +333,7 @@ bool HomeAssistantManager::reconnect() {
 
     if (!result) {
         lastMqttState_ = mqttClient.state();
-        Serial.printf("HomeAssistantManager: reconnect failed (mqtt_state=%d wifi_status=%d host=%s port=%u)\n",
+        DBG_LOGF("HomeAssistantManager: reconnect failed (mqtt_state=%d wifi_status=%d host=%s port=%u)\n",
                       mqttClient.state(),
                       static_cast<int>(WiFi.status()),
                       config.getHAMqttHost(),
@@ -347,7 +352,7 @@ void HomeAssistantManager::subscribeCommands() {
     char topic[64];
     snprintf(topic, sizeof(topic), "openprinttag/%s/cmd/#", deviceId_);
     mqttClient.subscribe(topic);
-    Serial.printf("HomeAssistantManager: Subscribed to %s\n", topic);
+    DBG_LOGF("HomeAssistantManager: Subscribed to %s\n", topic);
 }
 
 void HomeAssistantManager::publishDiscovery() {
@@ -382,7 +387,7 @@ void HomeAssistantManager::publishDiscovery() {
                  component, deviceId_, objectId);
         size_t len = strlen(payload);
         bool ok = mqttClient.publish(discoveryTopic, payload, true);
-        Serial.printf("HomeAssistantManager: Discovery %s -> %s (%u bytes)\n",
+        DBG_LOGF("HomeAssistantManager: Discovery %s -> %s (%u bytes)\n",
                       discoveryTopic, ok ? "OK" : "FAIL", (unsigned)len);
     };
     auto removeLegacyEntity = [&](const char* component, const char* objectId) {
@@ -391,7 +396,7 @@ void HomeAssistantManager::publishDiscovery() {
                  "homeassistant/%s/openprinttag_%s/%s/config",
                  component, deviceId_, objectId);
         bool ok = mqttClient.publish(discoveryTopic, "", true);
-        Serial.printf("HomeAssistantManager: Remove legacy discovery %s -> %s\n",
+        DBG_LOGF("HomeAssistantManager: Remove legacy discovery %s -> %s\n",
                       discoveryTopic, ok ? "OK" : "FAIL");
     };
     auto publishNumberEntity = [&](const char* objectId, const char* name, const char* valTpl,
@@ -412,7 +417,7 @@ void HomeAssistantManager::publishDiscovery() {
                                valTpl, cmdTopic, cmdTpl,
                                minV, maxV, stepV, unitOfMeas, icon, deviceId_);
         if (written < 0 || written >= (int)sizeof(payload)) {
-            Serial.printf("HomeAssistantManager: Discovery payload too large for number/%s, skipping\n",
+            DBG_LOGF("HomeAssistantManager: Discovery payload too large for number/%s, skipping\n",
                           objectId);
             return;
         }
@@ -435,7 +440,7 @@ void HomeAssistantManager::publishDiscovery() {
                                valTpl, cmdTopic, cmdTpl,
                                icon, deviceId_);
         if (written < 0 || written >= (int)sizeof(payload)) {
-            Serial.printf("HomeAssistantManager: Discovery payload too large for select/%s, skipping\n",
+            DBG_LOGF("HomeAssistantManager: Discovery payload too large for select/%s, skipping\n",
                           objectId);
             return;
         }
@@ -457,7 +462,7 @@ void HomeAssistantManager::publishDiscovery() {
                                valTpl, cmdTopic, cmdTpl,
                                icon, deviceId_);
         if (written < 0 || written >= (int)sizeof(payload)) {
-            Serial.printf("HomeAssistantManager: Discovery payload too large for text/%s, skipping\n",
+            DBG_LOGF("HomeAssistantManager: Discovery payload too large for text/%s, skipping\n",
                           objectId);
             return;
         }
@@ -481,7 +486,7 @@ void HomeAssistantManager::publishDiscovery() {
         if (written >= 0 && written < (int)sizeof(payload)) {
             publishDiscoveryPayload("sensor", "spool", payload);
         } else {
-            Serial.println("HomeAssistantManager: Discovery payload too large for sensor/spool, skipping");
+            DBG_LOGLN("HomeAssistantManager: Discovery payload too large for sensor/spool, skipping");
         }
     }
 
@@ -531,7 +536,7 @@ void HomeAssistantManager::publishDiscovery() {
                       writeTagCmdTopic, writeManufacturerCmdTpl,
                       "mdi:factory");
 
-    Serial.println("HomeAssistantManager: Discovery payloads published");
+    DBG_LOGLN("HomeAssistantManager: Discovery payloads published");
 }
 
 void HomeAssistantManager::publishCurrentTagState() {
@@ -553,7 +558,7 @@ void HomeAssistantManager::publishCurrentTagState() {
             "\"blank\":false}";
         mqttClient.publish(stateTopic, emptyState, true);
         mqttClient.publish(attrsTopic, emptyState, true);
-        Serial.println("HomeAssistantManager: Published tag state (not present)");
+        DBG_LOGLN("HomeAssistantManager: Published tag state (not present)");
         delete spool;
         return;
     }
@@ -597,7 +602,7 @@ void HomeAssistantManager::publishCurrentTagState() {
 
     mqttClient.publish(stateTopic, json, true);
     mqttClient.publish(attrsTopic, json, true);
-    Serial.printf("HomeAssistantManager: Published current tag state uid=%s\n", spool->spool_id);
+    DBG_LOGF("HomeAssistantManager: Published current tag state uid=%s\n", spool->spool_id);
     delete spool;
 }
 
@@ -613,7 +618,7 @@ void HomeAssistantManager::mqttCallback(char* topic, uint8_t* payload, unsigned 
 }
 
 void HomeAssistantManager::handleCommand(const char* topic, const char* payload) {
-    Serial.printf("HomeAssistantManager: Command received: %s payload=%s\n", topic, payload);
+    DBG_LOGF("HomeAssistantManager: Command received: %s payload=%s\n", topic, payload);
 
     // Parse topic to extract command name (and optional uid suffix)
     // Format: openprinttag/{id}/cmd/{command}[/uid]
@@ -621,7 +626,7 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
     snprintf(cmdPrefix, sizeof(cmdPrefix), "openprinttag/%s/cmd/", deviceId_);
 
     if (strncmp(topic, cmdPrefix, strlen(cmdPrefix)) != 0) {
-        Serial.println("HomeAssistantManager: Unknown topic prefix");
+        DBG_LOGLN("HomeAssistantManager: Unknown topic prefix");
         return;
     }
     const char* commandPath = topic + strlen(cmdPrefix);
@@ -644,7 +649,7 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
     JsonDocument doc;
     DeserializationError err = deserializeJson(doc, payload);
     if (err) {
-        Serial.printf("HomeAssistantManager: JSON parse error: %s\n", err.c_str());
+        DBG_LOGF("HomeAssistantManager: JSON parse error: %s\n", err.c_str());
         publishCommandResponse(command, false, "invalid_json");
         return;
     }
@@ -653,12 +658,12 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
     // Heap-allocate to avoid stack overflow in the MQTT callback chain.
     CurrentSpoolState* spool = new CurrentSpoolState();
     if (spool == nullptr) {
-        Serial.println("HomeAssistantManager: heap alloc failed for CurrentSpoolState");
+        DBG_LOGLN("HomeAssistantManager: heap alloc failed for CurrentSpoolState");
         publishCommandResponse(command, false, "heap_alloc_failed");
         return;
     }
     if (!NFCManager::getInstance().getCurrentSpoolState(*spool) || !spool->present) {
-        Serial.printf("HomeAssistantManager: Rejecting cmd '%s': no tag present\n", command);
+        DBG_LOGF("HomeAssistantManager: Rejecting cmd '%s': no tag present\n", command);
         publishCommandResponse(command, false, "no_tag_present");
         delete spool;
         return;
@@ -667,14 +672,14 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
     const char* uidFromPayload = doc["uid"] | "";
     const char* uid = (strlen(uidFromPayload) > 0) ? uidFromPayload : uidFromTopic;
     if (strlen(uid) == 0) {
-        Serial.printf("HomeAssistantManager: Rejecting cmd '%s': missing uid in payload/topic: %s\n", command, payload);
+        DBG_LOGF("HomeAssistantManager: Rejecting cmd '%s': missing uid in payload/topic: %s\n", command, payload);
         publishCommandResponse(command, false, "missing_uid");
         delete spool;
         return;
     }
 
     if (strcmp(uid, spool->spool_id) != 0) {
-        Serial.printf("HomeAssistantManager: Rejecting cmd '%s': uid_mismatch expected=%s actual=%s\n",
+        DBG_LOGF("HomeAssistantManager: Rejecting cmd '%s': uid_mismatch expected=%s actual=%s\n",
                       command, uid, spool->spool_id);
         char errPayload[256];
         snprintf(errPayload, sizeof(errPayload),
@@ -755,7 +760,7 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
 
         bool queued = ApplicationManager::getInstance().sendMessage(msg, 50);
         if (!queued) {
-            Serial.println("HomeAssistantManager: Failed to queue HA write_tag message");
+            DBG_LOGLN("HomeAssistantManager: Failed to queue HA write_tag message");
             publishCommandResponse(command, false, "app_queue_full");
             delete spool;
             return;
@@ -765,14 +770,14 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
     } else if (strcmp(command, "update_remaining") == 0) {
         float remainingG = doc["remaining_g"] | -1.0f;
         if (remainingG < 0) {
-            Serial.printf("HomeAssistantManager: update_remaining: missing or negative remaining_g in payload\n");
+            DBG_LOGF("HomeAssistantManager: update_remaining: missing or negative remaining_g in payload\n");
             publishCommandResponse(command, false, "missing_remaining_g");
             delete spool;
             return;
         }
 
         if (!spool->tag_data_valid) {
-            Serial.printf("HomeAssistantManager: update_remaining: tag data unavailable for uid=%s\n", uid);
+            DBG_LOGF("HomeAssistantManager: update_remaining: tag data unavailable for uid=%s\n", uid);
             publishCommandResponse(command, false, "tag_data_unavailable");
             delete spool;
             return;
@@ -783,7 +788,7 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
         opt_get_actual_full_weight(&spool->tag_data, &fullWeight);
         float consumed = fullWeight - remainingG;
         if (consumed < 0) consumed = 0;
-        Serial.printf("HomeAssistantManager: update_remaining uid=%s full=%.1f remaining=%.1f consumed=%.1f\n",
+        DBG_LOGF("HomeAssistantManager: update_remaining uid=%s full=%.1f remaining=%.1f consumed=%.1f\n",
                       uid, fullWeight, remainingG, consumed);
 
         AppMessage msg;
@@ -795,7 +800,7 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
 
         bool queued = ApplicationManager::getInstance().sendMessage(msg, 50);
         if (!queued) {
-            Serial.println("HomeAssistantManager: Failed to queue HA update_remaining message");
+            DBG_LOGLN("HomeAssistantManager: Failed to queue HA update_remaining message");
             publishCommandResponse(command, false, "app_queue_full");
             delete spool;
             return;

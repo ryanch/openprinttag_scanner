@@ -1,3 +1,4 @@
+#include "DebugLogBuffer.h"
 #include "SpoolmanManager.h"
 #include "ConfigurationManager.h"
 #include "ApplicationManager.h"
@@ -100,7 +101,7 @@ static int findOrCreateVendor(const char* name) {
     String response;
     int code = httpGet(path.c_str(), response);
 
-    Serial.printf("SpoolmanManager: get vendor '%s' code=%d\n", name, code);
+    DBG_LOGF("SpoolmanManager: get vendor '%s' code=%d\n", name, code);
 
     if (code == 200 || code == 201) {
         JsonDocument doc;
@@ -111,13 +112,13 @@ static int findOrCreateVendor(const char* name) {
                 const char* vendorName = vendor["name"] | "";
                 if (strcasecmp(vendorName, name) == 0) {
                     int id = vendor["id"] | -1;
-                    Serial.printf("SpoolmanManager: Found vendor '%s' id=%d\n", name, id);
+                    DBG_LOGF("SpoolmanManager: Found vendor '%s' id=%d\n", name, id);
                     return id;
                 }
             }
         } else {
-            Serial.printf("SpoolmanManager: Failed to parse vendor JSON: %s\n", error.c_str());
-            //Serial.print( response );
+            DBG_LOGF("SpoolmanManager: Failed to parse vendor JSON: %s\n", error.c_str());
+            //DBG_LOG( response );
         }
     }
 
@@ -132,12 +133,12 @@ static int findOrCreateVendor(const char* name) {
         JsonDocument respDoc;
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             int id = respDoc["id"] | -1;
-            Serial.printf("SpoolmanManager: Created vendor '%s' id=%d\n", name, id);
+            DBG_LOGF("SpoolmanManager: Created vendor '%s' id=%d\n", name, id);
             return id;
         }
     }
 
-    Serial.printf("SpoolmanManager: Failed to create vendor '%s', code=%d\n", name, code);
+    DBG_LOGF("SpoolmanManager: Failed to create vendor '%s', code=%d\n", name, code);
     return -1;
 }
 
@@ -156,11 +157,11 @@ static int findOrCreateFilament(int vendorId, const SpoolmanSyncRequest& req) {
             JsonArray arr = doc.as<JsonArray>();
             if (arr.size() > 0) {
                 int id = arr[0]["id"] | -1;
-                Serial.printf("SpoolmanManager: Found filament material=%s id=%d\n", material, id);
+                DBG_LOGF("SpoolmanManager: Found filament material=%s id=%d\n", material, id);
                 return id;
             }
         } else {
-            Serial.printf("SpoolmanManager: Failed to parse filament JSON: %s\n", error.c_str());
+            DBG_LOGF("SpoolmanManager: Failed to parse filament JSON: %s\n", error.c_str());
         }
     }
 
@@ -185,12 +186,12 @@ static int findOrCreateFilament(int vendorId, const SpoolmanSyncRequest& req) {
         JsonDocument respDoc;
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             int id = respDoc["id"] | -1;
-            Serial.printf("SpoolmanManager: Created filament material=%s id=%d\n", material, id);
+            DBG_LOGF("SpoolmanManager: Created filament material=%s id=%d\n", material, id);
             return id;
         }
     }
 
-    Serial.printf("SpoolmanManager: Failed to create filament, code=%d\n", code);
+    DBG_LOGF("SpoolmanManager: Failed to create filament, code=%d\n", code);
     return -1;
 }
 
@@ -206,7 +207,7 @@ static int findSpoolByUuid(int filamentId, const char* uuid) {
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, response);
     if (error != DeserializationError::Ok) {
-        Serial.printf("SpoolmanManager: Failed to parse spool JSON: %s\n", error.c_str());
+        DBG_LOGF("SpoolmanManager: Failed to parse spool JSON: %s\n", error.c_str());
         return -1;
     }
 
@@ -217,7 +218,7 @@ static int findSpoolByUuid(int filamentId, const char* uuid) {
             const char* tagUuid = extra["openprinttag_uuid"] | "";
             if (strcmp(tagUuid, uuid) == 0) {
                 int id = spool["id"] | -1;
-                Serial.printf("SpoolmanManager: Found spool uuid=%s id=%d\n", uuid, id);
+                DBG_LOGF("SpoolmanManager: Found spool uuid=%s id=%d\n", uuid, id);
                 return id;
             }
         }
@@ -250,15 +251,15 @@ static int createSpool(int filamentId, const SpoolmanSyncRequest& req) {
         JsonDocument respDoc;
         if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
             int id = respDoc["id"] | -1;
-            Serial.printf("SpoolmanManager: Created spool for %s, id=%d\n", req.spool_id, id);
+            DBG_LOGF("SpoolmanManager: Created spool for %s, id=%d\n", req.spool_id, id);
             return id;
         }
-        Serial.printf("SpoolmanManager: Created spool but failed to parse response\n");
+        DBG_LOGF("SpoolmanManager: Created spool but failed to parse response\n");
         return -1;
     }
 
-    Serial.printf("SpoolmanManager: Failed to create spool, code=%d\n", code);
-    Serial.print(body);
+    DBG_LOGF("SpoolmanManager: Failed to create spool, code=%d\n", code);
+    DBG_LOG(body);
     return -1;
 }
 
@@ -268,20 +269,20 @@ static bool lookupSpoolById(int spoolId, const char* uuid) {
     String response;
     int code = httpGet(path, response);
     if (code != 200) {
-        Serial.printf("SpoolmanManager: lookupSpoolById(%d) returned %d\n", spoolId, code);
+        DBG_LOGF("SpoolmanManager: lookupSpoolById(%d) returned %d\n", spoolId, code);
         return false;
     }
 
     JsonDocument doc;
     DeserializationError error = deserializeJson(doc, response);
     if (error != DeserializationError::Ok) {
-        Serial.printf("SpoolmanManager: Failed to parse spool JSON: %s\n", error.c_str());
+        DBG_LOGF("SpoolmanManager: Failed to parse spool JSON: %s\n", error.c_str());
         return false;
     }
 
     JsonObject extra = doc["extra"];
     if (extra.isNull()) {
-        Serial.printf("SpoolmanManager: Spool %d has no extra field\n", spoolId);
+        DBG_LOGF("SpoolmanManager: Spool %d has no extra field\n", spoolId);
         return false;
     }
 
@@ -297,7 +298,7 @@ static bool lookupSpoolById(int spoolId, const char* uuid) {
         return true;
     }
 
-    Serial.printf("SpoolmanManager: Spool %d UUID mismatch: '%s' != '%s'\n", spoolId, tagUuid, uuid);
+    DBG_LOGF("SpoolmanManager: Spool %d UUID mismatch: '%s' != '%s'\n", spoolId, tagUuid, uuid);
     return false;
 }
 
@@ -317,11 +318,11 @@ static bool updateSpool(int spoolId, int filamentId, float remainingWeight) {
     String response;
     int code = httpPatch(path, body.c_str(), response);
     if (code == 200) {
-        Serial.printf("SpoolmanManager: Updated spool id=%d, remaining=%.1fg\n", spoolId, remainingWeight);
+        DBG_LOGF("SpoolmanManager: Updated spool id=%d, remaining=%.1fg\n", spoolId, remainingWeight);
         return true;
     }
 
-    Serial.printf("SpoolmanManager: Failed to update spool, code=%d\n", code);
+    DBG_LOGF("SpoolmanManager: Failed to update spool, code=%d\n", code);
     return false;
 }
 
@@ -337,11 +338,11 @@ bool SpoolmanManager::begin(SemaphoreHandle_t httpMutex) {
 
     syncQueue = xQueueCreate(QUEUE_SIZE, sizeof(SpoolmanSyncRequest));
     if (syncQueue == nullptr) {
-        Serial.println("SpoolmanManager: Failed to create queue");
+        DBG_LOGLN("SpoolmanManager: Failed to create queue");
         return false;
     }
 
-    Serial.println("SpoolmanManager: Initialized");
+    DBG_LOGLN("SpoolmanManager: Initialized");
     return true;
 }
 
@@ -359,7 +360,7 @@ void SpoolmanManager::startTask() {
         &taskHandle,
         1  // Core 1
     );
-    Serial.println("SpoolmanManager: Task started");
+    DBG_LOGLN("SpoolmanManager: Task started");
 }
 
 bool SpoolmanManager::enqueueSync(const SpoolmanSyncRequest& req) {
@@ -386,7 +387,7 @@ void SpoolmanManager::taskLoop() {
                 continue;
             }
 
-            Serial.printf("SpoolmanManager: Syncing spool %s\n", req.spool_id);
+            DBG_LOGF("SpoolmanManager: Syncing spool %s\n", req.spool_id);
             int resolvedSpoolmanId = -1;
             bool success = syncSpool(req, resolvedSpoolmanId);
 
@@ -406,7 +407,7 @@ void SpoolmanManager::taskLoop() {
 
 bool SpoolmanManager::syncSpool(const SpoolmanSyncRequest& req, int& resolvedSpoolmanId) {
     if (xSemaphoreTake(httpMutex_, HTTP_MUTEX_TIMEOUT) != pdTRUE) {
-        Serial.println("SpoolmanManager: Could not acquire HTTP mutex");
+        DBG_LOGLN("SpoolmanManager: Could not acquire HTTP mutex");
         return false;
     }
 
@@ -415,7 +416,7 @@ bool SpoolmanManager::syncSpool(const SpoolmanSyncRequest& req, int& resolvedSpo
 
     // Fast path: if we have a spoolman_id from the tag, try direct lookup
     if (req.spoolman_id > 0) {
-        Serial.printf("SpoolmanManager: Fast path - looking up spool %d\n", req.spoolman_id);
+        DBG_LOGF("SpoolmanManager: Fast path - looking up spool %d\n", req.spoolman_id);
         if (lookupSpoolById(req.spoolman_id, req.spool_id)) {
             // UUID matches - just update remaining weight
             // We still need a filament_id for updateSpool; get it from the spool response
@@ -434,20 +435,20 @@ bool SpoolmanManager::syncSpool(const SpoolmanSyncRequest& req, int& resolvedSpo
             xSemaphoreGive(httpMutex_);
             return success;
         }
-        Serial.println("SpoolmanManager: Fast path failed, falling back to slow path");
+        DBG_LOGLN("SpoolmanManager: Fast path failed, falling back to slow path");
     }
 
     // Slow path: full vendor → filament → spool lookup/creation
     int vendorId = findOrCreateVendor(req.manufacturer);
     if (vendorId < 0) {
-        Serial.println("SpoolmanManager: Failed to find/create vendor");
+        DBG_LOGLN("SpoolmanManager: Failed to find/create vendor");
         xSemaphoreGive(httpMutex_);
         return false;
     }
 
     int filamentId = findOrCreateFilament(vendorId, req);
     if (filamentId < 0) {
-        Serial.println("SpoolmanManager: Failed to find/create filament");
+        DBG_LOGLN("SpoolmanManager: Failed to find/create filament");
         xSemaphoreGive(httpMutex_);
         return false;
     }

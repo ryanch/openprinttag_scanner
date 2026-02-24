@@ -1,3 +1,4 @@
+#include "DebugLogBuffer.h"
 #include <Wire.h>
 #include <WiFi.h>
 #include <time.h>
@@ -27,14 +28,14 @@ void initWiFi() {
   auto& config = ConfigurationManager::getInstance();
 
   if (strlen(config.getWiFiSSID()) == 0) {
-    Serial.println("WiFi SSID not configured - skipping WiFi");
+    DBG_LOGLN("WiFi SSID not configured - skipping WiFi");
     lcdManager.updateScreen("WiFi: no SSID", "Configure via BLE");
     delay(2000);
     return;
   }
 
-  Serial.print("Connecting to WiFi: ");
-  Serial.println(config.getWiFiSSID());
+  DBG_LOG("Connecting to WiFi: ");
+  DBG_LOGLN(config.getWiFiSSID());
 
   lcdManager.updateScreen("Connecting WiFi", "");
 
@@ -43,32 +44,32 @@ void initWiFi() {
   int attempts = 0;
   while (WiFi.status() != WL_CONNECTED && attempts < 30) {
     delay(500);
-    Serial.print(".");
+    DBG_LOG(".");
     attempts++;
   }
 
   if (WiFi.status() == WL_CONNECTED) {
-    Serial.println();
-    Serial.print("WiFi connected! IP: ");
-    Serial.println(WiFi.localIP());
+    DBG_LOGLN("");
+    DBG_LOG("WiFi connected! IP: ");
+    DBG_LOGLN(WiFi.localIP());
 
     lcdManager.updateScreen("WiFi OK", WiFi.localIP().toString().c_str());
 
-    Serial.println("Setting up NTP...");
+    DBG_LOGLN("Setting up NTP...");
     configTime(0, 0, "pool.ntp.org");
     struct tm timeinfo;
     if(!getLocalTime(&timeinfo)){
-      Serial.println("Failed to obtain time");
+      DBG_LOGLN("Failed to obtain time");
       lcdManager.updateScreen("NTP FAILED", "");
     } else {
-      Serial.println("Time obtained");
+      DBG_LOGLN("Time obtained");
       //lcdManager.updateScreen("NTP OK", "");
     }
 
     delay(2000);
   } else {
-    Serial.println();
-    Serial.println("WiFi connection failed!");
+    DBG_LOGLN("");
+    DBG_LOGLN("WiFi connection failed!");
 
     lcdManager.updateScreen("WiFi FAILED", "");
     delay(2000);
@@ -79,21 +80,21 @@ void setup() {
   delay(1000);
   Serial.begin(9600);
   delay(1000);
-  Serial.println("=== Starting setup ===");
+  DBG_LOGLN("=== Starting setup ===");
 
   // Initialize I2C with custom pins for LCD
   Wire.begin(LCD_SDA, LCD_SCL);
-  Serial.println("I2C initialized");
+  DBG_LOGLN("I2C initialized");
 
   // Initialize LCD and start its task on core 0
   lcdManager.begin();
   lcdManager.startTask();
   lcdManager.updateScreen("Initializing...", "");
-  Serial.println("LCD initialized");
+  DBG_LOGLN("LCD initialized");
 
   // Initialize ConfigurationManager FIRST (loads NVS)
   if (!ConfigurationManager::getInstance().begin()) {
-    Serial.println("ConfigurationManager init failed - halting");
+    DBG_LOGLN("ConfigurationManager init failed - halting");
     lcdManager.updateScreen("Config FAILED", "");
     while (1) { delay(1000); }
   }
@@ -101,7 +102,7 @@ void setup() {
 
   // Initialize ApplicationManager (message queue) with LCD reference
   if (!ApplicationManager::getInstance().begin(&lcdManager)) {
-    Serial.println("ApplicationManager init failed - halting");
+    DBG_LOGLN("ApplicationManager init failed - halting");
     lcdManager.updateScreen("AppMgr FAILED", "");
     while (1) { delay(1000); }
   }
@@ -110,7 +111,7 @@ void setup() {
   // Initialize BluetoothManager BEFORE WiFi (they share the radio)
   lcdManager.updateScreen("Starting BLE...", "");
   if (!BluetoothManager::getInstance().begin()) {
-    Serial.println("BluetoothManager init failed - continuing without BLE");
+    DBG_LOGLN("BluetoothManager init failed - continuing without BLE");
   }
 
   // Connect to WiFi
@@ -119,32 +120,32 @@ void setup() {
   // Create global HTTP mutex for serializing HTTP requests
   g_httpMutex = xSemaphoreCreateMutex();
   if (g_httpMutex == nullptr) {
-    Serial.println("Failed to create HTTP mutex - halting");
+    DBG_LOGLN("Failed to create HTTP mutex - halting");
     lcdManager.updateScreen("Mutex FAILED", "");
     while (1) { delay(1000); }
   }
 
   // Initialize SpoolmanManager
   if (!SpoolmanManager::getInstance().begin(g_httpMutex)) {
-    Serial.println("SpoolmanManager init failed - continuing without Spoolman");
+    DBG_LOGLN("SpoolmanManager init failed - continuing without Spoolman");
   }
 
   // Initialize HomeAssistantManager
   if (!HomeAssistantManager::getInstance().begin()) {
-    Serial.println("HomeAssistantManager init failed - continuing without HA");
+    DBG_LOGLN("HomeAssistantManager init failed - continuing without HA");
   }
 
   // Load automation mode from config
   {
     uint8_t mode = ConfigurationManager::getInstance().getAutomationMode();
     ApplicationManager::getInstance().setAutomationMode(static_cast<AutomationMode>(mode));
-    Serial.printf("Automation mode: %s\n",
+    DBG_LOGF("Automation mode: %s\n",
                   mode == 0 ? "SELF_DIRECTED" : "CONTROLLED_BY_HA");
   }
 
   // Initialize NFCManager
   if (!NFCManager::getInstance().begin()) {
-    Serial.println("NFCManager init failed - halting");
+    DBG_LOGLN("NFCManager init failed - halting");
     lcdManager.updateScreen("NFC FAILED", "");
     while (1) { delay(1000); }
   }
@@ -172,7 +173,7 @@ void setup() {
   auto& config = ConfigurationManager::getInstance();
 
   // Start HomeAssistantManager task
-  Serial.printf("Setup: HA config before startTask: enabled=%s host='%s' host_len=%u port=%u user_set=%s\n",
+  DBG_LOGF("Setup: HA config before startTask: enabled=%s host='%s' host_len=%u port=%u user_set=%s\n",
                 config.getHAEnabled() ? "true" : "false",
                 config.getHAMqttHost(),
                 static_cast<unsigned>(strlen(config.getHAMqttHost())),
@@ -182,10 +183,12 @@ void setup() {
 
   ApplicationManager::getInstance().showStatusOnLCD();
 
-  Serial.println("=== Setup complete ===");
+  DBG_LOGLN("=== Setup complete ===");
 }
 
 void loop() {
+  DebugLogBuffer::getInstance().drainPending(64);
+
   // Process any pending messages for the application
   ApplicationManager::getInstance().processMessages();
 
