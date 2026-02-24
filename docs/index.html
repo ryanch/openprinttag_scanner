@@ -782,6 +782,8 @@
         let spoolPollInterval = null;
         let logPollInterval = null;
         let logCursor = 0;
+        let isLogsRefreshInProgress = false;
+        let isLogsRefreshQueued = false;
         let isLogsAutoEnabled = false;
         let cachedSpoolmanUrl = '';
         const SPOOL_POLL_INTERVAL_MS = 3000;
@@ -1542,7 +1544,7 @@
             });
         }
 
-        async function refreshLogs() {
+        async function refreshLogsOnce() {
             if (!configWriteCharacteristic || !configReadCharacteristic) {
                 setLogsStatus('Not connected', true);
                 return;
@@ -1592,6 +1594,23 @@
                 setLogsStatus(`Fetched ${fetched} line(s). next=${logCursor}`);
             } catch (error) {
                 setLogsStatus(`Log fetch failed: ${error}`, true);
+            }
+        }
+
+        async function refreshLogs() {
+            if (isLogsRefreshInProgress) {
+                isLogsRefreshQueued = true;
+                return;
+            }
+
+            isLogsRefreshInProgress = true;
+            try {
+                do {
+                    isLogsRefreshQueued = false;
+                    await refreshLogsOnce();
+                } while (isLogsRefreshQueued);
+            } finally {
+                isLogsRefreshInProgress = false;
             }
         }
 
