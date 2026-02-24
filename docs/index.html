@@ -447,6 +447,17 @@
             flex: 1;
         }
 
+        .consume-adjust-row {
+            display: flex;
+            gap: 0.75rem;
+            align-items: center;
+            margin-top: 0.75rem;
+        }
+
+        .consume-adjust-row input[type="number"] {
+            flex: 1;
+        }
+
         /* Format Spool Card */
         .format-spool-card {
             background-color: var(--prusa-medium-gray);
@@ -649,6 +660,10 @@
                 <div class="form-group">
                     <label for="edit-grams">Grams Remaining</label>
                     <input type="number" id="edit-grams" min="0" max="5000" placeholder="750">
+                    <div class="consume-adjust-row">
+                        <button type="button" id="adjust-grams-btn" class="secondary">Adjust</button>
+                        <input type="number" id="consume-amount" min="0" placeholder="Consume Amount">
+                    </div>
                 </div>
             </div>
             <div class="modal-footer">
@@ -691,6 +706,8 @@
         const editColorHex = document.getElementById('edit-color-hex');
         const editManufacturer = document.getElementById('edit-manufacturer');
         const editGrams = document.getElementById('edit-grams');
+        const consumeAmount = document.getElementById('consume-amount');
+        const adjustGramsButton = document.getElementById('adjust-grams-btn');
 
         // Bluetooth UUIDs
         const SERVICE_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0001";
@@ -878,6 +895,7 @@
             editColorHex.value = spool.color || '#888888';
             editManufacturer.value = spool.manufacturer || '';
             editGrams.value = spool.grams_remaining || '';
+            consumeAmount.value = '';
             modalFormat.disabled = false;
             modalFormat.textContent = 'Format Spool';
 
@@ -897,6 +915,17 @@
             if (/^#[0-9A-Fa-f]{6}$/.test(editColorHex.value)) {
                 editColor.value = editColorHex.value;
             }
+        });
+
+        adjustGramsButton.addEventListener('click', () => {
+            const gramsRemaining = parseInt(editGrams.value, 10);
+            const consumeValue = parseInt(consumeAmount.value, 10);
+            const safeGramsRemaining = Number.isNaN(gramsRemaining) ? 0 : gramsRemaining;
+            const safeConsumeValue = Number.isNaN(consumeValue) ? 0 : consumeValue;
+            const newGramsRemaining = Math.max(0, safeGramsRemaining - safeConsumeValue);
+
+            editGrams.value = newGramsRemaining;
+            consumeAmount.value = '';
         });
 
         // Modal event listeners
