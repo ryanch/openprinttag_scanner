@@ -1239,7 +1239,7 @@
                 document.getElementById('prusa_link_api_key').value = config.prusa_link_api_key || '';
                 document.getElementById('spoolman_url').value = config.spoolman_url || '';
                 cachedSpoolmanUrl = config.spoolman_url || '';
-                document.getElementById('poll_interval_ms').value = config.poll_interval_ms || 5000;
+                document.getElementById('poll_interval_ms').value = config.poll_interval_ms || 10000;
                 const lcdTimeoutMs = config.lcd_timeout_ms ?? 120000;
                 document.getElementById('lcd_timeout_minutes').value = Math.round(lcdTimeoutMs / 60000);
                 document.getElementById('wifi_pass').value = '';

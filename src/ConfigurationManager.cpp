@@ -19,7 +19,7 @@ bool ConfigurationManager::begin() {
     memset(_prusaLinkUrl, 0, sizeof(_prusaLinkUrl));
     memset(_prusaLinkApiKey, 0, sizeof(_prusaLinkApiKey));
     memset(_spoolmanUrl, 0, sizeof(_spoolmanUrl));
-    _pollIntervalMs = 5000;
+    _pollIntervalMs = 10000;
     _lcdTimeoutMs = 15 * 60 * 1000; // 15 mins
     _haEnabled = false;
     memset(_haMqttHost, 0, sizeof(_haMqttHost));

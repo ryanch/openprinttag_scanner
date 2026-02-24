@@ -8,11 +8,39 @@
 #include <ArduinoJson.h>
 #include "esp_heap_caps.h"
 
+static constexpr size_t URL_BUFFER_SIZE = 192;
+static constexpr size_t STATUS_JSON_CAPACITY = 1024;
+static constexpr size_t JOB_JSON_CAPACITY = 4096;
+
+#ifndef PRUSALINK_HEAP_TRACE
+#define PRUSALINK_HEAP_TRACE 0
+#endif
+
+static bool buildUrl(char* out, size_t outSize, const char* base, const char* path) {
+    if (out == nullptr || outSize == 0 || base == nullptr || path == nullptr) {
+        return false;
+    }
+    int written = snprintf(out, outSize, "%s%s", base, path);
+    return written > 0 && static_cast<size_t>(written) < outSize;
+}
+
+static bool buildJobUrl(char* out, size_t outSize, const char* base, int jobId) {
+    if (out == nullptr || outSize == 0 || base == nullptr) {
+        return false;
+    }
+    int written = snprintf(out, outSize, "%s/api/v1/job/%d", base, jobId);
+    return written > 0 && static_cast<size_t>(written) < outSize;
+}
+
 static void logHeapSnapshot(const char* stage) {
+#if PRUSALINK_HEAP_TRACE
     DBG_LOGF("PrusaLinkAPIStrategy: Heap %s free=%u largest=%u\n",
              stage,
              static_cast<unsigned>(ESP.getFreeHeap()),
              static_cast<unsigned>(heap_caps_get_largest_free_block(MALLOC_CAP_8BIT)));
+#else
+    (void)stage;
+#endif
 }
 
 void PrusaLinkAPIStrategy::update() {
@@ -40,9 +68,14 @@ void PrusaLinkAPIStrategy::update() {
     do {
         HTTPClient http;
         http.useHTTP10(true);
+        http.setReuse(false);
 
         // Get quick status
-        String statusUrl = String(config.getPrusaLinkURL()) + "/api/v1/status";
+        char statusUrl[URL_BUFFER_SIZE];
+        if (!buildUrl(statusUrl, sizeof(statusUrl), config.getPrusaLinkURL(), "/api/v1/status")) {
+            DBG_LOGLN("PrusaLinkAPIStrategy: status URL too long");
+            break;
+        }
         http.begin(statusUrl);
         http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
 
@@ -57,7 +90,7 @@ void PrusaLinkAPIStrategy::update() {
         logHeapSnapshot("after_status_get");
 
         connected = true;
-        JsonDocument statusDoc;
+        StaticJsonDocument<STATUS_JSON_CAPACITY> statusDoc;
         logHeapSnapshot("before_status_deserialize");
         DeserializationError statusErr = deserializeJson(statusDoc, http.getStream());
         logHeapSnapshot("after_status_deserialize");
@@ -79,7 +112,11 @@ void PrusaLinkAPIStrategy::update() {
         progress = jobVariant["progress"].as<float>();
 
         // Get detailed job info
-        String jobUrl = String(config.getPrusaLinkURL()) + "/api/v1/job";
+        char jobUrl[URL_BUFFER_SIZE];
+        if (!buildUrl(jobUrl, sizeof(jobUrl), config.getPrusaLinkURL(), "/api/v1/job")) {
+            DBG_LOGLN("PrusaLinkAPIStrategy: job URL too long");
+            break;
+        }
         http.begin(jobUrl);
         http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
 
@@ -93,7 +130,7 @@ void PrusaLinkAPIStrategy::update() {
         }
         logHeapSnapshot("after_job_get");
 
-        JsonDocument jobDoc;
+        StaticJsonDocument<JOB_JSON_CAPACITY> jobDoc;
         logHeapSnapshot("before_job_deserialize");
         DeserializationError jobErr = deserializeJson(jobDoc, http.getStream());
         logHeapSnapshot("after_job_deserialize");
@@ -248,13 +285,19 @@ float PrusaLinkAPIStrategy::fetchDeferredFilament() {
     // Try job API first — may have metadata now that print is done
     HTTPClient http;
     http.useHTTP10(true);
-    String jobUrl = String(config.getPrusaLinkURL()) + "/api/v1/job/" + String(savedDownloadRefJobId);
+    http.setReuse(false);
+    char jobUrl[URL_BUFFER_SIZE];
+    if (!buildJobUrl(jobUrl, sizeof(jobUrl), config.getPrusaLinkURL(), savedDownloadRefJobId)) {
+        if (mutexHeld) xSemaphoreGive(httpMutex_);
+        DBG_LOGLN("PrusaLinkAPIStrategy: deferred job URL too long");
+        return 0.0f;
+    }
     http.begin(jobUrl);
     http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
     logHeapSnapshot("before_deferred_job_get");
     int code = http.GET();
     if (code == 200) {
-        JsonDocument doc;
+        StaticJsonDocument<JOB_JSON_CAPACITY> doc;
         logHeapSnapshot("before_deferred_job_deserialize");
         if (!deserializeJson(doc, http.getStream())) {
             logHeapSnapshot("after_deferred_job_deserialize");
