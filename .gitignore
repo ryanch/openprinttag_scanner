@@ -16,3 +16,4 @@ test/integration/ha
 test/native/test_lcd_manager_runner
 test/native/test_debug_log_buffer_runner
 test/native/test_bgcode_parser
+test/native/test_bgcode_parser
