@@ -138,10 +138,10 @@ void NFCManager::scanLoop() {
         scanCount++;
 
         // Log heartbeat every 200 scans (~10 seconds)
-        if (scanCount % 200 == 0) {
-            DBG_LOGF("NFCManager: heartbeat scan=%lu detected=%lu failed=%lu\n",
-                          scanCount, detectCount, failCount);
-        }
+        //if (scanCount % 200 == 0) {
+        //    DBG_LOGF("NFCManager: heartbeat scan=%lu detected=%lu failed=%lu\n",
+        //                  scanCount, detectCount, failCount);
+        //}
 
         // Watchdog: check if we've exceeded failure thresholds
         if (consecutiveFailures_ >= RESTART_THRESHOLD) {

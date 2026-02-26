@@ -62,11 +62,16 @@ float parseBgcodeFilament(const uint8_t* data, size_t len) {
         size_t dataEnd = dataStart + compressedSize;
 
         // Search uncompressed metadata blocks (types 0,2,3,4) for filament key
-        if (blockType != 1 && blockType != 5 && compression == 0 && dataStart < len) {
-            size_t searchLen = (dataEnd <= len) ? compressedSize : (len - dataStart);
-            float result = searchMetadataForFilament(data + dataStart, searchLen);
-            if (result > 0.0f) {
-                return result;
+        if (blockType != 1 && blockType != 5 && dataStart < len) {
+            if (compression != 0) {
+                DBG_LOGF("BgcodeParser: Skipping compressed metadata block type %u (compression=%u, size=%u)\n",
+                         blockType, compression, uncompressedSize);
+            } else {
+                size_t searchLen = (dataEnd <= len) ? compressedSize : (len - dataStart);
+                float result = searchMetadataForFilament(data + dataStart, searchLen);
+                if (result > 0.0f) {
+                    return result;
+                }
             }
         }
 

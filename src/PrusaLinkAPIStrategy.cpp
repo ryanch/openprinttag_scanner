@@ -195,38 +195,10 @@ float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const String& downloadRef) {
     http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
     http.addHeader("Range", "bytes=0-8191");
 
-    const int maxAttempts = 3;
+    const int maxAttempts = 6;
     const int baseDelayMs = 1000;
-    int code = 0;
-
-    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
-        if (attempt > 1) {
-            int delayMs = baseDelayMs * (attempt - 1);
-            DBG_LOGF("PrusaLinkAPIStrategy: bgcode fetch attempt %d/%d after %dms delay\n", attempt, maxAttempts, delayMs);
-            vTaskDelay(pdMS_TO_TICKS(delayMs));
-            http.end();
-            http.begin(client, host, port, downloadRef);
-            http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
-            http.addHeader("Range", "bytes=0-8191");
-        }
-        logHeapSnapshot("before_bgcode_get");
-        code = http.GET();
-        if (code == 200 || code == 206) break;
-        DBG_LOGF("PrusaLinkAPIStrategy: bgcode fetch attempt %d/%d failed: %d\n", attempt, maxAttempts, code);
-        logHeapSnapshot("bgcode_get_failed");
-    }
-
-    if (code != 200 && code != 206) {
-        DBG_LOGF("PrusaLinkAPIStrategy: bgcode header fetch failed after %d attempts (path: %s)\n", maxAttempts, downloadRef.c_str());
-        http.end();
-        return 0.0f;
-    }
-
-    if (code == 200) {
-        DBG_LOGLN("PrusaLinkAPIStrategy: Server ignored Range header, reading first 8KB only");
-    }
-
     const size_t BUF_SIZE = 8192;
+
     uint8_t* buf = (uint8_t*)malloc(BUF_SIZE);
     if (!buf) {
         logHeapSnapshot("bgcode_buf_alloc_failed");
@@ -234,37 +206,71 @@ float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const String& downloadRef) {
         return 0.0f;
     }
 
-    // Read at most BUF_SIZE bytes, then force-close the TCP connection.
-    // If Range was ignored the full file may be streaming — stop() drops it
-    // without trying to consume remaining data (unlike http.end() which may).
-    size_t bytesRead = 0;
-    unsigned long timeout = millis() + 5000;
+    float result = 0.0f;
 
-    while (bytesRead < BUF_SIZE && millis() < timeout) {
-        if (client.available()) {
-            int toRead = client.available();
-            if (toRead > (int)(BUF_SIZE - bytesRead)) toRead = BUF_SIZE - bytesRead;
-            int n = client.readBytes(buf + bytesRead, toRead);
-            if (n > 0) bytesRead += n;
-        } else if (!client.connected()) {
-            break;
-        } else {
-            delay(10);
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (attempt > 1) {
+            int delayMs = baseDelayMs * (attempt - 1);
+            DBG_LOGF("PrusaLinkAPIStrategy: bgcode fetch attempt %d/%d after %dms delay\n", attempt, maxAttempts, delayMs);
+            vTaskDelay(pdMS_TO_TICKS(delayMs));
+            http.end();
+            client.stop();
+            client = WiFiClient();
+            http.begin(client, host, port, downloadRef);
+            http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
+            http.addHeader("Range", "bytes=0-8191");
         }
+        logHeapSnapshot("before_bgcode_get");
+        int code = http.GET();
+        if (code != 200 && code != 206) {
+            DBG_LOGF("PrusaLinkAPIStrategy: bgcode fetch attempt %d/%d failed: %d\n", attempt, maxAttempts, code);
+            logHeapSnapshot("bgcode_get_failed");
+            continue;
+        }
+
+        if (code == 200) {
+            DBG_LOGLN("PrusaLinkAPIStrategy: Server ignored Range header, reading first 8KB only");
+        }
+
+        // Read at most BUF_SIZE bytes, then force-close the TCP connection.
+        // If Range was ignored the full file may be streaming — stop() drops it
+        // without trying to consume remaining data (unlike http.end() which may).
+        size_t bytesRead = 0;
+        unsigned long timeout = millis() + 5000;
+
+        while (bytesRead < BUF_SIZE && millis() < timeout) {
+            if (client.available()) {
+                int toRead = client.available();
+                if (toRead > (int)(BUF_SIZE - bytesRead)) toRead = BUF_SIZE - bytesRead;
+                int n = client.readBytes(buf + bytesRead, toRead);
+                if (n > 0) bytesRead += n;
+            } else if (!client.connected()) {
+                break;
+            } else {
+                delay(10);
+            }
+        }
+
+        client.stop();
+        http.end();
+
+        // Log download details for diagnostics
+        DBG_LOGF("PrusaLinkAPIStrategy: bgcode attempt %d/%d: HTTP %d, %zu bytes read, magic=0x%02X%02X%02X%02X\n",
+                 attempt, maxAttempts, code, bytesRead,
+                 bytesRead > 0 ? buf[0] : 0, bytesRead > 1 ? buf[1] : 0,
+                 bytesRead > 2 ? buf[2] : 0, bytesRead > 3 ? buf[3] : 0);
+
+        result = parseBgcodeFilament(buf, bytesRead);
+        if (result > 0.0f) {
+            DBG_LOGF("PrusaLinkAPIStrategy: Parsed filament from bgcode header: %.2fg\n", result);
+            break;
+        }
+
+        DBG_LOGF("PrusaLinkAPIStrategy: bgcode attempt %d/%d: download OK but parse failed (%zu bytes)\n",
+                 attempt, maxAttempts, bytesRead);
     }
 
-    client.stop();
-    http.end();
-
-    float result = parseBgcodeFilament(buf, bytesRead);
     free(buf);
-
-    if (result > 0.0f) {
-        DBG_LOGF("PrusaLinkAPIStrategy: Parsed filament from bgcode header: %.2fg\n", result);
-    } else {
-        DBG_LOGF("PrusaLinkAPIStrategy: Could not parse filament from bgcode header (%zu bytes read)\n", bytesRead);
-    }
-
     return result;
 }
 
@@ -292,28 +298,42 @@ float PrusaLinkAPIStrategy::fetchDeferredFilament() {
         DBG_LOGLN("PrusaLinkAPIStrategy: deferred job URL too long");
         return 0.0f;
     }
-    http.begin(jobUrl);
-    http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
-    logHeapSnapshot("before_deferred_job_get");
-    int code = http.GET();
-    if (code == 200) {
-        StaticJsonDocument<JOB_JSON_CAPACITY> doc;
-        logHeapSnapshot("before_deferred_job_deserialize");
-        if (!deserializeJson(doc, http.getStream())) {
-            logHeapSnapshot("after_deferred_job_deserialize");
-            JsonVariant filamentUsed = doc["file"]["meta"]["filament used [g]"];
-            if (!filamentUsed.isNull()) {
-                result = filamentUsed.as<float>();
-                DBG_LOGF("PrusaLinkAPIStrategy: Got deferred filament from job API: %.2fg\n", result);
-            }
-        } else {
-            logHeapSnapshot("deferred_job_deserialize_failed");
+    const int maxAttempts = 6;
+    int code = -1;
+    for (int attempt = 1; attempt <= maxAttempts; attempt++) {
+        if (attempt > 1) {
+            int delayMs = (attempt - 1) * 1000;
+            DBG_LOGF("PrusaLinkAPIStrategy: Deferred job API retry %d/%d after %dms delay\n", attempt, maxAttempts, delayMs);
+            delay(delayMs);
         }
-        http.end();
-    } else {
-        DBG_LOGF("PrusaLinkAPIStrategy: Deferred job API request failed: %d\n", code);
-        logHeapSnapshot("deferred_job_get_failed");
-        http.end();
+        http.begin(jobUrl);
+        http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
+        logHeapSnapshot("before_deferred_job_get");
+        code = http.GET();
+        if (code == 200) {
+            StaticJsonDocument<JOB_JSON_CAPACITY> doc;
+            logHeapSnapshot("before_deferred_job_deserialize");
+            if (!deserializeJson(doc, http.getStream())) {
+                logHeapSnapshot("after_deferred_job_deserialize");
+                JsonVariant filamentUsed = doc["file"]["meta"]["filament used [g]"];
+                if (!filamentUsed.isNull()) {
+                    result = filamentUsed.as<float>();
+                    DBG_LOGF("PrusaLinkAPIStrategy: Got deferred filament from job API: %.2fg\n", result);
+                }
+            } else {
+                logHeapSnapshot("deferred_job_deserialize_failed");
+            }
+            http.end();
+            break;
+        } else {
+            DBG_LOGF("PrusaLinkAPIStrategy: Deferred job API attempt %d/%d failed: %d\n", attempt, maxAttempts, code);
+            logHeapSnapshot("deferred_job_get_failed");
+            http.end();
+            if (code == 405) {
+                DBG_LOGLN("PrusaLinkAPIStrategy: 405 Method Not Allowed - skipping further job API retries");
+                break;
+            }
+        }
     }
 
     // Fall back to bgcode header parsing
