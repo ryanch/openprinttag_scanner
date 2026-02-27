@@ -21,7 +21,9 @@ sys.path.insert(0, str(Path(__file__).parent))
 from mock_prusalink import MockPrusalinkState
 from scenarios.test_format_spool import FormatSpoolTest
 from scenarios.test_set_filament import SetFilamentTest
+from scenarios.test_set_filament_profile import SetFilamentProfileTest
 from scenarios.test_print_e2e import PrintE2ETest
+from scenarios.test_print_30_percent import Print30PercentE2ETest
 
 
 class TestOrchestrator:
@@ -42,11 +44,23 @@ class TestOrchestrator:
                 "description": "Update and verify filament weight",
                 "class": SetFilamentTest
             },
+            "set_filament_profile": {
+                "id": "set_filament_profile",
+                "name": "Set Filament Type + Manufacturer",
+                "description": "Change PLA->PETG and Unknown->Prusament",
+                "class": SetFilamentProfileTest
+            },
             "print_e2e": {
                 "id": "print_e2e",
                 "name": "End-to-End Print",
                 "description": "Full print simulation with weight deduction",
                 "class": PrintE2ETest
+            },
+            "print_30_percent": {
+                "id": "print_30_percent",
+                "name": "End-to-End Test - 30% Print",
+                "description": "Cancel at 30% and verify partial filament deduction",
+                "class": Print30PercentE2ETest
             }
         }
 

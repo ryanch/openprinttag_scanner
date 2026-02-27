@@ -93,5 +93,7 @@ test/integration/mock_prusalink.py — MockPrusalinkState (controls mock API res
 test/integration/scenarios/base.py — BaseTestScenario with BLE bridge helpers
 test/integration/scenarios/test_format_spool.py — Format spool test
 test/integration/scenarios/test_set_filament.py — Set filament weight test
+test/integration/scenarios/test_set_filament_profile.py — Set filament type/manufacturer test
 test/integration/scenarios/test_print_e2e.py — End-to-end print simulation test
+test/integration/scenarios/test_print_30_percent.py — Canceled print at 30% integration test
 test/integration/site/index.html — Web Bluetooth test runner UI

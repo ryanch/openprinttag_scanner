@@ -19,13 +19,13 @@ class MockPrusalinkState:
         self._download_ref = None
         self._progress = 0.0
 
-    def set_printing(self, job_id, filament_g, download_ref):
+    def set_printing(self, job_id, filament_g, download_ref, progress_percent=50.0):
         """Active job"""
         self._status = "PRINTING"
         self._job_id = job_id
         self._filament_g = filament_g
         self._download_ref = download_ref
-        self._progress = 50.0  # Mid-print
+        self._progress = float(progress_percent)
 
     def set_finished(self):
         """Job complete, 100% progress"""
@@ -62,6 +62,9 @@ class MockPrusalinkState:
             "state": self._status,
             "progress": self._progress,
             "file": {
+                "refs": {
+                    "download": self._download_ref or "/usb/sample.bgcode"
+                },
                 "name": "sample.bgcode",
                 "display_name": "sample.bgcode",
                 "path": self._download_ref or "/usb/sample.bgcode",

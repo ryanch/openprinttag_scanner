@@ -53,11 +53,24 @@ Real ESP32 device testing against mock services over network.
 - Updates weight to 1000g, verifies
 - Updates weight to 967g, verifies
 
+### Test 5: Set Filament Type + Manufacturer
+- Place formatted spool on reader
+- Verifies initial values are PLA and Unknown (or empty manufacturer)
+- Updates type to PETG and manufacturer to Prusament
+- Verifies both values persisted on tag
+
 ### Test 3: End-to-End Print
 - Configures device to poll mock PrusaLink
 - Sets spool to 1000g
 - Simulates print job consuming 9.18g filament
 - Verifies final weight is ~991g (±2g tolerance)
+- Automatically restores original config
+
+### Test 4: End-to-End Test - 30% Print
+- Configures device to poll mock PrusaLink
+- Sets spool to 1000g
+- Simulates a print canceled at 30% progress
+- Verifies only ~30% of filament is deducted from the spool
 - Automatically restores original config
 
 ## Components
@@ -89,5 +102,5 @@ API key validation: `X-Api-Key: test-api-key`
 
 - WiFi credentials are never sent during config changes — device stays connected
 - Tests use partial config updates (only change PrusaLink settings)
-- Original config is automatically restored after Test 3
+- Original config is automatically restored after Test 3 and Test 4
 - Sample bgcode file must exist at `test/res/sample.bgcode` (455KB)
