@@ -1,4 +1,3 @@
-#include "DebugLogBuffer.h"
 #include "ApplicationManager.h"
 #ifndef NATIVE_TEST
   #include "NFCTypes.h"
@@ -38,17 +37,17 @@ bool ApplicationManager::begin(LCDManager* lcd) {
 
     messageQueue = xQueueCreate(QUEUE_SIZE, sizeof(AppMessage));
     if (messageQueue == nullptr) {
-        DBG_LOGLN("ApplicationManager: Failed to create message queue");
+        Serial.println("ApplicationManager: Failed to create message queue");
         return false;
     }
 
-    DBG_LOGLN("ApplicationManager: Message queue created");
+    Serial.println("ApplicationManager: Message queue created");
     return true;
 }
 
 bool ApplicationManager::sendMessage(const AppMessage& msg, uint32_t waitMs) {
     if (messageQueue == nullptr) {
-        DBG_LOGLN("ApplicationManager: Queue not initialized");
+        Serial.println("ApplicationManager: Queue not initialized");
         return false;
     }
 
@@ -172,7 +171,7 @@ void ApplicationManager::handleMessage(const AppMessage& msg) {
 }
 
 void ApplicationManager::handlePrintStarted(const AppMessage& msg) {
-    DBG_LOGF("EVENT: PrintStarted - job_id=%d\n",
+    Serial.printf("EVENT: PrintStarted - job_id=%d\n",
         msg.payload.printStarted.job_id);
 
     // Request fresh spool detection
@@ -200,7 +199,7 @@ void ApplicationManager::handlePrintStarted(const AppMessage& msg) {
 }
 
 void ApplicationManager::handlePrintEnded(const AppMessage& msg) {
-    DBG_LOGF("EVENT: PrintEnded - job_id=%d, filament=%.2fg, canceled=%s\n",
+    Serial.printf("EVENT: PrintEnded - job_id=%d, filament=%.2fg, canceled=%s\n",
         msg.payload.printEnded.job_id,
         msg.payload.printEnded.filament_used_grams,
         msg.payload.printEnded.canceled ? "true" : "false");
@@ -222,7 +221,7 @@ void ApplicationManager::handlePrintEnded(const AppMessage& msg) {
 }
 
 void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
-    DBG_LOGF("EVENT: SpoolDetected - spool_id=%s, material_type=%u, kg_remaining=%.3f\n",
+    Serial.printf("EVENT: SpoolDetected - spool_id=%s, material_type=%u, kg_remaining=%.3f\n",
         msg.payload.spoolDetected.spool_id,
         msg.payload.spoolDetected.material_type,
         msg.payload.spoolDetected.kg_remaining);
@@ -232,11 +231,11 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
             // First spool detected during this print - capture it
             strncpy(startingSpoolId, msg.payload.spoolDetected.spool_id, sizeof(startingSpoolId) - 1);
             startingSpoolId[sizeof(startingSpoolId) - 1] = '\0';
-            DBG_LOGF("ApplicationManager: Captured starting spool: %s\n", startingSpoolId);
+            Serial.printf("ApplicationManager: Captured starting spool: %s\n", startingSpoolId);
         } else if (strcmp(startingSpoolId, msg.payload.spoolDetected.spool_id) != 0) {
             // Different spool detected during print
             spoolChangedDuringPrint = true;
-            DBG_LOGF("ApplicationManager: WARNING - Spool changed during print! Was %s, now %s\n",
+            Serial.printf("ApplicationManager: WARNING - Spool changed during print! Was %s, now %s\n",
                 startingSpoolId, msg.payload.spoolDetected.spool_id);
         }
     }
@@ -255,7 +254,7 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
         snprintf(line2, sizeof(line2), "Remain: %.0fg", msg.payload.spoolDetected.kg_remaining * 1000.0f);
         lcdManager->updateScreen("**** Spool ****", "*** Scanned ***", line1, line2);
     } else if (lcdManager) {
-        DBG_LOGF("ApplicationManager: Skipping LCD update for already displayed spool %s\n", msg.payload.spoolDetected.spool_id);
+        Serial.printf("ApplicationManager: Skipping LCD update for already displayed spool %s\n", msg.payload.spoolDetected.spool_id);
     }
 
     // Publish tag state to HA (always, regardless of mode)
@@ -286,7 +285,7 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
 }
 
 void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
-    DBG_LOGF("EVENT: SpoolUpdated - spool_id=%s, update_type=%u, success=%s\n",
+    Serial.printf("EVENT: SpoolUpdated - spool_id=%s, update_type=%u, success=%s\n",
         msg.payload.spoolUpdated.spool_id,
         msg.payload.spoolUpdated.update_type,
         msg.payload.spoolUpdated.success ? "true" : "false");
@@ -357,7 +356,7 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
 }
 
 void ApplicationManager::handleBlankTagDetected(const AppMessage& msg) {
-    DBG_LOGF("EVENT: BlankTagDetected - spool_id=%s\n",
+    Serial.printf("EVENT: BlankTagDetected - spool_id=%s\n",
         msg.payload.blankTag.spool_id);
 
     pendingStatusAfterTagRemoved = false;
@@ -385,7 +384,7 @@ void ApplicationManager::handleBlankTagDetected(const AppMessage& msg) {
 
 void ApplicationManager::finishPrint(float gramsUsed, bool /*canceled*/) {
     if (spoolChangedDuringPrint) {
-        DBG_LOGLN("ApplicationManager: Spool changed during print - not updating weight");
+        Serial.println("ApplicationManager: Spool changed during print - not updating weight");
         if (lcdManager) {
             lcdManager->updateScreen("Spool changed!", "No update");
         }
@@ -393,7 +392,7 @@ void ApplicationManager::finishPrint(float gramsUsed, bool /*canceled*/) {
     }
 
     if (startingSpoolId[0] == '\0') {
-        DBG_LOGLN("ApplicationManager: No spool detected during print - not updating weight");
+        Serial.println("ApplicationManager: No spool detected during print - not updating weight");
         if (lcdManager) {
             lcdManager->updateScreen("No spool found", "No update");
         }
@@ -401,7 +400,7 @@ void ApplicationManager::finishPrint(float gramsUsed, bool /*canceled*/) {
     }
 
     if (gramsUsed > 0) {
-        DBG_LOGF("ApplicationManager: Updating spool %s - removing %.2fg\n",
+        Serial.printf("ApplicationManager: Updating spool %s - removing %.2fg\n",
             startingSpoolId, gramsUsed);
 
         // Only auto-update NFC tag in SELF_DIRECTED mode
@@ -425,7 +424,7 @@ void ApplicationManager::finishPrint(float gramsUsed, bool /*canceled*/) {
             }
         }
     } else {
-        DBG_LOGLN("ApplicationManager: No filament used - not updating spool");
+        Serial.println("ApplicationManager: No filament used - not updating spool");
         if (lcdManager) {
             lcdManager->updateScreen("Print done", "No filament used");
         }
@@ -433,7 +432,7 @@ void ApplicationManager::finishPrint(float gramsUsed, bool /*canceled*/) {
 }
 
 void ApplicationManager::handleSpoolmanSynced(const AppMessage& msg) {
-    DBG_LOGF("EVENT: SpoolmanSynced - spool_id=%s, success=%s, spoolman_id=%d\n",
+    Serial.printf("EVENT: SpoolmanSynced - spool_id=%s, success=%s, spoolman_id=%d\n",
         msg.payload.spoolmanSynced.spool_id,
         msg.payload.spoolmanSynced.success ? "true" : "false",
         msg.payload.spoolmanSynced.spoolman_id);
@@ -474,7 +473,7 @@ void ApplicationManager::handleSpoolmanSynced(const AppMessage& msg) {
                 request.expected_spool_id[sizeof(request.expected_spool_id) - 1] = '\0';
                 request.data.spoolman_id = msg.payload.spoolmanSynced.spoolman_id;
                 NFCManager::getInstance().enqueueWrite(request);
-                DBG_LOGF("ApplicationManager: Enqueued WRITE_SPOOLMAN_ID %d for spool %s\n",
+                Serial.printf("ApplicationManager: Enqueued WRITE_SPOOLMAN_ID %d for spool %s\n",
                     msg.payload.spoolmanSynced.spoolman_id, msg.payload.spoolmanSynced.spool_id);
             }
         }
@@ -483,7 +482,7 @@ void ApplicationManager::handleSpoolmanSynced(const AppMessage& msg) {
 }
 
 void ApplicationManager::handleTagRemoved(const AppMessage& msg) {
-    DBG_LOGF("EVENT: TagRemoved - spool_id=%s\n",
+    Serial.printf("EVENT: TagRemoved - spool_id=%s\n",
         msg.payload.tagRemoved.spool_id);
 
     // Clear displayed spool so next scan re-displays
@@ -502,7 +501,7 @@ void ApplicationManager::handleTagRemoved(const AppMessage& msg) {
 }
 
 void ApplicationManager::handleHAWriteTag(const AppMessage& msg) {
-    DBG_LOGF("EVENT: HAWriteTag - expected_uid=%s\n",
+    Serial.printf("EVENT: HAWriteTag - expected_uid=%s\n",
         msg.payload.haWriteTag.expected_uid);
 
     // Enqueue individual write requests for each field
@@ -557,7 +556,7 @@ void ApplicationManager::handleHAWriteTag(const AppMessage& msg) {
 }
 
 void ApplicationManager::handleHAUpdateRemaining(const AppMessage& msg) {
-    DBG_LOGF("EVENT: HAUpdateRemaining - expected_uid=%s, remaining_g=%.2f\n",
+    Serial.printf("EVENT: HAUpdateRemaining - expected_uid=%s, remaining_g=%.2f\n",
         msg.payload.haUpdateRemaining.expected_uid,
         msg.payload.haUpdateRemaining.remaining_g);
 

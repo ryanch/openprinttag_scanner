@@ -1,4 +1,3 @@
-#include "DebugLogBuffer.h"
 #include "StubPrinterLinkStrategy.h"
 #include <Arduino.h>
 
@@ -7,7 +6,7 @@ void StubPrinterLinkStrategy::update() {
     if (!started) {
         startTimeMs = millis();
         started = true;
-        DBG_LOGLN("StubPrinterLinkStrategy: Started simulation");
+        Serial.println("StubPrinterLinkStrategy: Started simulation");
     }
 
     unsigned long elapsedMs = millis() - startTimeMs;

@@ -62,8 +62,7 @@ src/BluetoothManager.cpp / .h — BLE services + connections
 docs/index.html — BLE config UI (device setup + spool editing)
 
 Utilities
-src/BgcodeParser.cpp / .h — Extracts “filament used [g]” from .bgcode
-src/DebugLogBuffer.cpp / .h — Thread-safe in-memory debug log ring buffer for BLE/web retrieval
+src/BgcodeParser.cpp / .h — Extracts "filament used [g]" from .bgcode
 
 Tests
 OpenPrintTag

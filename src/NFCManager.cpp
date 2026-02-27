@@ -1,4 +1,3 @@
-#include "DebugLogBuffer.h"
 #include "NFCManager.h"
 #ifndef NATIVE_TEST
   #include "ApplicationManager.h"
@@ -32,32 +31,32 @@ bool NFCManager::begin() {
         ownsConnection_ = true;
 #else
         // In native tests, connection must be injected via setConnection()
-        DBG_LOGLN("NFCManager: No connection injected for native test");
+        Serial.println("NFCManager: No connection injected for native test");
         return false;
 #endif
     }
 
     if (!connection_->begin()) {
-        DBG_LOGLN("NFCManager: Failed to initialize connection");
+        Serial.println("NFCManager: Failed to initialize connection");
         return false;
     }
 
     // Create FreeRTOS primitives
     writeQueue = xQueueCreate(8, sizeof(NFCWriteRequest));
     if (writeQueue == nullptr) {
-        DBG_LOGLN("NFCManager: Failed to create write queue");
+        Serial.println("NFCManager: Failed to create write queue");
         return false;
     }
 
     tagMutex = xSemaphoreCreateMutex();
     if (tagMutex == nullptr) {
-        DBG_LOGLN("NFCManager: Failed to create tag mutex");
+        Serial.println("NFCManager: Failed to create tag mutex");
         return false;
     }
 
     completedMutex = xSemaphoreCreateMutex();
     if (completedMutex == nullptr) {
-        DBG_LOGLN("NFCManager: Failed to create completed mutex");
+        Serial.println("NFCManager: Failed to create completed mutex");
         return false;
     }
 
@@ -71,7 +70,7 @@ bool NFCManager::begin() {
     memset(recentSpools, 0, sizeof(recentSpools));
     recentSpoolsCount = 0;
 
-    DBG_LOGLN("NFCManager: Initialized successfully");
+    Serial.println("NFCManager: Initialized successfully");
     return true;
 }
 
@@ -97,7 +96,7 @@ void NFCManager::startScanTask() {
         &scanTaskHandle,
         1  // Run on core 1
     );
-    DBG_LOGLN("NFCManager: Scan task started");
+    Serial.println("NFCManager: Scan task started");
 }
 
 void NFCManager::scanTaskFunc(void* param) {
@@ -110,7 +109,7 @@ void NFCManager::scanLoop() {
     uint32_t detectCount = 0;
     uint32_t failCount = 0;
 
-    DBG_LOGLN("NFCManager: scanLoop() started, polling every 50ms");
+    Serial.println("NFCManager: scanLoop() started, polling every 50ms");
 
 #ifndef NATIVE_TEST
     // Register this task with the ESP32 hardware watchdog.
@@ -139,13 +138,13 @@ void NFCManager::scanLoop() {
 
         // Log heartbeat every 200 scans (~10 seconds)
         //if (scanCount % 200 == 0) {
-        //    DBG_LOGF("NFCManager: heartbeat scan=%lu detected=%lu failed=%lu\n",
+        //    Serial.printf("NFCManager: heartbeat scan=%lu detected=%lu failed=%lu\n",
         //                  scanCount, detectCount, failCount);
         //}
 
         // Watchdog: check if we've exceeded failure thresholds
         if (consecutiveFailures_ >= RESTART_THRESHOLD) {
-            DBG_LOGLN("NFCManager: CRITICAL - too many consecutive failures, restarting ESP");
+            Serial.println("NFCManager: CRITICAL - too many consecutive failures, restarting ESP");
 #ifndef NATIVE_TEST
             delay(100);  // let serial flush
             ESP.restart();
@@ -161,7 +160,7 @@ void NFCManager::scanLoop() {
         if (!connection_->setupRF()) {
             consecutiveFailures_++;
             if (failCount++ % 200 == 0) {
-                DBG_LOGLN("NFCManager: setupRF() failed");
+                Serial.println("NFCManager: setupRF() failed");
             }
             vTaskDelay(pdMS_TO_TICKS(50));
             continue;
@@ -179,11 +178,11 @@ void NFCManager::scanLoop() {
             detectCount++;
             // Log UID on first detection
             if (!lastSeenValid || memcmp(uid, lastSeenUid, uidLength) != 0) {
-                DBG_LOGF("NFCManager: Tag detected! UID=");
+                Serial.printf("NFCManager: Tag detected! UID=");
                 for (uint8_t i = 0; i < uidLength; i++) {
-                    DBG_LOGF("%02X", uid[i]);
+                    Serial.printf("%02X", uid[i]);
                 }
-                DBG_LOGLN("");
+                Serial.println("");
             }
 
             // Store UID for addressed read/write commands
@@ -191,10 +190,10 @@ void NFCManager::scanLoop() {
 
             // Check if this is the same spool we already processed
             if (!isDuplicateSpool(uid, uidLength)) {
-                DBG_LOGLN("NFCManager: New spool, reading tag...");
+                Serial.println("NFCManager: New spool, reading tag...");
                 // readAndParseTag manages its own mutex internally
                 if (!readAndParseTag(uid, uidLength)) {
-                    DBG_LOGLN("NFCManager: readAndParseTag() failed - treating as blank tag");
+                    Serial.println("NFCManager: readAndParseTag() failed - treating as blank tag");
                     // Take mutex briefly for blank tag state update
                     if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                         for (uint8_t i = 0; i < uidLength && i < 31; i++) {
@@ -214,7 +213,7 @@ void NFCManager::scanLoop() {
                         lastSeenValid = true;
                         xSemaphoreGive(tagMutex);
                     } else {
-                        DBG_LOGLN("NFCManager: Could not acquire tagMutex");
+                        Serial.println("NFCManager: Could not acquire tagMutex");
                     }
                 }
             }
@@ -225,7 +224,7 @@ void NFCManager::scanLoop() {
             // No tag detected - clear state
             if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
                 if (lastSeenValid) {
-                    DBG_LOGLN("NFCManager: Tag removed");
+                    Serial.println("NFCManager: Tag removed");
 
                     // Send TAG_REMOVED message before clearing state
                     sendTagRemovedMessage();
@@ -243,11 +242,11 @@ void NFCManager::scanLoop() {
 }
 
 void NFCManager::attemptRecovery() {
-    DBG_LOGLN("NFCManager: WATCHDOG - attempting hardware recovery");
+    Serial.println("NFCManager: WATCHDOG - attempting hardware recovery");
     if (connection_->hardwareReset()) {
-        DBG_LOGLN("NFCManager: Hardware reset succeeded");
+        Serial.println("NFCManager: Hardware reset succeeded");
     } else {
-        DBG_LOGLN("NFCManager: Hardware reset failed");
+        Serial.println("NFCManager: Hardware reset failed");
     }
 }
 
@@ -257,24 +256,24 @@ bool NFCManager::readAndParseTag(uint8_t* uid, uint8_t uid_length) {
     opt_init(&localTag);
 
     // OpenPrintTag uses ISO15693 (NFC-V) tags, designed for ICODE SLIX2 320B
-    DBG_LOGLN("NFCManager: Reading tag data...");
+    Serial.println("NFCManager: Reading tag data...");
     opt_nfc_hal_t* hal = connection_->getHal();
     opt_error_t err = opt_read_from_nfc(&localTag, hal, 0, 78);
     if (err != OPT_OK) {
-        DBG_LOGF("NFCManager: Failed to read tag data: %s\n", opt_error_str(err));
+        Serial.printf("NFCManager: Failed to read tag data: %s\n", opt_error_str(err));
         return false;
     }
 
-    DBG_LOGLN("NFCManager: Read successful, parsing NDEF...");
+    Serial.println("NFCManager: Read successful, parsing NDEF...");
     err = opt_parse_ndef(&localTag);
     if (err != OPT_OK) {
-        DBG_LOGF("NFCManager: Failed to parse NDEF: %s\n", opt_error_str(err));
+        Serial.printf("NFCManager: Failed to parse NDEF: %s\n", opt_error_str(err));
         return false;
     }
 
     // NFC I/O complete — take mutex only for the fast state copy
     if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-        DBG_LOGLN("NFCManager: Could not acquire tagMutex for state update");
+        Serial.println("NFCManager: Could not acquire tagMutex for state update");
         return false;
     }
 
@@ -294,7 +293,7 @@ bool NFCManager::readAndParseTag(uint8_t* uid, uint8_t uid_length) {
 
     addToRecentSpools();
 
-    DBG_LOGF("NFCManager: Parsed spool %s\n", currentSpool.spool_id);
+    Serial.printf("NFCManager: Parsed spool %s\n", currentSpool.spool_id);
 
     sendSpoolDetectedMessage();
 
@@ -310,15 +309,15 @@ bool NFCManager::readAndParseTag(uint8_t* uid, uint8_t uid_length) {
         char* base64_output_buffer = new char[encoded_max_len];
         unsigned int encoded_len = encode_base64(localTag.data, sizeof(localTag.data), (unsigned char*)base64_output_buffer);
         base64_output_buffer[encoded_len] = '\0';
-        DBG_LOGLN("NFCManager: Spool data:");
-        DBG_LOGLN(base64_output_buffer);
+        Serial.println("NFCManager: Spool data:");
+        Serial.println(base64_output_buffer);
     #endif
 
     return true;
 }
 
 bool NFCManager::formatNewSpool() {
-    DBG_LOGLN("NFCManager: formatNewSpool() called");
+    Serial.println("NFCManager: formatNewSpool() called");
 
     // All NFC I/O uses a local buffer — no mutex needed
     opt_tag_t localTag;
@@ -328,53 +327,53 @@ bool NFCManager::formatNewSpool() {
     // ISO15693 ICODE SLIX2 has 320 bytes, use 312 bytes with 32-byte aux region
     opt_error_t err = opt_format_empty_tag(&localTag, 312, 32);
     if (err != OPT_OK) {
-        DBG_LOGF("NFCManager: Failed to format empty tag: %s\n", opt_error_str(err));
+        Serial.printf("NFCManager: Failed to format empty tag: %s\n", opt_error_str(err));
         return false;
     }
-    DBG_LOGLN("NFCManager: Tag formatted, setting defaults...");
+    Serial.println("NFCManager: Tag formatted, setting defaults...");
 
     // Set default values for new spool
     err = opt_set_material_type(&localTag, OPT_MATERIAL_TYPE_PLA);
     if (err != OPT_OK) {
-        DBG_LOGF("NFCManager: Failed to set material type: %s\n", opt_error_str(err));
+        Serial.printf("NFCManager: Failed to set material type: %s\n", opt_error_str(err));
         return false;
     }
 
     err = opt_set_actual_full_weight(&localTag, 1000.0f);
     if (err != OPT_OK) {
-        DBG_LOGF("NFCManager: Failed to set weight: %s\n", opt_error_str(err));
+        Serial.printf("NFCManager: Failed to set weight: %s\n", opt_error_str(err));
         return false;
     }
 
     uint8_t white[4] = {255, 255, 255, 255};
     err = opt_set_primary_color(&localTag, white);
     if (err != OPT_OK) {
-        DBG_LOGF("NFCManager: Failed to set color: %s\n", opt_error_str(err));
+        Serial.printf("NFCManager: Failed to set color: %s\n", opt_error_str(err));
         return false;
     }
 
     err = opt_set_consumed_weight(&localTag, 0.0f);
     if (err != OPT_OK) {
-        DBG_LOGF("NFCManager: Failed to set consumed weight: %s\n", opt_error_str(err));
+        Serial.printf("NFCManager: Failed to set consumed weight: %s\n", opt_error_str(err));
         return false;
     }
 
     err = opt_set_brand_name(&localTag, "Unknown");
     if (err != OPT_OK) {
-        DBG_LOGF("NFCManager: Failed to set brand name: %s\n", opt_error_str(err));
+        Serial.printf("NFCManager: Failed to set brand name: %s\n", opt_error_str(err));
         return false;
     }
 
-    DBG_LOGLN("NFCManager: Writing to NFC tag...");
+    Serial.println("NFCManager: Writing to NFC tag...");
     opt_nfc_hal_t* hal = connection_->getHal();
     err = opt_write_to_nfc(&localTag, hal);
     if (err != OPT_OK) {
-        DBG_LOGF("NFCManager: Failed to write formatted tag: %s\n", opt_error_str(err));
+        Serial.printf("NFCManager: Failed to write formatted tag: %s\n", opt_error_str(err));
         return false;
     }
 
     // Re-read and verify with retries
-    DBG_LOGLN("NFCManager: Verifying write...");
+    Serial.println("NFCManager: Verifying write...");
     const int maxRetries = 3;
     for (int retry = 0; retry < maxRetries; retry++) {
         vTaskDelay(pdMS_TO_TICKS(50 * (retry + 1)));  // 50ms, 100ms, 150ms
@@ -385,7 +384,7 @@ bool NFCManager::formatNewSpool() {
             if (err == OPT_OK) {
                 // Verified — copy result into shared state under mutex
                 if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-                    DBG_LOGLN("NFCManager: Could not acquire tagMutex after format verify");
+                    Serial.println("NFCManager: Could not acquire tagMutex after format verify");
                     return false;
                 }
                 currentSpool.tag_data = localTag;
@@ -395,26 +394,26 @@ bool NFCManager::formatNewSpool() {
                 sendSpoolDetectedMessage();
                 xSemaphoreGive(tagMutex);
 
-                DBG_LOGLN("NFCManager: formatNewSpool() complete - verified");
+                Serial.println("NFCManager: formatNewSpool() complete - verified");
                 return true;
             }
-            DBG_LOGF("NFCManager: Parse failed on retry %d: %s\n", retry + 1, opt_error_str(err));
+            Serial.printf("NFCManager: Parse failed on retry %d: %s\n", retry + 1, opt_error_str(err));
         } else {
-            DBG_LOGF("NFCManager: Re-read failed on retry %d: %s\n", retry + 1, opt_error_str(err));
+            Serial.printf("NFCManager: Re-read failed on retry %d: %s\n", retry + 1, opt_error_str(err));
         }
     }
 
     // All retries failed - fall back to trusting the in-memory data
-    DBG_LOGLN("NFCManager: Verification retries exhausted, trusting in-memory data");
+    Serial.println("NFCManager: Verification retries exhausted, trusting in-memory data");
     err = opt_parse_ndef(&localTag);
     if (err != OPT_OK) {
-        DBG_LOGF("NFCManager: Failed to parse in-memory data: %s\n", opt_error_str(err));
+        Serial.printf("NFCManager: Failed to parse in-memory data: %s\n", opt_error_str(err));
         return false;
     }
 
     // Copy unverified result into shared state under mutex
     if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-        DBG_LOGLN("NFCManager: Could not acquire tagMutex after format fallback");
+        Serial.println("NFCManager: Could not acquire tagMutex after format fallback");
         return false;
     }
     currentSpool.tag_data = localTag;
@@ -424,7 +423,7 @@ bool NFCManager::formatNewSpool() {
     sendSpoolDetectedMessage();
     xSemaphoreGive(tagMutex);
 
-    DBG_LOGLN("NFCManager: formatNewSpool() complete - unverified");
+    Serial.println("NFCManager: formatNewSpool() complete - unverified");
     return true;
 }
 
@@ -608,13 +607,13 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
     if (request.type == NFCWriteType::FORMAT_NEW) {
         // Validate under mutex
         if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-            DBG_LOGLN("NFCManager: FORMAT_NEW - could not acquire tagMutex");
+            Serial.println("NFCManager: FORMAT_NEW - could not acquire tagMutex");
             return false;
         }
         if (request.expected_spool_id[0] != '\0' &&
             strcmp(currentSpool.spool_id, request.expected_spool_id) != 0) {
             xSemaphoreGive(tagMutex);
-            DBG_LOGLN("NFCManager: FORMAT_NEW rejected - UID mismatch");
+            Serial.println("NFCManager: FORMAT_NEW rejected - UID mismatch");
             return false;
         }
         xSemaphoreGive(tagMutex);
@@ -625,7 +624,7 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
 
     // For non-FORMAT writes: take mutex to validate + modify in-memory data, then release for NFC I/O
     if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
-        DBG_LOGLN("NFCManager: executeWrite - could not acquire tagMutex");
+        Serial.println("NFCManager: executeWrite - could not acquire tagMutex");
         return false;
     }
 
@@ -636,7 +635,7 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
 
     if (request.expected_spool_id[0] != '\0') {
         if (strcmp(currentSpool.spool_id, request.expected_spool_id) != 0) {
-            DBG_LOGF("NFCManager: Write rejected: expected spool %s but found %s\n",
+            Serial.printf("NFCManager: Write rejected: expected spool %s but found %s\n",
                 request.expected_spool_id, currentSpool.spool_id);
             xSemaphoreGive(tagMutex);
             return false;
@@ -667,13 +666,13 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
             break;
         default:
             xSemaphoreGive(tagMutex);
-            DBG_LOGF("NFCManager: Unknown write type: %u\n", static_cast<uint8_t>(request.type));
+            Serial.printf("NFCManager: Unknown write type: %u\n", static_cast<uint8_t>(request.type));
             return false;
     }
 
     if (err != OPT_OK) {
         xSemaphoreGive(tagMutex);
-        DBG_LOGF("NFCManager: Failed to update in-memory tag data: %s\n", opt_error_str(err));
+        Serial.printf("NFCManager: Failed to update in-memory tag data: %s\n", opt_error_str(err));
         return false;
     }
 
@@ -686,19 +685,19 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
         case NFCWriteType::REMOVE_WEIGHT:
             err = opt_write_aux_region(&currentSpool.tag_data, hal);
             if (err != OPT_OK) {
-                DBG_LOGF("NFCManager: Failed to write aux region: %s\n", opt_error_str(err));
+                Serial.printf("NFCManager: Failed to write aux region: %s\n", opt_error_str(err));
                 return false;
             }
-            DBG_LOGF("NFCManager: Removed %.2f grams from spool\n", request.data.grams_to_remove);
+            Serial.printf("NFCManager: Removed %.2f grams from spool\n", request.data.grams_to_remove);
             break;
 
         case NFCWriteType::CHANGE_COLOR:
             err = opt_write_dirty_pages(&currentSpool.tag_data, hal);
             if (err != OPT_OK) {
-                DBG_LOGF("NFCManager: Failed to write color: %s\n", opt_error_str(err));
+                Serial.printf("NFCManager: Failed to write color: %s\n", opt_error_str(err));
                 return false;
             }
-            DBG_LOGF("NFCManager: Changed color to RGBA(%u,%u,%u,%u)\n",
+            Serial.printf("NFCManager: Changed color to RGBA(%u,%u,%u,%u)\n",
                 request.data.new_color[0], request.data.new_color[1],
                 request.data.new_color[2], request.data.new_color[3]);
             break;
@@ -706,37 +705,37 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
         case NFCWriteType::CHANGE_FILAMENT_TYPE:
             err = opt_write_dirty_pages(&currentSpool.tag_data, hal);
             if (err != OPT_OK) {
-                DBG_LOGF("NFCManager: Failed to write material type: %s\n", opt_error_str(err));
+                Serial.printf("NFCManager: Failed to write material type: %s\n", opt_error_str(err));
                 return false;
             }
-            DBG_LOGF("NFCManager: Changed material type to %u\n", request.data.new_material_type);
+            Serial.printf("NFCManager: Changed material type to %u\n", request.data.new_material_type);
             break;
 
         case NFCWriteType::SET_CONSUMED_WEIGHT:
             err = opt_write_aux_region(&currentSpool.tag_data, hal);
             if (err != OPT_OK) {
-                DBG_LOGF("NFCManager: Failed to write aux region: %s\n", opt_error_str(err));
+                Serial.printf("NFCManager: Failed to write aux region: %s\n", opt_error_str(err));
                 return false;
             }
-            DBG_LOGF("NFCManager: Set consumed weight to %.2f grams\n", request.data.consumed_weight);
+            Serial.printf("NFCManager: Set consumed weight to %.2f grams\n", request.data.consumed_weight);
             break;
 
         case NFCWriteType::SET_BRAND_NAME:
             err = opt_write_dirty_pages(&currentSpool.tag_data, hal);
             if (err != OPT_OK) {
-                DBG_LOGF("NFCManager: Failed to write brand name: %s\n", opt_error_str(err));
+                Serial.printf("NFCManager: Failed to write brand name: %s\n", opt_error_str(err));
                 return false;
             }
-            DBG_LOGF("NFCManager: Set brand name to %s\n", request.data.brand_name);
+            Serial.printf("NFCManager: Set brand name to %s\n", request.data.brand_name);
             break;
 
         case NFCWriteType::WRITE_SPOOLMAN_ID:
             err = opt_write_aux_region(&currentSpool.tag_data, hal);
             if (err != OPT_OK) {
-                DBG_LOGF("NFCManager: Failed to write spoolman ID: %s\n", opt_error_str(err));
+                Serial.printf("NFCManager: Failed to write spoolman ID: %s\n", opt_error_str(err));
                 return false;
             }
-            DBG_LOGF("NFCManager: Wrote spoolman ID %d to tag\n", request.data.spoolman_id);
+            Serial.printf("NFCManager: Wrote spoolman ID %d to tag\n", request.data.spoolman_id);
             break;
 
         default:

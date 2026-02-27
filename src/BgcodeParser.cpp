@@ -1,4 +1,3 @@
-#include "DebugLogBuffer.h"
 #include "BgcodeParser.h"
 #include <cstring>
 #include <cstdlib>
@@ -64,7 +63,7 @@ float parseBgcodeFilament(const uint8_t* data, size_t len) {
         // Search uncompressed metadata blocks (types 0,2,3,4) for filament key
         if (blockType != 1 && blockType != 5 && dataStart < len) {
             if (compression != 0) {
-                DBG_LOGF("BgcodeParser: Skipping compressed metadata block type %u (compression=%u, size=%u)\n",
+                Serial.printf("BgcodeParser: Skipping compressed metadata block type %u (compression=%u, size=%u)\n",
                          blockType, compression, uncompressedSize);
             } else {
                 size_t searchLen = (dataEnd <= len) ? compressedSize : (len - dataStart);
