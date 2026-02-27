@@ -148,6 +148,11 @@ void LCDManager::processQueue() {
     ScreenMessage msg;
     if (xQueueReceive(_messageQueue, &msg, 0) == pdTRUE) {
         uint8_t previousActiveLineCount = _activeLineCount;
+        std::string previousLine1 = _activeLine1;
+        std::string previousLine2 = _activeLine2;
+        std::string previousLine3 = _activeLine3;
+        std::string previousLine4 = _activeLine4;
+
         _activeLine1 = std::string(msg.line1);
         _activeLine2 = std::string(msg.line2);
         _activeLine3 = std::string(msg.line3);
@@ -157,7 +162,15 @@ void LCDManager::processQueue() {
         _lastPageSwitchTimeMs = millis();
 
         bool changed = renderLines(_activeLine1, _activeLine2);
-        if (changed) {
+
+        // Check if this is a new message (any line content or line count changed)
+        bool isNewMessage = (previousLine1 != _activeLine1 ||
+                            previousLine2 != _activeLine2 ||
+                            previousLine3 != _activeLine3 ||
+                            previousLine4 != _activeLine4 ||
+                            previousActiveLineCount != _activeLineCount);
+
+        if (isNewMessage) {
             markScreenActivity();
         }
 
@@ -188,7 +201,7 @@ void LCDManager::processQueue() {
         } else {
             renderLines(_activeLine3, _activeLine4);
         }
-        markScreenActivity();
+        // Don't reset screen timeout during page flips - only when new messages arrive
     }
 
     // Turn off screen after timeout. A timeout of 0 disables auto-off.
