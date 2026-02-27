@@ -261,6 +261,35 @@
             border-radius: 3px;
             font-family: 'Courier New', monospace;
         }
+
+        .inline-link {
+            color: var(--prusa-orange);
+            text-decoration: underline;
+            cursor: pointer;
+            margin-left: 0.5rem;
+            background: none;
+            border: none;
+            padding: 0;
+            font: inherit;
+        }
+
+        .inline-link:hover {
+            color: #e85a28;
+        }
+
+        .json-view {
+            text-align: left;
+            background-color: var(--prusa-black);
+            border-radius: 6px;
+            padding: 1rem;
+            max-height: 320px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            color: var(--prusa-text);
+            white-space: pre-wrap;
+            word-break: break-word;
+        }
     </style>
 </head>
 <body>
@@ -295,6 +324,7 @@
             <h2>Configuration</h2>
             <p style="color: var(--prusa-light-gray); font-size: 0.9rem; margin-bottom: 1rem;">
                 Save your device settings before running tests, then restore them after.
+                <button class="inline-link" id="view-saved-config-link" onclick="showSavedConfigModal()" style="display: none;">view saved config</button>
             </p>
             <div class="button-group">
                 <button class="secondary" onclick="saveSettings()" id="save-btn" disabled>Save Current Settings</button>
@@ -333,11 +363,20 @@
         </div>
     </div>
 
+    <div class="modal" id="saved-config-modal">
+        <div class="modal-content" style="max-width: 700px; width: 90%;">
+            <h3>Saved Configuration</h3>
+            <pre class="json-view" id="saved-config-json"></pre>
+            <button class="secondary" onclick="hideSavedConfigModal()">Close</button>
+        </div>
+    </div>
+
     <script>
         // Bluetooth UUIDs
         const SERVICE_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0001";
         const CONFIG_READ_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0002";
         const CONFIG_WRITE_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0003";
+        const SAVED_CONFIG_STORAGE_KEY = "integration_test_saved_config";
 
         // State
         let bleDevice;
@@ -350,6 +389,50 @@
         let currentSteps = {};
         let eventSource = null;
         let serverUrl = null;  // Server's LAN IP for device config
+        let isRunningAllTests = false;
+
+        function hasSavedConfig() {
+            return !!savedConfig;
+        }
+
+        function updateSavedConfigLinkVisibility() {
+            const link = document.getElementById('view-saved-config-link');
+            link.style.display = hasSavedConfig() ? 'inline' : 'none';
+        }
+
+        function loadSavedConfigFromStorage() {
+            const raw = localStorage.getItem(SAVED_CONFIG_STORAGE_KEY);
+            if (!raw) {
+                savedConfig = null;
+                updateSavedConfigLinkVisibility();
+                return;
+            }
+
+            try {
+                savedConfig = JSON.parse(raw);
+                document.getElementById('restore-btn').disabled = false;
+                updateSavedConfigLinkVisibility();
+                log('Loaded saved config from local storage', 'info');
+            } catch (error) {
+                savedConfig = null;
+                localStorage.removeItem(SAVED_CONFIG_STORAGE_KEY);
+                updateSavedConfigLinkVisibility();
+                log('Saved config in local storage was invalid and was cleared', 'error');
+            }
+        }
+
+        function showSavedConfigModal() {
+            if (!hasSavedConfig()) {
+                return;
+            }
+            const jsonEl = document.getElementById('saved-config-json');
+            jsonEl.textContent = JSON.stringify(savedConfig, null, 2);
+            document.getElementById('saved-config-modal').classList.add('show');
+        }
+
+        function hideSavedConfigModal() {
+            document.getElementById('saved-config-modal').classList.remove('show');
+        }
 
         // BLE Command Queue (serial execution)
         function enqueueCommand(commandFn) {
@@ -465,7 +548,9 @@
                 log('Reading current config...');
                 const data = await executeBLECommand({ command: "read_config" }, true);
                 savedConfig = JSON.parse(data);
+                localStorage.setItem(SAVED_CONFIG_STORAGE_KEY, JSON.stringify(savedConfig));
                 document.getElementById('restore-btn').disabled = false;
+                updateSavedConfigLinkVisibility();
                 log('Config saved', 'success');
             } catch (error) {
                 log(`Failed to save config: ${error.message}`, 'error');
@@ -476,6 +561,13 @@
             if (!serverUrl) {
                 log('Server URL not available yet', 'error');
                 return;
+            }
+            if (!hasSavedConfig()) {
+                const proceedWithoutSave = confirm('No saved settings found. Continue applying mock settings without saving current device settings?');
+                if (!proceedWithoutSave) {
+                    log('Apply mock settings canceled: no saved config', 'info');
+                    return;
+                }
             }
             try {
                 log(`Applying mock PrusaLink settings (${serverUrl})...`);
@@ -548,13 +640,37 @@
             }
         }
 
+        function setRunButtonsDisabled(disabled) {
+            testList.forEach(t => {
+                const btn = document.getElementById(`run-${t.id}`);
+                if (btn) {
+                    btn.disabled = disabled;
+                }
+            });
+            document.getElementById('run-all-btn').disabled = disabled;
+        }
+
+        async function waitForTestToComplete() {
+            return new Promise(resolve => {
+                const checkInterval = setInterval(async () => {
+                    try {
+                        const response = await fetch('/api/tests/status');
+                        const status = await response.json();
+                        if (status.status !== 'running') {
+                            clearInterval(checkInterval);
+                            resolve(status);
+                        }
+                    } catch (error) {
+                        clearInterval(checkInterval);
+                        resolve({ status: 'error', result: 'failed', error: error.message });
+                    }
+                }, 1000);
+            });
+        }
+
         async function runTest(testId) {
             try {
-                // Disable all run buttons
-                testList.forEach(t => {
-                    document.getElementById(`run-${t.id}`).disabled = true;
-                });
-                document.getElementById('run-all-btn').disabled = true;
+                setRunButtonsDisabled(true);
 
                 currentSteps = {};
                 document.getElementById('current-test').style.display = 'block';
@@ -566,26 +682,40 @@
 
                 if (result.error) {
                     log(`Test failed to start: ${result.error}`, 'error');
+                    setRunButtonsDisabled(false);
+                    return false;
                 }
+                return true;
             } catch (error) {
                 log(`Error starting test: ${error.message}`, 'error');
+                setRunButtonsDisabled(false);
+                return false;
             }
         }
 
         async function runAllTests() {
+            isRunningAllTests = true;
+            let passed = 0;
+            const total = testList.length;
+
             for (const test of testList) {
-                await runTest(test.id);
-                // Wait for test to complete
-                await new Promise(resolve => {
-                    const checkInterval = setInterval(async () => {
-                        const response = await fetch('/api/tests/status');
-                        const status = await response.json();
-                        if (status.status !== 'running') {
-                            clearInterval(checkInterval);
-                            resolve();
-                        }
-                    }, 1000);
-                });
+                const started = await runTest(test.id);
+                if (!started) {
+                    continue;
+                }
+
+                const status = await waitForTestToComplete();
+                if (status.result === 'passed') {
+                    passed += 1;
+                }
+            }
+
+            isRunningAllTests = false;
+            setRunButtonsDisabled(false);
+            if (passed === total) {
+                log(`Run All complete: ${passed} of ${total} tests passed`, 'success');
+            } else {
+                log(`Run All complete: ${passed} of ${total} tests passed`, 'error');
             }
         }
 
@@ -651,11 +781,10 @@
                     log(`Test FAILED: ${data.error || 'Unknown error'}`, 'error');
                 }
 
-                // Re-enable buttons
-                testList.forEach(t => {
-                    document.getElementById(`run-${t.id}`).disabled = false;
-                });
-                document.getElementById('run-all-btn').disabled = false;
+                // Re-enable buttons for single test runs.
+                if (!isRunningAllTests) {
+                    setRunButtonsDisabled(false);
+                }
             });
 
             eventSource.addEventListener('warning', (e) => {
@@ -723,6 +852,7 @@
                 document.getElementById('connect-btn').textContent = 'BLE Not Available';
             }
 
+            loadSavedConfigFromStorage();
             loadTests();
             connectSSE();
         });

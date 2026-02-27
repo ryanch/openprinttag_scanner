@@ -77,6 +77,35 @@ class BaseTestScenario(ABC):
         cmd.update(fields)
         self._ble_command(cmd, read_data=False)
 
+    def _get_current_spool(self):
+        """Return currently detected spool dict or None."""
+        spools = self._ble_list_spools()
+        self._assert("current" in spools, "list_spools response missing 'current' field")
+        return spools.get("current")
+
+    def _ensure_spool_present(self, prompt_message, step_name="Place Spool", require_formatted=False):
+        """
+        Ensure a spool is present.
+        If one is already detected, skip user prompt and reuse it.
+        """
+        self._emit_step(step_name, "running", "Checking for spool already on reader")
+        current = self._get_current_spool()
+        used_existing = current is not None
+
+        if current is None:
+            self._emit_step(step_name, "running", "Waiting for user to place spool on reader")
+            self._request_user_action(prompt_message)
+            current = self._get_current_spool()
+            self._assert(current is not None, "No spool detected after user confirmation")
+
+        if require_formatted:
+            self._assert(current.get("blank") != True, "Spool is blank - please format it first")
+
+        spool_id = current.get("id", "unknown")
+        source_detail = "already present" if used_existing else "placed by user"
+        self._emit_step(step_name, "passed", f"Detected: {spool_id} ({source_detail})")
+        return current
+
     def _request_user_action(self, msg):
         """Ask user to perform a physical action, wait for confirmation"""
         self.orchestrator.push_sse_event("user_action_required", {

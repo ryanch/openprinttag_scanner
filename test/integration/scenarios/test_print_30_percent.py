@@ -35,15 +35,12 @@ class Print30PercentE2ETest(BaseTestScenario):
             )
             self._emit_step("Configure Device", "passed", f"Device now polling {server_url}")
 
-            # Step 3: Request user to place formatted spool
-            self._emit_step("Place Spool", "running", "Waiting for formatted spool")
-            self._request_user_action("Please place a formatted spool on the NFC reader")
-            spools = self._ble_list_spools()
-            current = spools.get("current")
-            self._assert(current is not None, "No spools detected")
+            # Step 3: Ensure formatted spool is present
+            current = self._ensure_spool_present(
+                "Please place a formatted spool on the NFC reader",
+                require_formatted=True
+            )
             spool_id = current["id"]
-            self._assert(current.get("blank") != True, "Spool is blank - please format it first")
-            self._emit_step("Place Spool", "passed", f"Detected: {spool_id}")
 
             # Step 4: Set initial weight to 1000g
             self._emit_step("Set Initial Weight", "running", "Writing 1000g to tag")

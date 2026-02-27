@@ -10,7 +10,7 @@ class PrintE2ETest(BaseTestScenario):
     Steps:
      1. read_config → save original config
      2. write_config(prusa_link_url, prusa_link_api_key, poll_interval_ms, automation_mode)
-     3. Ask user to place formatted spool
+     3. Ensure formatted spool is present (reuse existing if already on reader)
      4. update_spool(id, grams_remaining=1000), wait 3s, verify 1000g
      5. MockPrusalinkState.set_printing(job_id=42, filament_g=9.18, download_ref)
      6. Wait 15s (3× poll interval for detection)
@@ -43,16 +43,12 @@ class PrintE2ETest(BaseTestScenario):
             )
             self._emit_step("Configure Device", "passed", f"Device now polling {server_url}")
 
-            # Step 3: Request user to place formatted spool
-            self._emit_step("Place Spool", "running", "Waiting for formatted spool")
-            self._request_user_action("Please place a formatted spool on the NFC reader")
-            spools = self._ble_list_spools()
-            current = spools.get("current")
-            self._assert(current is not None, "No spools detected")
+            # Step 3: Ensure formatted spool is present
+            current = self._ensure_spool_present(
+                "Please place a formatted spool on the NFC reader",
+                require_formatted=True
+            )
             spool_id = current["id"]
-            self._assert(current.get("blank") != True,
-                        "Spool is blank - please format it first")
-            self._emit_step("Place Spool", "passed", f"Detected: {spool_id}")
 
             # Step 4: Set initial weight to 1000g
             self._emit_step("Set Initial Weight", "running", "Writing 1000g to tag")

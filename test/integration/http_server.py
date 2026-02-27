@@ -24,6 +24,7 @@ from scenarios.test_set_filament import SetFilamentTest
 from scenarios.test_set_filament_profile import SetFilamentProfileTest
 from scenarios.test_print_e2e import PrintE2ETest
 from scenarios.test_print_30_percent import Print30PercentE2ETest
+from scenarios.test_recent_spools import RecentSpoolsTest
 
 
 class TestOrchestrator:
@@ -61,6 +62,12 @@ class TestOrchestrator:
                 "name": "End-to-End Test - 30% Print",
                 "description": "Cancel at 30% and verify partial filament deduction",
                 "class": Print30PercentE2ETest
+            },
+            "recent_spools": {
+                "id": "recent_spools",
+                "name": "Recent Spools A/B",
+                "description": "Swap from spool A to spool B and verify recent spool history",
+                "class": RecentSpoolsTest
             }
         }
 

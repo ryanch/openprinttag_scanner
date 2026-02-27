@@ -230,9 +230,13 @@ static void process_command(const char* json) {
                 req.request_id = ++s_request_id_counter;
                 req.type = NFCWriteType::FORMAT_NEW;
                 strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
-                NFCManager::getInstance().enqueueWrite(req);
-                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-                Serial.printf("%s: format_spool - enqueued FORMAT_NEW\n", TAG);
+                if (!NFCManager::getInstance().enqueueWrite(req)) {
+                    snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
+                    Serial.printf("%s: format_spool failed - write queue full\n", TAG);
+                } else {
+                    snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
+                    Serial.printf("%s: format_spool - enqueued FORMAT_NEW\n", TAG);
+                }
             }
         }
     }
@@ -261,9 +265,13 @@ static void process_command(const char* json) {
                 req.request_id = ++s_request_id_counter;
                 req.type = NFCWriteType::FORMAT_NEW;
                 strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
-                NFCManager::getInstance().enqueueWrite(req);
-                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-                Serial.printf("%s: update_spool - enqueued FORMAT_NEW for blank tag\n", TAG);
+                if (!NFCManager::getInstance().enqueueWrite(req)) {
+                    snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
+                    Serial.printf("%s: update_spool failed - write queue full (blank format)\n", TAG);
+                } else {
+                    snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
+                    Serial.printf("%s: update_spool - enqueued FORMAT_NEW for blank tag\n", TAG);
+                }
             }
         } else if (!spool.tag_data_valid) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
@@ -276,6 +284,21 @@ static void process_command(const char* json) {
                 Serial.printf("%s: update_spool failed - ID mismatch\n", TAG);
             } else {
                 bool queued = false;
+                int queuedCount = 0;
+                bool enqueueFailed = false;
+
+                auto enqueueOrFail = [&](NFCWriteRequest& req, const char* label) {
+                    if (enqueueFailed) {
+                        return;
+                    }
+                    if (!NFCManager::getInstance().enqueueWrite(req)) {
+                        enqueueFailed = true;
+                        Serial.printf("%s: update_spool failed - write queue full while enqueuing %s\n", TAG, label);
+                        return;
+                    }
+                    queued = true;
+                    queuedCount++;
+                };
 
                 // Check if type changed
                 if (!doc["type"].isNull()) {
@@ -290,13 +313,12 @@ static void process_command(const char* json) {
                         req.type = NFCWriteType::CHANGE_FILAMENT_TYPE;
                         strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
                         req.data.new_material_type = newMaterial;
-                        NFCManager::getInstance().enqueueWrite(req);
-                        queued = true;
+                        enqueueOrFail(req, "type");
                     }
                 }
 
                 // Check if color changed
-                if (!doc["color"].isNull()) {
+                if (!enqueueFailed && !doc["color"].isNull()) {
                     const char* newColor = doc["color"] | "";
                     uint8_t newRgba[4];
                     if (parseHexColor(newColor, newRgba)) {
@@ -309,14 +331,13 @@ static void process_command(const char* json) {
                             req.type = NFCWriteType::CHANGE_COLOR;
                             strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
                             memcpy(req.data.new_color, newRgba, 4);
-                            NFCManager::getInstance().enqueueWrite(req);
-                            queued = true;
+                            enqueueOrFail(req, "color");
                         }
                     }
                 }
 
                 // Check if manufacturer changed
-                if (!doc["manufacturer"].isNull()) {
+                if (!enqueueFailed && !doc["manufacturer"].isNull()) {
                     const char* newBrand = doc["manufacturer"] | "";
                     char currentBrand[64] = {0};
                     opt_get_brand_name(&spool.tag_data, currentBrand, sizeof(currentBrand));
@@ -328,13 +349,12 @@ static void process_command(const char* json) {
                         strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
                         strncpy(req.data.brand_name, newBrand, sizeof(req.data.brand_name) - 1);
                         req.data.brand_name[sizeof(req.data.brand_name) - 1] = '\0';
-                        NFCManager::getInstance().enqueueWrite(req);
-                        queued = true;
+                        enqueueOrFail(req, "manufacturer");
                     }
                 }
 
                 // Check if grams_remaining changed
-                if (!doc["grams_remaining"].isNull()) {
+                if (!enqueueFailed && !doc["grams_remaining"].isNull()) {
                     float newRemaining = doc["grams_remaining"] | 0.0f;
                     float full_weight = 0.0f;
                     float currentConsumed = 0.0f;
@@ -350,13 +370,23 @@ static void process_command(const char* json) {
                         req.type = NFCWriteType::SET_CONSUMED_WEIGHT;
                         strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
                         req.data.consumed_weight = newConsumed;
-                        NFCManager::getInstance().enqueueWrite(req);
-                        queued = true;
+                        enqueueOrFail(req, "grams_remaining");
                     }
                 }
 
-                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-                Serial.printf("%s: update_spool completed, queued=%d\n", TAG, queued);
+                if (enqueueFailed) {
+                    if (queuedCount > 0) {
+                        snprintf(s_response_buffer, sizeof(s_response_buffer),
+                                 "{\"error\":\"Busy\",\"queued\":%d}", queuedCount);
+                        Serial.printf("%s: update_spool partial enqueue, queued=%d\n", TAG, queuedCount);
+                    } else {
+                        snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
+                        Serial.printf("%s: update_spool enqueue failed before any write\n", TAG);
+                    }
+                } else {
+                    snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
+                    Serial.printf("%s: update_spool completed, queued=%d\n", TAG, queued);
+                }
             }
         }
     }
