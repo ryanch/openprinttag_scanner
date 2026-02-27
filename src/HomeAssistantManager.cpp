@@ -248,6 +248,7 @@ void HomeAssistantManager::taskLoop() {
                     connected_ = true;
                     lastMqttState_ = 0;
                     reconnectDelay_ = 1000; // Reset backoff
+                    lastLogSeq_ = DebugLogBuffer::getInstance().getSnapshotMeta().nextSeq;
                     DBG_LOGLN("HomeAssistantManager: MQTT connected, publishing discovery/state");
                     publishDiscovery();
                     subscribeCommands();
@@ -280,6 +281,30 @@ void HomeAssistantManager::taskLoop() {
                     mqttClient.publish(tagAttrsTopic, req.payload, req.retained);
                     // Keep command topics aligned with currently-present UID.
                     publishDiscovery();
+                }
+            }
+        }
+
+        // Forward new debug log lines to MQTT
+        if (mqttClient.connected()) {
+            auto& logBuf = DebugLogBuffer::getInstance();
+            char logLine[DebugLogBuffer::MAX_LINE_LENGTH + 1];
+            // Catch up if we fell behind
+            auto meta = logBuf.getSnapshotMeta();
+            if (lastLogSeq_ < meta.oldestSeq) {
+                lastLogSeq_ = meta.oldestSeq;
+            }
+            size_t published = 0;
+            while (published < 10) { // cap per iteration to avoid blocking
+                auto result = logBuf.getLineBySeq(lastLogSeq_, logLine, sizeof(logLine));
+                if (result == DebugLogBuffer::LookupResult::Ok) {
+                    mqttClient.publish("debug/openprintscanner_log", logLine, false);
+                    lastLogSeq_++;
+                    published++;
+                } else if (result == DebugLogBuffer::LookupResult::Stale) {
+                    lastLogSeq_++;
+                } else {
+                    break; // Eof
                 }
             }
         }
@@ -487,6 +512,24 @@ void HomeAssistantManager::publishDiscovery() {
             publishDiscoveryPayload("sensor", "spool", payload);
         } else {
             DBG_LOGLN("HomeAssistantManager: Discovery payload too large for sensor/spool, skipping");
+        }
+    }
+
+    // Debug log sensor
+    {
+        char payload[512];
+        int written = snprintf(payload, sizeof(payload),
+                               "{\"~\":\"%s\",\"name\":\"OpenPrintTagScanner Log\","
+                               "\"unique_id\":\"openprinttag_%s_log\",\"obj_id\":\"openprinttag_%s_log\","
+                               "\"stat_t\":\"debug/openprintscanner_log\","
+                               "\"avty_t\":\"~/availability\","
+                               "\"ic\":\"mdi:math-log\","
+                               "\"dev\":{\"ids\":[\"openprinttag_%s\"]}}",
+                               baseTopic, deviceId_, deviceId_, deviceId_);
+        if (written >= 0 && written < (int)sizeof(payload)) {
+            publishDiscoveryPayload("sensor", "log", payload);
+        } else {
+            DBG_LOGLN("HomeAssistantManager: Discovery payload too large for sensor/log, skipping");
         }
     }
 

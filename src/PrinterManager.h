@@ -29,8 +29,7 @@ private:
     static void pollingTaskFunc(void* param);
 
     void handleJobDetected(int jobId, float totalFilamentG);
-    void handleJobFinished(int jobId, float filamentUsedG);
-    void handleJobCanceled(int jobId, float progressPercent);
+    void resolveAndSendJobEnd(int jobId, float progressPercent);
     void handleJobDisappeared();
 
     PrinterState state = PrinterState::IDLE;

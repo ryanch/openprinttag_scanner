@@ -40,17 +40,21 @@ inline AppMessage createPrintStarted(int jobId) {
 
 inline AppMessage createPrintFinished(int jobId, float filamentUsedGrams) {
     AppMessage msg;
-    msg.type = AppMessageType::PRINT_FINISHED;
-    msg.payload.printFinished.job_id = jobId;
-    msg.payload.printFinished.filament_used_grams = filamentUsedGrams;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = AppMessageType::PRINT_ENDED;
+    msg.payload.printEnded.job_id = jobId;
+    msg.payload.printEnded.filament_used_grams = filamentUsedGrams;
+    msg.payload.printEnded.canceled = false;
     return msg;
 }
 
 inline AppMessage createPrintCanceled(int jobId, float estFilamentUsedGrams) {
     AppMessage msg;
-    msg.type = AppMessageType::PRINT_CANCELED;
-    msg.payload.printCanceled.job_id = jobId;
-    msg.payload.printCanceled.est_filament_used_grams = estFilamentUsedGrams;
+    memset(&msg, 0, sizeof(msg));
+    msg.type = AppMessageType::PRINT_ENDED;
+    msg.payload.printEnded.job_id = jobId;
+    msg.payload.printEnded.filament_used_grams = estFilamentUsedGrams;
+    msg.payload.printEnded.canceled = true;
     return msg;
 }
 

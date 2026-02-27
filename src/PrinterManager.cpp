@@ -91,7 +91,7 @@ void PrinterManager::poll() {
         // Check if job ID changed (new job while we were tracking)
         if (jobId != currentJobId) {
             // Old job was replaced - treat as canceled
-            handleJobCanceled(currentJobId, lastProgressPercent);
+            resolveAndSendJobEnd(currentJobId, lastProgressPercent);
             // Start tracking new job
             handleJobDetected(jobId, totalFilamentG);
             return;
@@ -106,9 +106,9 @@ void PrinterManager::poll() {
         }
 
         if (jobState == "FINISHED") {
-            handleJobFinished(jobId, currentJobTotalFilamentG);
+            resolveAndSendJobEnd(jobId, 100.0f);
         } else if (jobState == "STOPPED" || jobState == "ERROR") {
-            handleJobCanceled(jobId, progress);
+            resolveAndSendJobEnd(jobId, progress);
         }
         // PRINTING or PAUSED - continue tracking
     }
@@ -133,49 +133,10 @@ void PrinterManager::handleJobDetected(int jobId, float totalFilamentG) {
         jobId, totalFilamentG);
 }
 
-void PrinterManager::handleJobFinished(int jobId, float filamentUsedG) {
-    if (filamentUsedG <= 0.0f && strategy) {
-        float deferred = strategy->fetchDeferredFilament();
-        if (deferred > 0.0f) {
-            filamentUsedG = deferred;
-            DBG_LOGF("PrinterManager: Got deferred filament: %.2fg\n", deferred);
-        }
-    }
+void PrinterManager::resolveAndSendJobEnd(int jobId, float progressPercent) {
+    bool canceled = (progressPercent < 100.0f);
 
-    AppMessage msg;
-    msg.type = AppMessageType::PRINT_FINISHED;
-    msg.payload.printFinished.job_id = jobId;
-    msg.payload.printFinished.filament_used_grams = filamentUsedG;
-    ApplicationManager::getInstance().sendMessage(msg);
-
-    DBG_LOGF("PrinterManager: Job %d finished (filament: %.2fg)\n",
-        jobId, filamentUsedG);
-
-    state = PrinterState::IDLE;
-    currentJobId = -1;
-    currentJobTotalFilamentG = 0.0f;
-    lastProgressPercent = 0.0f;
-}
-
-void PrinterManager::handleJobCanceled(int jobId, float progressPercent) {
-    float estimatedFilament = (progressPercent / 100.0f) * currentJobTotalFilamentG;
-
-    AppMessage msg;
-    msg.type = AppMessageType::PRINT_CANCELED;
-    msg.payload.printCanceled.job_id = jobId;
-    msg.payload.printCanceled.est_filament_used_grams = estimatedFilament;
-    ApplicationManager::getInstance().sendMessage(msg);
-
-    DBG_LOGF("PrinterManager: Job %d canceled at %.1f%% (est filament: %.2fg)\n",
-        jobId, progressPercent, estimatedFilament);
-
-    state = PrinterState::IDLE;
-    currentJobId = -1;
-    currentJobTotalFilamentG = 0.0f;
-    lastProgressPercent = 0.0f;
-}
-
-void PrinterManager::handleJobDisappeared() {
+    // Try deferred filament if we don't have total yet
     if (currentJobTotalFilamentG <= 0.0f && strategy) {
         float deferred = strategy->fetchDeferredFilament();
         if (deferred > 0.0f) {
@@ -184,26 +145,29 @@ void PrinterManager::handleJobDisappeared() {
         }
     }
 
-    if (lastProgressPercent >= 95.0f) {
-        // High progress — almost certainly a completed print
-        DBG_LOGF("PrinterManager: Job %d disappeared at %.1f%% - treating as finished (filament: %.2fg)\n",
-            currentJobId, lastProgressPercent, currentJobTotalFilamentG);
-        handleJobFinished(currentJobId, currentJobTotalFilamentG);
-    } else {
-        float estimatedFilament = (lastProgressPercent / 100.0f) * currentJobTotalFilamentG;
+    float filamentUsed = (progressPercent / 100.0f) * currentJobTotalFilamentG;
 
-        AppMessage msg;
-        msg.type = AppMessageType::PRINT_CANCELED;
-        msg.payload.printCanceled.job_id = currentJobId;
-        msg.payload.printCanceled.est_filament_used_grams = estimatedFilament;
-        ApplicationManager::getInstance().sendMessage(msg);
+    AppMessage msg;
+    msg.type = AppMessageType::PRINT_ENDED;
+    msg.payload.printEnded.job_id = jobId;
+    msg.payload.printEnded.filament_used_grams = filamentUsed;
+    msg.payload.printEnded.canceled = canceled;
+    ApplicationManager::getInstance().sendMessage(msg);
 
-        DBG_LOGF("PrinterManager: Job %d disappeared at %.1f%% (est filament: %.2fg)\n",
-            currentJobId, lastProgressPercent, estimatedFilament);
+    DBG_LOGF("PrinterManager: Job %d %s at %.1f%% (filament: %.2fg)\n",
+        jobId, canceled ? "canceled" : "finished", progressPercent, filamentUsed);
 
-        state = PrinterState::IDLE;
-        currentJobId = -1;
-        currentJobTotalFilamentG = 0.0f;
-        lastProgressPercent = 0.0f;
-    }
+    state = PrinterState::IDLE;
+    currentJobId = -1;
+    currentJobTotalFilamentG = 0.0f;
+    lastProgressPercent = 0.0f;
+}
+
+void PrinterManager::handleJobDisappeared() {
+    float progress = (lastProgressPercent >= 95.0f) ? 100.0f : lastProgressPercent;
+
+    DBG_LOGF("PrinterManager: Job %d disappeared at %.1f%% - treating as %s\n",
+        currentJobId, lastProgressPercent, progress >= 100.0f ? "finished" : "canceled");
+
+    resolveAndSendJobEnd(currentJobId, progress);
 }

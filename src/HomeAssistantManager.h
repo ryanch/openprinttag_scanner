@@ -76,6 +76,9 @@ private:
 
     // Device ID cache
     char deviceId_[7] = {0}; // 6 hex chars + null
+
+    // Debug log forwarding
+    uint32_t lastLogSeq_ = 0;
 };
 
 #endif // HOME_ASSISTANT_MANAGER_H

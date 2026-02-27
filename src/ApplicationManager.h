@@ -14,8 +14,7 @@ class LCDManager;
 
 enum class AppMessageType {
     PRINT_STARTED,
-    PRINT_CANCELED,
-    PRINT_FINISHED,
+    PRINT_ENDED,
     SPOOL_DETECTED,         // Full spool info parsed from NFC
     SPOOL_UPDATED,          // Spool was written to successfully
     BLANK_TAG_DETECTED,     // Tag present but not OpenPrintTag format
@@ -92,12 +91,9 @@ struct AppMessage {
         } printStarted;
         struct {
             int job_id;
-            float est_filament_used_grams;
-        } printCanceled;
-        struct {
-            int job_id;
             float filament_used_grams;
-        } printFinished;
+            bool canceled;
+        } printEnded;
         SpoolDetectedPayload spoolDetected;
         SpoolUpdatedPayload spoolUpdated;
         BlankTagPayload blankTag;
@@ -165,8 +161,7 @@ private:
 
     // Handlers
     void handlePrintStarted(const AppMessage& msg);
-    void handlePrintCanceled(const AppMessage& msg);
-    void handlePrintFinished(const AppMessage& msg);
+    void handlePrintEnded(const AppMessage& msg);
     void handleSpoolDetected(const AppMessage& msg);
     void handleSpoolUpdated(const AppMessage& msg);
     void handleBlankTagDetected(const AppMessage& msg);

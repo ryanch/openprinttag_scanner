@@ -23,7 +23,12 @@ opt_error_t HardwareNFCConnection::halReadPage(void* ctx, uint8_t page, uint8_t*
 opt_error_t HardwareNFCConnection::halWritePage(void* ctx, uint8_t page, const uint8_t* data) {
     HardwareNFCConnection* self = static_cast<HardwareNFCConnection*>(ctx);
     ISO15693ErrorCode err = self->nfc_->writeSingleBlock(self->currentUid_, page, const_cast<uint8_t*>(data), 4);
-    return (err == ISO15693_EC_OK) ? OPT_OK : OPT_ERR_NFC_WRITE;
+    if (err != ISO15693_EC_OK) {
+        DBG_LOGF("HardwareNFC: writeSingleBlock failed on page %d: %s (0x%02X)\n",
+                 page, self->nfc_->strerror(err), (int)err);
+        return OPT_ERR_NFC_WRITE;
+    }
+    return OPT_OK;
 }
 
 bool HardwareNFCConnection::begin() {

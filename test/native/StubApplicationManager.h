@@ -10,8 +10,7 @@ class LCDManager;
 // These types must match ApplicationManager.h exactly
 enum class AppMessageType {
     PRINT_STARTED,
-    PRINT_CANCELED,
-    PRINT_FINISHED,
+    PRINT_ENDED,
     SPOOL_DETECTED,
     SPOOL_UPDATED,
     BLANK_TAG_DETECTED,
@@ -88,12 +87,9 @@ struct AppMessage {
         } printStarted;
         struct {
             int job_id;
-            float est_filament_used_grams;
-        } printCanceled;
-        struct {
-            int job_id;
             float filament_used_grams;
-        } printFinished;
+            bool canceled;
+        } printEnded;
         SpoolDetectedPayload spoolDetected;
         SpoolUpdatedPayload spoolUpdated;
         BlankTagPayload blankTag;

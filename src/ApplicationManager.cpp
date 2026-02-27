@@ -137,12 +137,8 @@ void ApplicationManager::handleMessage(const AppMessage& msg) {
             handlePrintStarted(msg);
             break;
 
-        case AppMessageType::PRINT_CANCELED:
-            handlePrintCanceled(msg);
-            break;
-
-        case AppMessageType::PRINT_FINISHED:
-            handlePrintFinished(msg);
+        case AppMessageType::PRINT_ENDED:
+            handlePrintEnded(msg);
             break;
 
         case AppMessageType::SPOOL_DETECTED:
@@ -203,13 +199,14 @@ void ApplicationManager::handlePrintStarted(const AppMessage& msg) {
     }
 }
 
-void ApplicationManager::handlePrintCanceled(const AppMessage& msg) {
-    DBG_LOGF("EVENT: PrintCanceled - job_id=%d, est_filament=%.2fg\n",
-        msg.payload.printCanceled.job_id,
-        msg.payload.printCanceled.est_filament_used_grams);
+void ApplicationManager::handlePrintEnded(const AppMessage& msg) {
+    DBG_LOGF("EVENT: PrintEnded - job_id=%d, filament=%.2fg, canceled=%s\n",
+        msg.payload.printEnded.job_id,
+        msg.payload.printEnded.filament_used_grams,
+        msg.payload.printEnded.canceled ? "true" : "false");
 
     if (currentState == AppState::MONITORING_PRINT) {
-        finishPrint(msg.payload.printCanceled.est_filament_used_grams, true);
+        finishPrint(msg.payload.printEnded.filament_used_grams, msg.payload.printEnded.canceled);
     }
     currentState = AppState::IDLE;
 
@@ -218,29 +215,8 @@ void ApplicationManager::handlePrintCanceled(const AppMessage& msg) {
         char json[128];
         snprintf(json, sizeof(json),
                  "{\"state\":\"idle\",\"last_job_id\":%d,\"filament_used_g\":%.1f}",
-                 msg.payload.printCanceled.job_id,
-                 msg.payload.printCanceled.est_filament_used_grams);
-        publishToHA("printer/state", json, true);
-    }
-}
-
-void ApplicationManager::handlePrintFinished(const AppMessage& msg) {
-    DBG_LOGF("EVENT: PrintFinished - job_id=%d, filament=%.2fg\n",
-        msg.payload.printFinished.job_id,
-        msg.payload.printFinished.filament_used_grams);
-
-    if (currentState == AppState::MONITORING_PRINT) {
-        finishPrint(msg.payload.printFinished.filament_used_grams, false);
-    }
-    currentState = AppState::IDLE;
-
-    // Publish printer state to HA
-    {
-        char json[128];
-        snprintf(json, sizeof(json),
-                 "{\"state\":\"idle\",\"last_job_id\":%d,\"filament_used_g\":%.1f}",
-                 msg.payload.printFinished.job_id,
-                 msg.payload.printFinished.filament_used_grams);
+                 msg.payload.printEnded.job_id,
+                 msg.payload.printEnded.filament_used_grams);
         publishToHA("printer/state", json, true);
     }
 }
