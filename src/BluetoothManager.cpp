@@ -38,6 +38,7 @@ static BLECharacteristic* s_config_write_char = nullptr;
 static bool s_is_connected = false;
 static bool s_is_advertising = false;
 static char s_response_buffer[BLE_RESPONSE_SIZE];
+static SemaphoreHandle_t s_ble_command_mutex = nullptr;
 
 // Forward declarations
 static void process_command(const char* json);
@@ -284,6 +285,7 @@ static void process_command(const char* json) {
                     opt_get_material_type(&spool.tag_data, &currentMaterial);
                     if (newMaterial != currentMaterial) {
                         NFCWriteRequest req;
+                        memset(&req, 0, sizeof(req));
                         req.request_id = ++s_request_id_counter;
                         req.type = NFCWriteType::CHANGE_FILAMENT_TYPE;
                         strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
@@ -302,6 +304,7 @@ static void process_command(const char* json) {
                         opt_get_primary_color(&spool.tag_data, currentColor);
                         if (memcmp(newRgba, currentColor, 3) != 0) {
                             NFCWriteRequest req;
+                            memset(&req, 0, sizeof(req));
                             req.request_id = ++s_request_id_counter;
                             req.type = NFCWriteType::CHANGE_COLOR;
                             strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
@@ -319,6 +322,7 @@ static void process_command(const char* json) {
                     opt_get_brand_name(&spool.tag_data, currentBrand, sizeof(currentBrand));
                     if (strcmp(newBrand, currentBrand) != 0) {
                         NFCWriteRequest req;
+                        memset(&req, 0, sizeof(req));
                         req.request_id = ++s_request_id_counter;
                         req.type = NFCWriteType::SET_BRAND_NAME;
                         strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
@@ -341,6 +345,7 @@ static void process_command(const char* json) {
                     // Only update if difference is significant (>1g)
                     if (abs(newRemaining - currentRemaining) > 1.0f) {
                         NFCWriteRequest req;
+                        memset(&req, 0, sizeof(req));
                         req.request_id = ++s_request_id_counter;
                         req.type = NFCWriteType::SET_CONSUMED_WEIGHT;
                         strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
@@ -482,7 +487,14 @@ class WriteCallbacks : public BLECharacteristicCallbacks {
         std::string value = pCharacteristic->getValue();
         if (value.length() > 0) {
             //Serial.printf("%s: Write received, len=%d\n", TAG, value.length());
-            process_command(value.c_str());
+
+            // Protect shared state with mutex
+            if (s_ble_command_mutex && xSemaphoreTake(s_ble_command_mutex, pdMS_TO_TICKS(5000)) == pdTRUE) {
+                process_command(value.c_str());
+                xSemaphoreGive(s_ble_command_mutex);
+            } else {
+                Serial.printf("%s: Failed to acquire BLE command mutex\n", TAG);
+            }
         }
     }
 };
@@ -500,6 +512,15 @@ BluetoothManager& BluetoothManager::getInstance() {
 
 bool BluetoothManager::begin() {
     Serial.printf("%s: Initializing Bluetooth manager\n", TAG);
+
+    // Create command processing mutex
+    if (s_ble_command_mutex == nullptr) {
+        s_ble_command_mutex = xSemaphoreCreateMutex();
+        if (s_ble_command_mutex == nullptr) {
+            Serial.printf("%s: Failed to create BLE command mutex\n", TAG);
+            return false;
+        }
+    }
 
     // Generate device name from MAC
     uint8_t mac[6];
@@ -608,6 +629,12 @@ void BluetoothManager::end() {
 
     // Deinit BLE
     BLEDevice::deinit(true);
+
+    // Delete mutex
+    if (s_ble_command_mutex != nullptr) {
+        vSemaphoreDelete(s_ble_command_mutex);
+        s_ble_command_mutex = nullptr;
+    }
 
     // Reset state
     s_server = nullptr;

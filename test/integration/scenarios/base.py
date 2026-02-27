@@ -1,0 +1,115 @@
+"""Base test scenario class with BLE bridge helpers"""
+
+import time
+import json
+from abc import ABC, abstractmethod
+
+
+class BaseTestScenario(ABC):
+    """
+    Base class for test scenarios.
+    Each test runs in a background thread and communicates with the browser via SSE.
+    """
+
+    def __init__(self, orchestrator, mock_state):
+        self.orchestrator = orchestrator
+        self.mock_state = mock_state
+        self.result = None
+        self.error = None
+
+    @abstractmethod
+    def run(self):
+        """Main test logic - implemented by subclasses"""
+        pass
+
+    def _emit_step(self, name, status, detail=""):
+        """Emit step update event"""
+        self.orchestrator.push_sse_event("step_update", {
+            "step": name,
+            "status": status,
+            "detail": detail
+        })
+
+    def _ble_command(self, cmd, read_data=False):
+        """
+        Execute a BLE command via the browser bridge.
+        Blocks until browser posts result to /api/tests/ble-result
+        """
+        self.orchestrator.push_sse_event("ble_command", {
+            "command": cmd,
+            "read_data": read_data
+        })
+        result = self.orchestrator.wait_for_ble_result(timeout=30)
+        if result.get("error"):
+            raise Exception(f"BLE command failed: {result['error']}")
+        return result.get("data")
+
+    def _ble_read_config(self):
+        """Read device configuration via BLE"""
+        cmd = {"command": "read_config"}
+        data = self._ble_command(cmd, read_data=True)
+        if not data:
+            raise Exception("No data returned from read_config")
+        return json.loads(data)
+
+    def _ble_write_config(self, **fields):
+        """Write configuration fields via BLE (partial update)"""
+        cmd = {"command": "write_config"}
+        cmd.update(fields)
+        self._ble_command(cmd, read_data=False)
+
+    def _ble_list_spools(self):
+        """List spools via BLE"""
+        cmd = {"command": "list_spools"}
+        data = self._ble_command(cmd, read_data=True)
+        if not data:
+            raise Exception("No data returned from list_spools")
+        return json.loads(data)
+
+    def _ble_format_spool(self, spool_id):
+        """Format spool via BLE"""
+        cmd = {"command": "format_spool", "id": spool_id}
+        self._ble_command(cmd, read_data=False)
+
+    def _ble_update_spool(self, spool_id, **fields):
+        """Update spool fields via BLE"""
+        cmd = {"command": "update_spool", "id": spool_id}
+        cmd.update(fields)
+        self._ble_command(cmd, read_data=False)
+
+    def _request_user_action(self, msg):
+        """Ask user to perform a physical action, wait for confirmation"""
+        self.orchestrator.push_sse_event("user_action_required", {
+            "message": msg
+        })
+        result = self.orchestrator.wait_for_user_action(timeout=120)
+        if not result:
+            raise Exception("User action timeout")
+
+    def _wait_seconds(self, n, reason):
+        """Sleep with progress SSE event"""
+        self.orchestrator.push_sse_event("waiting", {
+            "seconds": n,
+            "reason": reason
+        })
+        time.sleep(n)
+
+    def _assert(self, condition, msg):
+        """Assert with helpful error message"""
+        if not condition:
+            raise AssertionError(msg)
+
+    def _assert_approx(self, actual, expected, tolerance, name):
+        """Assert approximate equality"""
+        if abs(actual - expected) > tolerance:
+            raise AssertionError(
+                f"{name}: expected {expected} ± {tolerance}, got {actual}"
+            )
+
+    def _get_server_url(self):
+        """Request server URL from browser"""
+        self.orchestrator.push_sse_event("request_server_url", {})
+        result = self.orchestrator.wait_for_server_url(timeout=10)
+        if not result:
+            raise Exception("Failed to get server URL from browser")
+        return result

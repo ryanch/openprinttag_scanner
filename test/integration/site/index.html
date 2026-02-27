@@ -1,0 +1,738 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>Integration Test Runner</title>
+    <style>
+        :root {
+            --prusa-orange: #FA6831;
+            --prusa-black: #0a0a0a;
+            --prusa-dark-gray: #1a1a1a;
+            --prusa-medium-gray: #313131;
+            --prusa-light-gray: #707070;
+            --prusa-text: #efefef;
+            --prusa-green: #2ecc71;
+            --prusa-red: #d63031;
+        }
+
+        * { box-sizing: border-box; }
+
+        body {
+            font-family: -apple-system, BlinkMacSystemFont, 'Segoe UI', sans-serif;
+            background-color: var(--prusa-black);
+            color: var(--prusa-text);
+            margin: 0;
+            padding: 20px;
+        }
+
+        .container {
+            max-width: 900px;
+            margin: 0 auto;
+        }
+
+        .header {
+            background-color: var(--prusa-dark-gray);
+            padding: 1.5rem;
+            border-radius: 8px;
+            margin-bottom: 20px;
+        }
+
+        .header h1 {
+            color: var(--prusa-orange);
+            margin: 0 0 0.5rem 0;
+            font-size: 1.75rem;
+        }
+
+        .header p {
+            margin: 0;
+            color: var(--prusa-light-gray);
+            font-size: 0.9rem;
+        }
+
+        .panel {
+            background-color: var(--prusa-dark-gray);
+            border-radius: 8px;
+            padding: 1.5rem;
+            margin-bottom: 20px;
+        }
+
+        .panel h2 {
+            color: var(--prusa-orange);
+            margin: 0 0 1rem 0;
+            font-size: 1.25rem;
+        }
+
+        button {
+            background-color: var(--prusa-orange);
+            color: white;
+            border: none;
+            padding: 0.75rem 1.5rem;
+            border-radius: 4px;
+            font-size: 0.95rem;
+            font-weight: 600;
+            cursor: pointer;
+            transition: background-color 0.2s;
+        }
+
+        button:hover:not(:disabled) {
+            background-color: #e85a28;
+        }
+
+        button:disabled {
+            background-color: var(--prusa-medium-gray);
+            cursor: not-allowed;
+        }
+
+        button.secondary {
+            background-color: var(--prusa-medium-gray);
+        }
+
+        button.secondary:hover:not(:disabled) {
+            background-color: var(--prusa-light-gray);
+        }
+
+        .status {
+            display: inline-block;
+            padding: 0.25rem 0.75rem;
+            border-radius: 12px;
+            font-size: 0.85rem;
+            font-weight: 600;
+        }
+
+        .status.connected {
+            background-color: rgba(46, 204, 113, 0.2);
+            color: var(--prusa-green);
+        }
+
+        .status.disconnected {
+            background-color: rgba(214, 48, 49, 0.2);
+            color: var(--prusa-red);
+        }
+
+        .test-list {
+            list-style: none;
+            padding: 0;
+            margin: 0;
+        }
+
+        .test-item {
+            background-color: var(--prusa-medium-gray);
+            padding: 1rem;
+            margin-bottom: 0.75rem;
+            border-radius: 6px;
+            display: flex;
+            justify-content: space-between;
+            align-items: center;
+        }
+
+        .test-item h3 {
+            margin: 0 0 0.25rem 0;
+            font-size: 1rem;
+        }
+
+        .test-item p {
+            margin: 0;
+            color: var(--prusa-light-gray);
+            font-size: 0.85rem;
+        }
+
+        .step-list {
+            margin-top: 1rem;
+            padding-left: 1.5rem;
+        }
+
+        .step {
+            margin: 0.5rem 0;
+            font-size: 0.9rem;
+        }
+
+        .step-icon {
+            display: inline-block;
+            width: 20px;
+            text-align: center;
+        }
+
+        .log-area {
+            background-color: var(--prusa-black);
+            border-radius: 4px;
+            padding: 1rem;
+            max-height: 300px;
+            overflow-y: auto;
+            font-family: 'Courier New', monospace;
+            font-size: 0.85rem;
+            margin-top: 1rem;
+        }
+
+        .log-entry {
+            margin: 0.25rem 0;
+            color: var(--prusa-light-gray);
+        }
+
+        .log-entry.info { color: var(--prusa-text); }
+        .log-entry.success { color: var(--prusa-green); }
+        .log-entry.error { color: var(--prusa-red); }
+
+        /* Modal */
+        .modal {
+            display: none;
+            position: fixed;
+            top: 0;
+            left: 0;
+            width: 100%;
+            height: 100%;
+            background-color: rgba(0, 0, 0, 0.8);
+            align-items: center;
+            justify-content: center;
+            z-index: 1000;
+        }
+
+        .modal.show {
+            display: flex;
+        }
+
+        .modal-content {
+            background-color: var(--prusa-dark-gray);
+            padding: 2rem;
+            border-radius: 8px;
+            max-width: 500px;
+            text-align: center;
+        }
+
+        .modal-content h3 {
+            color: var(--prusa-orange);
+            margin: 0 0 1rem 0;
+        }
+
+        .modal-content p {
+            margin: 0 0 1.5rem 0;
+            line-height: 1.5;
+        }
+
+        input[type="text"],
+        input[type="password"] {
+            width: 100%;
+            padding: 0.75rem;
+            background-color: var(--prusa-medium-gray);
+            border: 1px solid var(--prusa-light-gray);
+            border-radius: 4px;
+            color: var(--prusa-text);
+            font-size: 0.95rem;
+            margin-bottom: 1rem;
+        }
+
+        .button-group {
+            display: flex;
+            gap: 0.5rem;
+            margin-top: 1rem;
+        }
+
+        .button-group button {
+            flex: 1;
+        }
+
+        .warning-banner {
+            background-color: rgba(214, 48, 49, 0.2);
+            border: 2px solid var(--prusa-red);
+            border-radius: 8px;
+            padding: 1rem;
+            margin-bottom: 20px;
+            display: none;
+        }
+
+        .warning-banner.show {
+            display: block;
+        }
+
+        .warning-banner h3 {
+            color: var(--prusa-red);
+            margin: 0 0 0.5rem 0;
+            font-size: 1.1rem;
+        }
+
+        .warning-banner p {
+            margin: 0.25rem 0;
+            font-size: 0.9rem;
+        }
+
+        .warning-banner code {
+            background-color: var(--prusa-medium-gray);
+            padding: 0.2rem 0.5rem;
+            border-radius: 3px;
+            font-family: 'Courier New', monospace;
+        }
+    </style>
+</head>
+<body>
+    <div class="container">
+        <div class="header">
+            <h1>🔬 Integration Test Runner</h1>
+            <p>Hardware-in-the-loop testing for OpenPrintTag Scanner</p>
+        </div>
+
+        <!-- Web Bluetooth Warning -->
+        <div class="warning-banner" id="bluetooth-warning">
+            <h3>⚠️ Web Bluetooth Not Available</h3>
+            <p>The Web Bluetooth API is not available on this page.</p>
+            <p><strong>Solution:</strong> Access this page via <code>http://localhost:8080/</code></p>
+            <p>Web Bluetooth requires HTTPS or localhost for security. IP addresses don't work.</p>
+        </div>
+
+        <!-- Connection Panel -->
+        <div class="panel">
+            <h2>Device Connection</h2>
+            <div style="display: flex; justify-content: space-between; align-items: center;">
+                <div>
+                    <span id="ble-status" class="status disconnected">Disconnected</span>
+                    <span id="device-name" style="margin-left: 1rem; color: var(--prusa-light-gray);"></span>
+                </div>
+                <button id="connect-btn" onclick="connectBLE()">Connect BLE</button>
+            </div>
+        </div>
+
+        <!-- Config Panel -->
+        <div class="panel">
+            <h2>Configuration</h2>
+            <p style="color: var(--prusa-light-gray); font-size: 0.9rem; margin-bottom: 1rem;">
+                Save your device settings before running tests, then restore them after.
+            </p>
+            <div class="button-group">
+                <button class="secondary" onclick="saveSettings()" id="save-btn" disabled>Save Current Settings</button>
+                <button class="secondary" onclick="applyMockSettings()" id="apply-btn" disabled>Apply Mock Settings</button>
+                <button class="secondary" onclick="restoreSettings()" id="restore-btn" disabled>Restore Original Settings</button>
+            </div>
+        </div>
+
+        <!-- Test Panel -->
+        <div class="panel">
+            <h2>Tests</h2>
+            <ul class="test-list" id="test-list">
+                <li style="color: var(--prusa-light-gray); text-align: center; padding: 2rem;">
+                    Loading tests...
+                </li>
+            </ul>
+            <button onclick="runAllTests()" id="run-all-btn" disabled style="width: 100%; margin-top: 1rem;">
+                Run All Tests
+            </button>
+
+            <div id="current-test" style="display: none;">
+                <h3 style="color: var(--prusa-orange); margin-top: 2rem;">Current Test</h3>
+                <div id="step-list" class="step-list"></div>
+            </div>
+
+            <div class="log-area" id="log-area"></div>
+        </div>
+    </div>
+
+    <!-- User Action Modal -->
+    <div class="modal" id="action-modal">
+        <div class="modal-content">
+            <h3>Action Required</h3>
+            <p id="action-message"></p>
+            <button onclick="confirmAction()">Continue</button>
+        </div>
+    </div>
+
+    <script>
+        // Bluetooth UUIDs
+        const SERVICE_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0001";
+        const CONFIG_READ_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0002";
+        const CONFIG_WRITE_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0003";
+
+        // State
+        let bleDevice;
+        let configWriteCharacteristic;
+        let configReadCharacteristic;
+        let commandQueue = [];
+        let isProcessingQueue = false;
+        let savedConfig = null;
+        let testList = [];
+        let currentSteps = {};
+        let eventSource = null;
+        let serverUrl = null;  // Server's LAN IP for device config
+
+        // BLE Command Queue (serial execution)
+        function enqueueCommand(commandFn) {
+            return new Promise((resolve, reject) => {
+                commandQueue.push({ execute: commandFn, resolve, reject });
+                processQueue();
+            });
+        }
+
+        async function processQueue() {
+            if (isProcessingQueue || commandQueue.length === 0) return;
+            isProcessingQueue = true;
+
+            while (commandQueue.length > 0) {
+                const { execute, resolve, reject } = commandQueue.shift();
+                try {
+                    const result = await execute();
+                    resolve(result);
+                } catch (error) {
+                    reject(error);
+                }
+            }
+
+            isProcessingQueue = false;
+        }
+
+        // Logging
+        function log(message, type = 'info') {
+            const logArea = document.getElementById('log-area');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+            logArea.appendChild(entry);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        // BLE Connection
+        async function connectBLE() {
+            // Check if Web Bluetooth is available
+            if (!navigator.bluetooth) {
+                log('Web Bluetooth not available!', 'error');
+                log('Please access via http://localhost:8080 (not via IP address)', 'error');
+                log('Web Bluetooth requires HTTPS or localhost for security', 'error');
+                alert('Web Bluetooth not available!\n\nPlease access the page via:\nhttp://localhost:8080\n\nWeb Bluetooth API requires HTTPS or localhost.');
+                return;
+            }
+
+            try {
+                log('Requesting BLE device...');
+                bleDevice = await navigator.bluetooth.requestDevice({
+                    filters: [{ services: [SERVICE_UUID] }]
+                });
+
+                log(`Connecting to ${bleDevice.name}...`);
+                const server = await bleDevice.gatt.connect();
+                const service = await server.getPrimaryService(SERVICE_UUID);
+                configWriteCharacteristic = await service.getCharacteristic(CONFIG_WRITE_UUID);
+                configReadCharacteristic = await service.getCharacteristic(CONFIG_READ_UUID);
+
+                document.getElementById('ble-status').textContent = 'Connected';
+                document.getElementById('ble-status').className = 'status connected';
+                document.getElementById('device-name').textContent = bleDevice.name;
+                document.getElementById('connect-btn').disabled = true;
+                document.getElementById('save-btn').disabled = false;
+                document.getElementById('apply-btn').disabled = false;
+
+                log(`Connected to ${bleDevice.name}`, 'success');
+
+                bleDevice.addEventListener('gattserverdisconnected', onDisconnected);
+            } catch (error) {
+                log(`BLE error: ${error.message}`, 'error');
+            }
+        }
+
+        function onDisconnected() {
+            log('Device disconnected', 'error');
+            document.getElementById('ble-status').textContent = 'Disconnected';
+            document.getElementById('ble-status').className = 'status disconnected';
+            document.getElementById('device-name').textContent = '';
+            document.getElementById('connect-btn').disabled = false;
+            document.getElementById('save-btn').disabled = true;
+            document.getElementById('apply-btn').disabled = true;
+            document.getElementById('restore-btn').disabled = true;
+            document.getElementById('run-all-btn').disabled = true;
+        }
+
+        // BLE Commands
+        async function executeBLECommand(cmd, readData) {
+            return enqueueCommand(async () => {
+                const cmdStr = JSON.stringify(cmd);
+                log(`BLE → ${cmdStr}`);
+
+                const encoder = new TextEncoder();
+                const data = encoder.encode(cmdStr);
+                await configWriteCharacteristic.writeValue(data);
+
+                if (readData) {
+                    await new Promise(resolve => setTimeout(resolve, 500));
+                    const value = await configReadCharacteristic.readValue();
+                    const decoder = new TextDecoder();
+                    const result = decoder.decode(value);
+                    log(`BLE ← ${result.substring(0, 100)}...`);
+                    return result;
+                }
+                return null;
+            });
+        }
+
+        // Config Management
+        async function saveSettings() {
+            try {
+                log('Reading current config...');
+                const data = await executeBLECommand({ command: "read_config" }, true);
+                savedConfig = JSON.parse(data);
+                document.getElementById('restore-btn').disabled = false;
+                log('Config saved', 'success');
+            } catch (error) {
+                log(`Failed to save config: ${error.message}`, 'error');
+            }
+        }
+
+        async function applyMockSettings() {
+            if (!serverUrl) {
+                log('Server URL not available yet', 'error');
+                return;
+            }
+            try {
+                log(`Applying mock PrusaLink settings (${serverUrl})...`);
+                await executeBLECommand({
+                    command: "write_config",
+                    prusa_link_url: serverUrl,
+                    prusa_link_api_key: "test-api-key",
+                    poll_interval_ms: 5000,
+                    automation_mode: 0
+                }, false);
+                log('Mock settings applied', 'success');
+            } catch (error) {
+                log(`Failed to apply mock settings: ${error.message}`, 'error');
+            }
+        }
+
+        async function restoreSettings() {
+            if (!savedConfig) {
+                log('No saved config', 'error');
+                return;
+            }
+            try {
+                log('Restoring original config...');
+                await executeBLECommand({
+                    command: "write_config",
+                    prusa_link_url: savedConfig.prusa_link_url || "",
+                    prusa_link_api_key: savedConfig.prusa_link_api_key || "",
+                    poll_interval_ms: savedConfig.poll_interval_ms || 30000,
+                    automation_mode: savedConfig.automation_mode || 0
+                }, false);
+                log('Config restored', 'success');
+            } catch (error) {
+                log(`Failed to restore config: ${error.message}`, 'error');
+            }
+        }
+
+        // Test Management
+        async function loadTests() {
+            try {
+                const response = await fetch('/api/tests');
+                const data = await response.json();
+                testList = data.tests;
+                serverUrl = data.server_url;  // Store server's LAN IP
+                log(`Server URL for device: ${serverUrl}`, 'info');
+                renderTestList();
+            } catch (error) {
+                log(`Failed to load tests: ${error.message}`, 'error');
+            }
+        }
+
+        function renderTestList() {
+            const listEl = document.getElementById('test-list');
+            listEl.innerHTML = '';
+
+            testList.forEach(test => {
+                const li = document.createElement('li');
+                li.className = 'test-item';
+                li.innerHTML = `
+                    <div>
+                        <h3>${test.name}</h3>
+                        <p>${test.description}</p>
+                    </div>
+                    <button onclick="runTest('${test.id}')" class="secondary" id="run-${test.id}">Run</button>
+                `;
+                listEl.appendChild(li);
+            });
+
+            if (bleDevice && bleDevice.gatt.connected) {
+                document.getElementById('run-all-btn').disabled = false;
+            }
+        }
+
+        async function runTest(testId) {
+            try {
+                // Disable all run buttons
+                testList.forEach(t => {
+                    document.getElementById(`run-${t.id}`).disabled = true;
+                });
+                document.getElementById('run-all-btn').disabled = true;
+
+                currentSteps = {};
+                document.getElementById('current-test').style.display = 'block';
+                document.getElementById('step-list').innerHTML = '';
+
+                log(`Starting test: ${testId}`, 'info');
+                const response = await fetch(`/api/tests/${testId}/start`, { method: 'POST' });
+                const result = await response.json();
+
+                if (result.error) {
+                    log(`Test failed to start: ${result.error}`, 'error');
+                }
+            } catch (error) {
+                log(`Error starting test: ${error.message}`, 'error');
+            }
+        }
+
+        async function runAllTests() {
+            for (const test of testList) {
+                await runTest(test.id);
+                // Wait for test to complete
+                await new Promise(resolve => {
+                    const checkInterval = setInterval(async () => {
+                        const response = await fetch('/api/tests/status');
+                        const status = await response.json();
+                        if (status.status !== 'running') {
+                            clearInterval(checkInterval);
+                            resolve();
+                        }
+                    }, 1000);
+                });
+            }
+        }
+
+        // SSE Event Handling
+        function connectSSE() {
+            // Close existing connection if any
+            if (eventSource) {
+                eventSource.close();
+            }
+
+            eventSource = new EventSource('/api/tests/events');
+
+            eventSource.addEventListener('ble_command', async (e) => {
+                const data = JSON.parse(e.data);
+                try {
+                    const result = await executeBLECommand(data.command, data.read_data);
+                    await fetch('/api/tests/ble-result', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ data: result })
+                    });
+                } catch (error) {
+                    await fetch('/api/tests/ble-result', {
+                        method: 'POST',
+                        headers: { 'Content-Type': 'application/json' },
+                        body: JSON.stringify({ error: error.message })
+                    });
+                }
+            });
+
+            eventSource.addEventListener('user_action_required', (e) => {
+                const data = JSON.parse(e.data);
+                document.getElementById('action-message').textContent = data.message;
+                document.getElementById('action-modal').classList.add('show');
+            });
+
+            eventSource.addEventListener('request_server_url', async () => {
+                // Send server's LAN IP (not localhost) so device can reach it
+                const urlToSend = serverUrl || window.location.origin;
+                log(`Sending server URL to device: ${urlToSend}`);
+                await fetch('/api/tests/user-action', {
+                    method: 'POST',
+                    headers: { 'Content-Type': 'application/json' },
+                    body: JSON.stringify({ action: 'server_url', server_url: urlToSend })
+                });
+            });
+
+            eventSource.addEventListener('step_update', (e) => {
+                const data = JSON.parse(e.data);
+                updateStep(data.step, data.status, data.detail);
+            });
+
+            eventSource.addEventListener('waiting', (e) => {
+                const data = JSON.parse(e.data);
+                log(`Waiting ${data.seconds}s: ${data.reason}`);
+            });
+
+            eventSource.addEventListener('test_complete', (e) => {
+                const data = JSON.parse(e.data);
+                if (data.result === 'passed') {
+                    log('Test PASSED ✓', 'success');
+                } else {
+                    log(`Test FAILED: ${data.error || 'Unknown error'}`, 'error');
+                }
+
+                // Re-enable buttons
+                testList.forEach(t => {
+                    document.getElementById(`run-${t.id}`).disabled = false;
+                });
+                document.getElementById('run-all-btn').disabled = false;
+            });
+
+            eventSource.addEventListener('warning', (e) => {
+                const data = JSON.parse(e.data);
+                log(`Warning: ${data.message}`, 'error');
+            });
+
+            eventSource.onerror = (e) => {
+                // Don't reconnect if manually closed
+                if (eventSource.readyState === EventSource.CLOSED) {
+                    log('SSE connection closed', 'info');
+                    return;
+                }
+
+                log('SSE connection error, reconnecting...', 'error');
+                eventSource.close();
+                setTimeout(connectSSE, 2000);
+            };
+        }
+
+        function updateStep(stepName, status, detail) {
+            if (!currentSteps[stepName]) {
+                const stepEl = document.createElement('div');
+                stepEl.className = 'step';
+                stepEl.id = `step-${stepName.replace(/\s/g, '-')}`;
+                document.getElementById('step-list').appendChild(stepEl);
+                currentSteps[stepName] = stepEl;
+            }
+
+            const stepEl = currentSteps[stepName];
+            let icon = '⏳';
+            let color = 'var(--prusa-light-gray)';
+
+            if (status === 'passed') {
+                icon = '✓';
+                color = 'var(--prusa-green)';
+            } else if (status === 'failed') {
+                icon = '✗';
+                color = 'var(--prusa-red)';
+            }
+
+            stepEl.innerHTML = `<span class="step-icon" style="color: ${color};">${icon}</span> ${stepName}`;
+            if (detail) {
+                stepEl.innerHTML += ` <span style="color: var(--prusa-light-gray); font-size: 0.85rem;">(${detail})</span>`;
+            }
+        }
+
+        async function confirmAction() {
+            document.getElementById('action-modal').classList.remove('show');
+            await fetch('/api/tests/user-action', {
+                method: 'POST',
+                headers: { 'Content-Type': 'application/json' },
+                body: JSON.stringify({ action: 'user_confirmed' })
+            });
+        }
+
+        // Initialize
+        window.addEventListener('load', () => {
+            // Check Web Bluetooth availability
+            if (!navigator.bluetooth) {
+                log('⚠️  Web Bluetooth not available', 'error');
+                log('Access this page via http://localhost:8080', 'error');
+                document.getElementById('bluetooth-warning').classList.add('show');
+                document.getElementById('connect-btn').disabled = true;
+                document.getElementById('connect-btn').textContent = 'BLE Not Available';
+            }
+
+            loadTests();
+            connectSSE();
+        });
+
+        // Cleanup on page unload
+        window.addEventListener('beforeunload', () => {
+            if (eventSource) {
+                eventSource.close();
+            }
+        });
+    </script>
+</body>
+</html>

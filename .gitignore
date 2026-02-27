@@ -17,3 +17,7 @@ test/native/test_lcd_manager_runner
 test/native/test_debug_log_buffer_runner
 test/native/test_bgcode_parser
 test/native/test_bgcode_parser
+test/integration/__pycache__/
+test/integration/scenarios/__pycache__/
+test/integration/__pycache__/mock_prusalink.cpython-312.pyc
+test/integration/scenarios/__pycache__/__init__.cpython-312.pyc

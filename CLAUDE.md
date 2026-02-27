@@ -86,3 +86,12 @@ test/native/test_helpers.h — Factories + assertions
 Integration Tests
 test/integration/ha.cpp — Native standalone MQTT/HA connectivity + discovery/state publisher
 test/integration/Makefile — Build/run helper for local HA integration probe
+
+Hardware-in-the-Loop Tests
+test/integration/http_server.py — Test orchestrator + mock PrusaLink API + SSE server
+test/integration/mock_prusalink.py — MockPrusalinkState (controls mock API responses)
+test/integration/scenarios/base.py — BaseTestScenario with BLE bridge helpers
+test/integration/scenarios/test_format_spool.py — Format spool test
+test/integration/scenarios/test_set_filament.py — Set filament weight test
+test/integration/scenarios/test_print_e2e.py — End-to-end print simulation test
+test/integration/site/index.html — Web Bluetooth test runner UI
