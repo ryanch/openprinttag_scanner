@@ -1,7 +1,6 @@
 #ifndef LCD_MANAGER_H
 #define LCD_MANAGER_H
 
-#include <string>
 #include <cstdint>
 #include <LiquidCrystal_I2C.h>
 #include <freertos/FreeRTOS.h>
@@ -21,8 +20,8 @@ class LCDManager {
 public:
     LCDManager(uint8_t lcd_Addr, uint8_t lcd_cols, uint8_t lcd_rows);
     void begin();
-    void updateScreen(const std::string& line1, const std::string& line2);
-    void updateScreen(const std::string& line1, const std::string& line2, const std::string& line3, const std::string& line4);
+    void updateScreen(const char* line1, const char* line2);
+    void updateScreen(const char* line1, const char* line2, const char* line3, const char* line4);
     void startTask();
     void setScreenTimeoutMs(uint32_t timeoutMs);
 
@@ -34,12 +33,12 @@ private:
     LiquidCrystal_I2C _lcd;
     QueueHandle_t _messageQueue;
     TaskHandle_t _taskHandle;
-    std::string _currentLine1;
-    std::string _currentLine2;
-    std::string _activeLine1;
-    std::string _activeLine2;
-    std::string _activeLine3;
-    std::string _activeLine4;
+    char _currentLine1[17] = {0};
+    char _currentLine2[17] = {0};
+    char _activeLine1[17] = {0};
+    char _activeLine2[17] = {0};
+    char _activeLine3[17] = {0};
+    char _activeLine4[17] = {0};
     uint8_t _activeLineCount;
     uint8_t _currentPage;
     unsigned long _lastPageSwitchTimeMs;

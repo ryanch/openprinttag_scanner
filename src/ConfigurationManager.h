@@ -11,7 +11,7 @@ public:
     static ConfigurationManager& getInstance();
 
     bool begin();  // Initialize NVS and load cached values
-    String readConfig();  // Returns JSON (excludes wifi_pass)
+    size_t readConfig(char* out, size_t outSize);  // Returns JSON length (excludes wifi_pass)
     bool postConfigUpdate(const char* json);  // Partial update from JSON
 
     const char* getWiFiSSID() const;

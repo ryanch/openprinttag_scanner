@@ -6,6 +6,8 @@
 #include <WiFiClient.h>
 #include <ArduinoJson.h>
 #include "esp_heap_caps.h"
+#include <cstring>
+#include <cstdlib>
 
 static constexpr size_t URL_BUFFER_SIZE = 192;
 static constexpr size_t STATUS_JSON_CAPACITY = 1024;
@@ -51,7 +53,7 @@ void PrusaLinkAPIStrategy::update() {
     jobId = -1;
     progress = 0.0f;
     totalFilamentG = 0.0f;
-    jobState = "";
+    jobState[0] = '\0';
 
     // Acquire HTTP mutex if available
     bool mutexHeld = false;
@@ -89,7 +91,7 @@ void PrusaLinkAPIStrategy::update() {
         logHeapSnapshot("after_status_get");
 
         connected = true;
-        StaticJsonDocument<STATUS_JSON_CAPACITY> statusDoc;
+        JsonDocument statusDoc;
         logHeapSnapshot("before_status_deserialize");
         DeserializationError statusErr = deserializeJson(statusDoc, http.getStream());
         logHeapSnapshot("after_status_deserialize");
@@ -129,7 +131,7 @@ void PrusaLinkAPIStrategy::update() {
         }
         logHeapSnapshot("after_job_get");
 
-        StaticJsonDocument<JOB_JSON_CAPACITY> jobDoc;
+        JsonDocument jobDoc;
         logHeapSnapshot("before_job_deserialize");
         DeserializationError jobErr = deserializeJson(jobDoc, http.getStream());
         logHeapSnapshot("after_job_deserialize");
@@ -139,7 +141,9 @@ void PrusaLinkAPIStrategy::update() {
             break;
         }
 
-        jobState = jobDoc["state"].as<String>();
+        const char* state = jobDoc["state"] | "";
+        strncpy(jobState, state, sizeof(jobState) - 1);
+        jobState[sizeof(jobState) - 1] = '\0';
 
         // Extract filament usage from file metadata
         JsonVariant fileMeta = jobDoc["file"]["meta"];
@@ -153,8 +157,12 @@ void PrusaLinkAPIStrategy::update() {
         // Save download ref for deferred fetch after print completes
         JsonVariant downloadRefVar = jobDoc["file"]["refs"]["download"];
         if (!downloadRefVar.isNull()) {
-            savedDownloadRef = downloadRefVar.as<String>();
-            savedDownloadRefJobId = jobId;
+            const char* downloadRef = downloadRefVar.as<const char*>();
+            if (downloadRef != nullptr) {
+                strncpy(savedDownloadRef, downloadRef, sizeof(savedDownloadRef) - 1);
+                savedDownloadRef[sizeof(savedDownloadRef) - 1] = '\0';
+                savedDownloadRefJobId = jobId;
+            }
         }
 
         // Use cached bgcode data if available (from a previous deferred fetch)
@@ -170,21 +178,26 @@ void PrusaLinkAPIStrategy::update() {
     }
 }
 
-float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const String& downloadRef) {
+float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const char* downloadRef) {
     auto& config = ConfigurationManager::getInstance();
+    if (downloadRef == nullptr || downloadRef[0] == '\0') return 0.0f;
 
     // Parse host/port from PrusaLink URL to avoid HTTPClient URL-encoding issues
-    String baseUrl = String(config.getPrusaLinkURL());
-    int hostStart = baseUrl.indexOf("://");
-    if (hostStart < 0) return 0.0f;
-    hostStart += 3;
-    String hostPort = baseUrl.substring(hostStart);
-    String host = hostPort;
+    const char* baseUrl = config.getPrusaLinkURL();
+    const char* scheme = strstr(baseUrl, "://");
+    if (scheme == nullptr) return 0.0f;
+    const char* hostPort = scheme + 3;
+    char host[96] = {0};
     int port = 80;
-    int colonIdx = hostPort.indexOf(':');
-    if (colonIdx > 0) {
-        host = hostPort.substring(0, colonIdx);
-        port = hostPort.substring(colonIdx + 1).toInt();
+    const char* colon = strchr(hostPort, ':');
+    if (colon != nullptr) {
+        size_t hostLen = static_cast<size_t>(colon - hostPort);
+        if (hostLen >= sizeof(host)) hostLen = sizeof(host) - 1;
+        memcpy(host, hostPort, hostLen);
+        host[hostLen] = '\0';
+        port = atoi(colon + 1);
+    } else {
+        strncpy(host, hostPort, sizeof(host) - 1);
     }
 
     WiFiClient client;
@@ -196,14 +209,8 @@ float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const String& downloadRef) {
 
     const int maxAttempts = 6;
     const int baseDelayMs = 1000;
-    const size_t BUF_SIZE = 8192;
-
-    uint8_t* buf = (uint8_t*)malloc(BUF_SIZE);
-    if (!buf) {
-        logHeapSnapshot("bgcode_buf_alloc_failed");
-        http.end();
-        return 0.0f;
-    }
+    const size_t BUF_SIZE = BGCODE_BUF_SIZE;
+    uint8_t* buf = bgcodeBuf_;
 
     float result = 0.0f;
 
@@ -269,7 +276,6 @@ float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const String& downloadRef) {
                  attempt, maxAttempts, bytesRead);
     }
 
-    free(buf);
     return result;
 }
 
@@ -310,7 +316,7 @@ float PrusaLinkAPIStrategy::fetchDeferredFilament() {
         logHeapSnapshot("before_deferred_job_get");
         code = http.GET();
         if (code == 200) {
-            StaticJsonDocument<JOB_JSON_CAPACITY> doc;
+            JsonDocument doc;
             logHeapSnapshot("before_deferred_job_deserialize");
             if (!deserializeJson(doc, http.getStream())) {
                 logHeapSnapshot("after_deferred_job_deserialize");
@@ -336,7 +342,7 @@ float PrusaLinkAPIStrategy::fetchDeferredFilament() {
     }
 
     // Fall back to bgcode header parsing
-    if (result <= 0.0f && !savedDownloadRef.isEmpty()) {
+    if (result <= 0.0f && savedDownloadRef[0] != '\0') {
         result = fetchFilamentFromBgcode(savedDownloadRef);
     }
 

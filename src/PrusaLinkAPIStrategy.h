@@ -14,27 +14,29 @@ public:
     int getJobId() const override { return jobId; }
     float getProgress() const override { return progress; }
     float getTotalFilamentGrams() const override { return totalFilamentG; }
-    String getJobState() const override { return jobState; }
+    const char* getJobState() const override { return jobState; }
     bool isConnected() const override { return connected; }
     float fetchDeferredFilament() override;
 
 private:
-    float fetchFilamentFromBgcode(const String& downloadRef);
+    static constexpr size_t BGCODE_BUF_SIZE = 8192;
+    float fetchFilamentFromBgcode(const char* downloadRef);
 
     bool connected = false;
     bool hasJob = false;
     int jobId = -1;
     float progress = 0.0f;
     float totalFilamentG = 0.0f;
-    String jobState = "";
+    char jobState[16] = {0};
 
     // Cache bgcode filament fetch (one attempt per job)
     int bgcodeFilamentJobId = -1;
     float bgcodeFilamentG = 0.0f;
 
     // Saved download ref for deferred bgcode fetch after print completes
-    String savedDownloadRef = "";
+    char savedDownloadRef[160] = {0};
     int savedDownloadRefJobId = -1;
+    uint8_t bgcodeBuf_[BGCODE_BUF_SIZE] = {0};
 
     SemaphoreHandle_t httpMutex_ = nullptr;
 };

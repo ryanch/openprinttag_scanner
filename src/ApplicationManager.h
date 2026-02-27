@@ -32,7 +32,7 @@ enum class AutomationMode : uint8_t {
 enum class AppState { IDLE, MONITORING_PRINT };
 
 struct SpoolDetectedPayload {
-    char spool_id[64];           // UID hex string
+    char spool_id[17];           // UID hex string
     uint8_t material_type;       // OPT_MATERIAL_TYPE_PLA, etc.
     float kg_remaining;          // Remaining weight in kg
     uint8_t primary_color[4];    // RGBA color
@@ -40,46 +40,46 @@ struct SpoolDetectedPayload {
     float density;               // g/cm3 (0 if not available)
     float diameter;              // mm (0 if not available)
     float initial_weight_g;      // Full spool weight in grams
-    char manufacturer[64];       // Brand name from tag
+    char manufacturer[33];       // Brand name from tag
     int32_t spoolman_id;         // Spoolman ID from tag (-1 if absent)
 };
 
 struct SpoolUpdatedPayload {
-    char spool_id[64];           // Spool that was updated
+    char spool_id[17];           // Spool that was updated
     uint8_t update_type;         // NFCWriteType enum value
     bool success;                // Whether update succeeded
     float kg_remaining;          // Remaining weight after update (kg)
 };
 
 struct BlankTagPayload {
-    char spool_id[64];           // UID hex string
+    char spool_id[17];           // UID hex string
 };
 
 struct SpoolmanSyncedPayload {
-    char spool_id[64];
+    char spool_id[17];
     bool success;
     float kg_remaining;          // Remaining weight for LCD display
     int32_t spoolman_id;         // Resolved Spoolman spool ID (-1 if unknown)
 };
 
 struct TagRemovedPayload {
-    char spool_id[64];           // UID of removed tag
+    char spool_id[17];           // UID of removed tag
     float last_remaining_kg;     // Last known remaining (kg)
     int32_t spoolman_id;         // Last known spoolman ID
 };
 
 struct HAWriteTagPayload {
-    char expected_uid[64];       // Required — must match current tag
+    char expected_uid[17];       // Required — must match current tag
     uint8_t material_type;
     uint8_t color[4];            // RGBA
-    char manufacturer[64];
+    char manufacturer[33];
     float initial_weight_g;
     float remaining_g;
     int32_t spoolman_id;
 };
 
 struct HAUpdateRemainingPayload {
-    char expected_uid[64];       // Required — must match current tag
+    char expected_uid[17];       // Required — must match current tag
     float remaining_g;
 };
 
@@ -141,18 +141,18 @@ private:
     ApplicationManager& operator=(const ApplicationManager&) = delete;
 
     QueueHandle_t messageQueue = nullptr;
-    static constexpr size_t QUEUE_SIZE = 16;
+    static constexpr size_t QUEUE_SIZE = 12;
 
     // LCD reference
     LCDManager* lcdManager = nullptr;
 
     // State machine
     AppState currentState = AppState::IDLE;
-    char startingSpoolId[64] = {0};
+    char startingSpoolId[17] = {0};
     int currentJobId = 0;
     bool spoolChangedDuringPrint = false;
-    char lastDisplayedSpoolId[64] = {0};
-    char lastDisplayedBlankId[64] = {0};
+    char lastDisplayedSpoolId[17] = {0};
+    char lastDisplayedBlankId[17] = {0};
     bool pendingStatusAfterTagRemoved = false;
     uint32_t tagRemovedAtMs = 0;
 

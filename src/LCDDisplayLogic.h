@@ -2,13 +2,13 @@
 #define LCD_DISPLAY_LOGIC_H
 
 #include <cstdint>
-#include <string>
+#include <cstring>
 
 struct LCDDisplayMessage {
-    std::string line1;
-    std::string line2;
-    std::string line3;
-    std::string line4;
+    char line1[17];
+    char line2[17];
+    char line3[17];
+    char line4[17];
     uint8_t lineCount;
 };
 
@@ -16,62 +16,71 @@ class LCDDisplayLogic {
 public:
     LCDDisplayLogic() : _lastDisplayedLineCount(0), _lastDisplayedSinceMs(0), _hasLastDisplayedMessage(false) {}
 
-    LCDDisplayMessage prepareTwoLineMessage(const std::string& line1,
-                                            const std::string& line2,
+    LCDDisplayMessage prepareTwoLineMessage(const char* line1,
+                                            const char* line2,
                                             unsigned long nowMs) const {
         LCDDisplayMessage msg;
-        msg.line1 = line1;
-        msg.line2 = line2;
-        msg.line3.clear();
-        msg.line4.clear();
+        copyLine(msg.line1, line1);
+        copyLine(msg.line2, line2);
+        msg.line3[0] = '\0';
+        msg.line4[0] = '\0';
         msg.lineCount = 2;
 
         if (_hasLastDisplayedMessage &&
             _lastDisplayedLineCount == 2 &&
             (nowMs - _lastDisplayedSinceMs < RECENT_TWO_LINE_COMBINE_MS)) {
-            msg.line1 = _lastDisplayedLine1;
-            msg.line2 = _lastDisplayedLine2;
-            msg.line3 = line1;
-            msg.line4 = line2;
+            copyLine(msg.line1, _lastDisplayedLine1);
+            copyLine(msg.line2, _lastDisplayedLine2);
+            copyLine(msg.line3, line1);
+            copyLine(msg.line4, line2);
             msg.lineCount = 4;
         }
 
         return msg;
     }
 
-    LCDDisplayMessage prepareFourLineMessage(const std::string& line1,
-                                             const std::string& line2,
-                                             const std::string& line3,
-                                             const std::string& line4) const {
+    LCDDisplayMessage prepareFourLineMessage(const char* line1,
+                                             const char* line2,
+                                             const char* line3,
+                                             const char* line4) const {
         LCDDisplayMessage msg;
-        msg.line1 = line1;
-        msg.line2 = line2;
-        msg.line3 = line3;
-        msg.line4 = line4;
+        copyLine(msg.line1, line1);
+        copyLine(msg.line2, line2);
+        copyLine(msg.line3, line3);
+        copyLine(msg.line4, line4);
         msg.lineCount = 4;
         return msg;
     }
 
     void noteDisplayedMessage(const LCDDisplayMessage& msg, unsigned long nowMs) {
-        _lastDisplayedLine1 = msg.line1;
-        _lastDisplayedLine2 = msg.line2;
+        copyLine(_lastDisplayedLine1, msg.line1);
+        copyLine(_lastDisplayedLine2, msg.line2);
         _lastDisplayedLineCount = msg.lineCount;
         _lastDisplayedSinceMs = nowMs;
         _hasLastDisplayedMessage = true;
     }
 
     void reset() {
-        _lastDisplayedLine1.clear();
-        _lastDisplayedLine2.clear();
+        _lastDisplayedLine1[0] = '\0';
+        _lastDisplayedLine2[0] = '\0';
         _lastDisplayedLineCount = 0;
         _lastDisplayedSinceMs = 0;
         _hasLastDisplayedMessage = false;
     }
 
 private:
+    static void copyLine(char* dst, const char* src) {
+        if (src == nullptr) {
+            dst[0] = '\0';
+            return;
+        }
+        strncpy(dst, src, 16);
+        dst[16] = '\0';
+    }
+
     static const uint32_t RECENT_TWO_LINE_COMBINE_MS = 5000;
-    std::string _lastDisplayedLine1;
-    std::string _lastDisplayedLine2;
+    char _lastDisplayedLine1[17] = {0};
+    char _lastDisplayedLine2[17] = {0};
     uint8_t _lastDisplayedLineCount;
     unsigned long _lastDisplayedSinceMs;
     bool _hasLastDisplayedMessage;

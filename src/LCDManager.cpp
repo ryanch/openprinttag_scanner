@@ -1,7 +1,6 @@
 #include "LCDManager.h"
 #include <Arduino.h>
 #include <cstring>
-#include <algorithm>
 
 LCDManager::LCDManager(uint8_t lcd_Addr, uint8_t lcd_cols, uint8_t lcd_rows)
     : _lcd(lcd_Addr, lcd_cols, lcd_rows), _lcd_cols(lcd_cols), _messageQueue(nullptr), _taskHandle(nullptr),
@@ -16,12 +15,16 @@ void LCDManager::begin() {
     _lastChangeTime = millis();
 }
 
-void LCDManager::updateScreen(const std::string& line1, const std::string& line2) {
+void LCDManager::updateScreen(const char* line1, const char* line2) {
     ScreenMessage msg;
     memset(&msg, 0, sizeof(msg));
-    size_t copyLen = std::min(static_cast<size_t>(_lcd_cols), sizeof(msg.line1) - 1);
-    auto copyLine = [copyLen](char* dst, const std::string& src) {
-        strncpy(dst, src.c_str(), copyLen);
+    size_t copyLen = (_lcd_cols < 16) ? _lcd_cols : 16;
+    auto copyLine = [copyLen](char* dst, const char* src) {
+        if (src == nullptr) {
+            dst[0] = '\0';
+            return;
+        }
+        strncpy(dst, src, copyLen);
         dst[copyLen] = '\0';
     };
 
@@ -40,12 +43,16 @@ void LCDManager::updateScreen(const std::string& line1, const std::string& line2
     xQueueSend(_messageQueue, &msg, 0);
 }
 
-void LCDManager::updateScreen(const std::string& line1, const std::string& line2, const std::string& line3, const std::string& line4) {
+void LCDManager::updateScreen(const char* line1, const char* line2, const char* line3, const char* line4) {
     ScreenMessage msg;
     memset(&msg, 0, sizeof(msg));
-    size_t copyLen = std::min(static_cast<size_t>(_lcd_cols), sizeof(msg.line1) - 1);
-    auto copyLine = [copyLen](char* dst, const std::string& src) {
-        strncpy(dst, src.c_str(), copyLen);
+    size_t copyLen = (_lcd_cols < 16) ? _lcd_cols : 16;
+    auto copyLine = [copyLen](char* dst, const char* src) {
+        if (src == nullptr) {
+            dst[0] = '\0';
+            return;
+        }
+        strncpy(dst, src, copyLen);
         dst[copyLen] = '\0';
     };
 
@@ -103,24 +110,26 @@ void LCDManager::taskLoop() {
 }
 
 void LCDManager::processQueue() {
-    auto renderLines = [this](const std::string& line1, const std::string& line2) {
+    auto renderLines = [this](const char* line1, const char* line2) {
         bool changed = false;
 
-        if (line1 != _currentLine1) {
-            _currentLine1 = line1;
+        if (strcmp(line1, _currentLine1) != 0) {
+            strncpy(_currentLine1, line1, sizeof(_currentLine1) - 1);
+            _currentLine1[sizeof(_currentLine1) - 1] = '\0';
             _lcd.setCursor(0, 0);
-            _lcd.print(_currentLine1.c_str());
-            for (size_t i = _currentLine1.length(); i < _lcd_cols; ++i) {
+            _lcd.print(_currentLine1);
+            for (size_t i = strlen(_currentLine1); i < _lcd_cols; ++i) {
                 _lcd.print(" ");
             }
             changed = true;
         }
 
-        if (line2 != _currentLine2) {
-            _currentLine2 = line2;
+        if (strcmp(line2, _currentLine2) != 0) {
+            strncpy(_currentLine2, line2, sizeof(_currentLine2) - 1);
+            _currentLine2[sizeof(_currentLine2) - 1] = '\0';
             _lcd.setCursor(0, 1);
-            _lcd.print(_currentLine2.c_str());
-            for (size_t i = _currentLine2.length(); i < _lcd_cols; ++i) {
+            _lcd.print(_currentLine2);
+            for (size_t i = strlen(_currentLine2); i < _lcd_cols; ++i) {
                 _lcd.print(" ");
             }
             changed = true;
@@ -147,15 +156,27 @@ void LCDManager::processQueue() {
     ScreenMessage msg;
     if (xQueueReceive(_messageQueue, &msg, 0) == pdTRUE) {
         uint8_t previousActiveLineCount = _activeLineCount;
-        std::string previousLine1 = _activeLine1;
-        std::string previousLine2 = _activeLine2;
-        std::string previousLine3 = _activeLine3;
-        std::string previousLine4 = _activeLine4;
+        char previousLine1[17];
+        char previousLine2[17];
+        char previousLine3[17];
+        char previousLine4[17];
+        strncpy(previousLine1, _activeLine1, sizeof(previousLine1) - 1);
+        strncpy(previousLine2, _activeLine2, sizeof(previousLine2) - 1);
+        strncpy(previousLine3, _activeLine3, sizeof(previousLine3) - 1);
+        strncpy(previousLine4, _activeLine4, sizeof(previousLine4) - 1);
+        previousLine1[16] = '\0';
+        previousLine2[16] = '\0';
+        previousLine3[16] = '\0';
+        previousLine4[16] = '\0';
 
-        _activeLine1 = std::string(msg.line1);
-        _activeLine2 = std::string(msg.line2);
-        _activeLine3 = std::string(msg.line3);
-        _activeLine4 = std::string(msg.line4);
+        strncpy(_activeLine1, msg.line1, sizeof(_activeLine1) - 1);
+        strncpy(_activeLine2, msg.line2, sizeof(_activeLine2) - 1);
+        strncpy(_activeLine3, msg.line3, sizeof(_activeLine3) - 1);
+        strncpy(_activeLine4, msg.line4, sizeof(_activeLine4) - 1);
+        _activeLine1[16] = '\0';
+        _activeLine2[16] = '\0';
+        _activeLine3[16] = '\0';
+        _activeLine4[16] = '\0';
         _activeLineCount = (msg.lineCount == 4) ? 4 : 2;
         _currentPage = 0;
         _lastPageSwitchTimeMs = millis();
@@ -163,10 +184,10 @@ void LCDManager::processQueue() {
         bool changed = renderLines(_activeLine1, _activeLine2);
 
         // Check if this is a new message (any line content or line count changed)
-        bool isNewMessage = (previousLine1 != _activeLine1 ||
-                            previousLine2 != _activeLine2 ||
-                            previousLine3 != _activeLine3 ||
-                            previousLine4 != _activeLine4 ||
+        bool isNewMessage = (strcmp(previousLine1, _activeLine1) != 0 ||
+                            strcmp(previousLine2, _activeLine2) != 0 ||
+                            strcmp(previousLine3, _activeLine3) != 0 ||
+                            strcmp(previousLine4, _activeLine4) != 0 ||
                             previousActiveLineCount != _activeLineCount);
 
         if (isNewMessage) {
@@ -176,10 +197,14 @@ void LCDManager::processQueue() {
         if (changed || previousActiveLineCount != _activeLineCount) {
             unsigned long nowMs = millis();
             LCDDisplayMessage displayedMsg;
-            displayedMsg.line1 = msg.line1;
-            displayedMsg.line2 = msg.line2;
-            displayedMsg.line3 = msg.line3;
-            displayedMsg.line4 = msg.line4;
+            strncpy(displayedMsg.line1, msg.line1, sizeof(displayedMsg.line1) - 1);
+            strncpy(displayedMsg.line2, msg.line2, sizeof(displayedMsg.line2) - 1);
+            strncpy(displayedMsg.line3, msg.line3, sizeof(displayedMsg.line3) - 1);
+            strncpy(displayedMsg.line4, msg.line4, sizeof(displayedMsg.line4) - 1);
+            displayedMsg.line1[sizeof(displayedMsg.line1) - 1] = '\0';
+            displayedMsg.line2[sizeof(displayedMsg.line2) - 1] = '\0';
+            displayedMsg.line3[sizeof(displayedMsg.line3) - 1] = '\0';
+            displayedMsg.line4[sizeof(displayedMsg.line4) - 1] = '\0';
             displayedMsg.lineCount = _activeLineCount;
             taskENTER_CRITICAL(&_stateMux);
             _displayLogic.noteDisplayedMessage(displayedMsg, nowMs);

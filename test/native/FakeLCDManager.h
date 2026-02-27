@@ -20,12 +20,12 @@ public:
 
     void begin() {}
 
-    void updateScreen(const std::string& line1, const std::string& line2) {
+    void updateScreen(const char* line1, const char* line2) {
         LCDDisplayMessage displayMsg = displayLogic.prepareTwoLineMessage(line1, line2, nowMs);
         applyDisplayMessage(displayMsg);
     }
 
-    void updateScreen(const std::string& line1, const std::string& line2, const std::string& line3, const std::string& line4) {
+    void updateScreen(const char* line1, const char* line2, const char* line3, const char* line4) {
         LCDDisplayMessage displayMsg = displayLogic.prepareFourLineMessage(line1, line2, line3, line4);
         applyDisplayMessage(displayMsg);
     }

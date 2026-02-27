@@ -113,7 +113,11 @@ bool ConfigurationManager::saveToNVS() {
     return true;
 }
 
-String ConfigurationManager::readConfig() {
+size_t ConfigurationManager::readConfig(char* out, size_t outSize) {
+    if (out == nullptr || outSize == 0) {
+        return 0;
+    }
+
     JsonDocument doc;
 
     doc["ssid"] = _ssid;
@@ -131,9 +135,11 @@ String ConfigurationManager::readConfig() {
     doc["automation_mode"] = _automationMode;
     doc["device_version"] = DEVICE_VERSION;
 
-    String output;
-    serializeJson(doc, output);
-    return output;
+    size_t written = serializeJson(doc, out, outSize);
+    if (written >= outSize) {
+        out[outSize - 1] = '\0';
+    }
+    return written;
 }
 
 bool ConfigurationManager::postConfigUpdate(const char* json) {

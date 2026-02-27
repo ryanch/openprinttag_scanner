@@ -28,7 +28,7 @@ enum class AutomationMode : uint8_t {
 enum class AppState { IDLE, MONITORING_PRINT };
 
 struct SpoolDetectedPayload {
-    char spool_id[64];
+    char spool_id[17];
     uint8_t material_type;
     float kg_remaining;
     uint8_t primary_color[4];
@@ -36,46 +36,46 @@ struct SpoolDetectedPayload {
     float density;
     float diameter;
     float initial_weight_g;
-    char manufacturer[64];
+    char manufacturer[33];
     int32_t spoolman_id;
 };
 
 struct SpoolUpdatedPayload {
-    char spool_id[64];
+    char spool_id[17];
     uint8_t update_type;
     bool success;
     float kg_remaining;
 };
 
 struct BlankTagPayload {
-    char spool_id[64];
+    char spool_id[17];
 };
 
 struct SpoolmanSyncedPayload {
-    char spool_id[64];
+    char spool_id[17];
     bool success;
     float kg_remaining;
     int32_t spoolman_id;
 };
 
 struct TagRemovedPayload {
-    char spool_id[64];
+    char spool_id[17];
     float last_remaining_kg;
     int32_t spoolman_id;
 };
 
 struct HAWriteTagPayload {
-    char expected_uid[64];
+    char expected_uid[17];
     uint8_t material_type;
     uint8_t color[4];
-    char manufacturer[64];
+    char manufacturer[33];
     float initial_weight_g;
     float remaining_g;
     int32_t spoolman_id;
 };
 
 struct HAUpdateRemainingPayload {
-    char expected_uid[64];
+    char expected_uid[17];
     float remaining_g;
 };
 

@@ -196,7 +196,7 @@ void NFCManager::scanLoop() {
                     Serial.println("NFCManager: readAndParseTag() failed - treating as blank tag");
                     // Take mutex briefly for blank tag state update
                     if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                        for (uint8_t i = 0; i < uidLength && i < 31; i++) {
+                        for (uint8_t i = 0; i < uidLength && i < 8; i++) {
                             sprintf(currentSpool.spool_id + (i * 2), "%02X", uid[i]);
                         }
                         currentSpool.spool_id[uidLength * 2] = '\0';
@@ -280,7 +280,7 @@ bool NFCManager::readAndParseTag(uint8_t* uid, uint8_t uid_length) {
     currentSpool.tag_data = localTag;
 
     // Store UID as hex string
-    for (uint8_t i = 0; i < uid_length && i < 31; i++) {
+    for (uint8_t i = 0; i < uid_length && i < 8; i++) {
         sprintf(currentSpool.spool_id + (i * 2), "%02X", uid[i]);
     }
     currentSpool.spool_id[uid_length * 2] = '\0';
@@ -906,7 +906,7 @@ bool NFCManager::scanOnce() {
             } else {
                 // Blank tag detected — take mutex briefly for state update
                 if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) == pdTRUE) {
-                    for (uint8_t i = 0; i < uidLength && i < 31; i++) {
+                    for (uint8_t i = 0; i < uidLength && i < 8; i++) {
                         sprintf(currentSpool.spool_id + (i * 2), "%02X", uid[i]);
                     }
                     currentSpool.spool_id[uidLength * 2] = '\0';

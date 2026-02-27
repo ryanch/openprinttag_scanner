@@ -539,16 +539,15 @@ void HomeAssistantManager::publishDiscovery() {
 }
 
 void HomeAssistantManager::publishCurrentTagState() {
-    CurrentSpoolState* spool = new CurrentSpoolState();
-    if (spool == nullptr) return;
+    CurrentSpoolState& spool = spoolScratch_;
 
-    bool got = NFCManager::getInstance().getCurrentSpoolState(*spool);
+    bool got = NFCManager::getInstance().getCurrentSpoolState(spool);
     char stateTopic[64];
     char attrsTopic[64];
     snprintf(stateTopic, sizeof(stateTopic), "openprinttag/%s/tag/state", deviceId_);
     snprintf(attrsTopic, sizeof(attrsTopic), "openprinttag/%s/tag/attributes", deviceId_);
 
-    if (!got || !spool->present) {
+    if (!got || !spool.present) {
         // Publish "not present" so HA entities are in a known state.
         const char* emptyState =
             "{\"uid\":\"\",\"present\":false,\"tag_data_valid\":false,\"material_type\":\"\","
@@ -558,7 +557,6 @@ void HomeAssistantManager::publishCurrentTagState() {
         mqttClient.publish(stateTopic, emptyState, true);
         mqttClient.publish(attrsTopic, emptyState, true);
         Serial.println("HomeAssistantManager: Published tag state (not present)");
-        delete spool;
         return;
     }
 
@@ -570,18 +568,18 @@ void HomeAssistantManager::publishCurrentTagState() {
     float remaining = 1000.0f;
     int32_t spoolmanId = -1;
 
-    if (spool->tag_data_valid) {
+    if (spool.tag_data_valid) {
         uint8_t matType = 0;
-        opt_get_material_type(&spool->tag_data, &matType);
+        opt_get_material_type(&spool.tag_data, &matType);
         materialName = materialTypeToString(matType);
-        opt_get_primary_color(&spool->tag_data, color);
-        opt_get_brand_name(&spool->tag_data, manufacturer, sizeof(manufacturer));
-        opt_get_actual_full_weight(&spool->tag_data, &fullWeight);
+        opt_get_primary_color(&spool.tag_data, color);
+        opt_get_brand_name(&spool.tag_data, manufacturer, sizeof(manufacturer));
+        opt_get_actual_full_weight(&spool.tag_data, &fullWeight);
         float consumed = 0.0f;
-        opt_get_consumed_weight(&spool->tag_data, &consumed);
+        opt_get_consumed_weight(&spool.tag_data, &consumed);
         remaining = fullWeight - consumed;
         if (remaining < 0) remaining = 0;
-        opt_get_gp_spoolman_id(&spool->tag_data, &spoolmanId);
+        opt_get_gp_spoolman_id(&spool.tag_data, &spoolmanId);
     }
 
     char colorHex[8];
@@ -593,16 +591,15 @@ void HomeAssistantManager::publishCurrentTagState() {
              "\"material_name\":\"%s\",\"color\":\"%s\",\"manufacturer\":\"%s\","
              "\"remaining_g\":%.1f,\"initial_weight_g\":%.1f,\"spoolman_id\":%d,"
              "\"blank\":%s}",
-             spool->spool_id,
-             spool->tag_data_valid ? "true" : "false",
+             spool.spool_id,
+             spool.tag_data_valid ? "true" : "false",
              materialName, materialName, colorHex,
              manufacturer, remaining, fullWeight, spoolmanId,
-             spool->blank_tag_present ? "true" : "false");
+             spool.blank_tag_present ? "true" : "false");
 
     mqttClient.publish(stateTopic, json, true);
     mqttClient.publish(attrsTopic, json, true);
-    Serial.printf("HomeAssistantManager: Published current tag state uid=%s\n", spool->spool_id);
-    delete spool;
+    Serial.printf("HomeAssistantManager: Published current tag state uid=%s\n", spool.spool_id);
 }
 
 // Static callback - routes to instance
@@ -653,18 +650,10 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
         return;
     }
 
-    // CurrentSpoolState is ~1KB (contains opt_tag_t with 924B data[]).
-    // Heap-allocate to avoid stack overflow in the MQTT callback chain.
-    CurrentSpoolState* spool = new CurrentSpoolState();
-    if (spool == nullptr) {
-        Serial.println("HomeAssistantManager: heap alloc failed for CurrentSpoolState");
-        publishCommandResponse(command, false, "heap_alloc_failed");
-        return;
-    }
-    if (!NFCManager::getInstance().getCurrentSpoolState(*spool) || !spool->present) {
+    CurrentSpoolState& spool = spoolScratch_;
+    if (!NFCManager::getInstance().getCurrentSpoolState(spool) || !spool.present) {
         Serial.printf("HomeAssistantManager: Rejecting cmd '%s': no tag present\n", command);
         publishCommandResponse(command, false, "no_tag_present");
-        delete spool;
         return;
     }
 
@@ -673,22 +662,20 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
     if (strlen(uid) == 0) {
         Serial.printf("HomeAssistantManager: Rejecting cmd '%s': missing uid in payload/topic: %s\n", command, payload);
         publishCommandResponse(command, false, "missing_uid");
-        delete spool;
         return;
     }
 
-    if (strcmp(uid, spool->spool_id) != 0) {
+    if (strcmp(uid, spool.spool_id) != 0) {
         Serial.printf("HomeAssistantManager: Rejecting cmd '%s': uid_mismatch expected=%s actual=%s\n",
-                      command, uid, spool->spool_id);
+                      command, uid, spool.spool_id);
         char errPayload[256];
         snprintf(errPayload, sizeof(errPayload),
                  "{\"command\":\"%s\",\"success\":false,\"error\":\"uid_mismatch\","
                  "\"expected\":\"%s\",\"actual\":\"%s\"}",
-                 command, uid, spool->spool_id);
+                 command, uid, spool.spool_id);
         char respTopic[64];
         snprintf(respTopic, sizeof(respTopic), "openprinttag/%s/cmd/response", deviceId_);
         mqttClient.publish(respTopic, errPayload, false);
-        delete spool;
         return;
     }
 
@@ -701,16 +688,16 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
         float currentRemaining = 1000.0f;
         int32_t currentSpoolmanId = -1;
 
-        if (spool->tag_data_valid) {
-            opt_get_material_type(&spool->tag_data, &currentMaterial);
-            opt_get_primary_color(&spool->tag_data, currentColor);
-            opt_get_brand_name(&spool->tag_data, currentManufacturer, sizeof(currentManufacturer));
-            opt_get_actual_full_weight(&spool->tag_data, &currentFullWeight);
+        if (spool.tag_data_valid) {
+            opt_get_material_type(&spool.tag_data, &currentMaterial);
+            opt_get_primary_color(&spool.tag_data, currentColor);
+            opt_get_brand_name(&spool.tag_data, currentManufacturer, sizeof(currentManufacturer));
+            opt_get_actual_full_weight(&spool.tag_data, &currentFullWeight);
             float consumed = 0.0f;
-            opt_get_consumed_weight(&spool->tag_data, &consumed);
+            opt_get_consumed_weight(&spool.tag_data, &consumed);
             currentRemaining = currentFullWeight - consumed;
             if (currentRemaining < 0) currentRemaining = 0;
-            opt_get_gp_spoolman_id(&spool->tag_data, &currentSpoolmanId);
+            opt_get_gp_spoolman_id(&spool.tag_data, &currentSpoolmanId);
         }
 
         AppMessage msg;
@@ -761,7 +748,6 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
         if (!queued) {
             Serial.println("HomeAssistantManager: Failed to queue HA write_tag message");
             publishCommandResponse(command, false, "app_queue_full");
-            delete spool;
             return;
         }
         publishCommandResponse(command, true, nullptr);
@@ -771,20 +757,18 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
         if (remainingG < 0) {
             Serial.printf("HomeAssistantManager: update_remaining: missing or negative remaining_g in payload\n");
             publishCommandResponse(command, false, "missing_remaining_g");
-            delete spool;
             return;
         }
 
-        if (!spool->tag_data_valid) {
+        if (!spool.tag_data_valid) {
             Serial.printf("HomeAssistantManager: update_remaining: tag data unavailable for uid=%s\n", uid);
             publishCommandResponse(command, false, "tag_data_unavailable");
-            delete spool;
             return;
         }
 
         // Compute consumed weight from current tag data
         float fullWeight = 0.0f;
-        opt_get_actual_full_weight(&spool->tag_data, &fullWeight);
+        opt_get_actual_full_weight(&spool.tag_data, &fullWeight);
         float consumed = fullWeight - remainingG;
         if (consumed < 0) consumed = 0;
         Serial.printf("HomeAssistantManager: update_remaining uid=%s full=%.1f remaining=%.1f consumed=%.1f\n",
@@ -801,7 +785,6 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
         if (!queued) {
             Serial.println("HomeAssistantManager: Failed to queue HA update_remaining message");
             publishCommandResponse(command, false, "app_queue_full");
-            delete spool;
             return;
         }
         publishCommandResponse(command, true, nullptr);
@@ -809,7 +792,6 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
     } else {
         publishCommandResponse(command, false, "unknown_command");
     }
-    delete spool;
 }
 
 void HomeAssistantManager::publishCommandResponse(const char* command, bool success, const char* error) {

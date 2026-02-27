@@ -1,5 +1,6 @@
 #include "StubPrinterLinkStrategy.h"
 #include <Arduino.h>
+#include <cstring>
 
 void StubPrinterLinkStrategy::update() {
     // Initialize start time on first call
@@ -22,7 +23,7 @@ void StubPrinterLinkStrategy::update() {
         jobId = -1;
         progress = 0.0f;
         totalFilamentG = 0.0f;
-        jobState = "";
+        jobState[0] = '\0';
     } else {
         unsigned long jobElapsedMs = elapsedMs - JOB_START_DELAY_MS;
 
@@ -32,11 +33,13 @@ void StubPrinterLinkStrategy::update() {
 
         if (jobElapsedMs < PRINT_DURATION_MS) {
             // Printing: progress from 0% to 100% over 60 seconds
-            jobState = "PRINTING";
+            strncpy(jobState, "PRINTING", sizeof(jobState) - 1);
+            jobState[sizeof(jobState) - 1] = '\0';
             progress = (float)jobElapsedMs / (float)PRINT_DURATION_MS * 100.0f;
         } else {
             // Finished
-            jobState = "FINISHED";
+            strncpy(jobState, "FINISHED", sizeof(jobState) - 1);
+            jobState[sizeof(jobState) - 1] = '\0';
             progress = 100.0f;
         }
     }

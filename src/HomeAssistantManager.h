@@ -2,6 +2,7 @@
 #define HOME_ASSISTANT_MANAGER_H
 
 #include <cstdint>
+#include "NFCTypes.h"
 
 #ifndef NATIVE_TEST
   #include <freertos/FreeRTOS.h>
@@ -70,12 +71,13 @@ private:
     uint32_t lastReconnectAttempt_ = 0;
     static constexpr uint32_t MAX_RECONNECT_DELAY = 30000;
 
-    static constexpr size_t QUEUE_SIZE = 8;
-    static constexpr size_t TASK_STACK_SIZE = 8192;
+    static constexpr size_t QUEUE_SIZE = 6;
+    static constexpr size_t TASK_STACK_SIZE = 7168;
     static constexpr UBaseType_t TASK_PRIORITY = 2;
 
     // Device ID cache
     char deviceId_[7] = {0}; // 6 hex chars + null
+    CurrentSpoolState spoolScratch_;
 };
 
 #endif // HOME_ASSISTANT_MANAGER_H

@@ -2,6 +2,7 @@
 #include "ConfigurationManager.h"
 #include "ApplicationManager.h"
 #include <Arduino.h>
+#include <cstring>
 
 PrinterManager& PrinterManager::getInstance() {
     static PrinterManager instance;
@@ -79,11 +80,11 @@ void PrinterManager::poll() {
     int jobId = strategy->getJobId();
     float progress = strategy->getProgress();
     float totalFilamentG = strategy->getTotalFilamentGrams();
-    String jobState = strategy->getJobState();
+    const char* jobState = strategy->getJobState();
 
     // State machine logic
     if (state == PrinterState::IDLE) {
-        if (jobState == "PRINTING" || jobState == "PAUSED") {
+        if (strcmp(jobState, "PRINTING") == 0 || strcmp(jobState, "PAUSED") == 0) {
             handleJobDetected(jobId, totalFilamentG);
         }
     } else if (state == PrinterState::TRACKING) {
@@ -104,9 +105,9 @@ void PrinterManager::poll() {
             currentJobTotalFilamentG = totalFilamentG;
         }
 
-        if (jobState == "FINISHED") {
+        if (strcmp(jobState, "FINISHED") == 0) {
             resolveAndSendJobEnd(jobId, 100.0f);
-        } else if (jobState == "STOPPED" || jobState == "ERROR") {
+        } else if (strcmp(jobState, "STOPPED") == 0 || strcmp(jobState, "ERROR") == 0) {
             resolveAndSendJobEnd(jobId, progress);
         }
         // PRINTING or PAUSED - continue tracking

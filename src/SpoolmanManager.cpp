@@ -7,6 +7,10 @@
 #include <Arduino.h>
 #include "openprinttag_lib.h"
 
+static constexpr size_t JSON_SMALL_CAPACITY = 256;
+static constexpr size_t JSON_MEDIUM_CAPACITY = 768;
+static constexpr size_t JSON_LARGE_CAPACITY = 2048;
+
 // --- File-local HTTP helpers ---
 
 static int httpGet(const char* path, String& response) {
@@ -14,7 +18,8 @@ static int httpGet(const char* path, String& response) {
     WiFiClient client;
     HTTPClient http;
 
-    String url = String(baseUrl) + path;
+    char url[256];
+    snprintf(url, sizeof(url), "%s%s", baseUrl, path);
     http.begin(client, url);
     int code = http.GET();
     if (code > 0) {
@@ -29,7 +34,8 @@ static int httpPost(const char* path, const char* body, String& response) {
     WiFiClient client;
     HTTPClient http;
 
-    String url = String(baseUrl) + path;
+    char url[256];
+    snprintf(url, sizeof(url), "%s%s", baseUrl, path);
     http.begin(client, url);
     http.addHeader("Content-Type", "application/json");
     int code = http.POST(body);
@@ -45,7 +51,8 @@ static int httpPatch(const char* path, const char* body, String& response) {
     WiFiClient client;
     HTTPClient http;
 
-    String url = String(baseUrl) + path;
+    char url[256];
+    snprintf(url, sizeof(url), "%s%s", baseUrl, path);
     http.begin(client, url);
     http.addHeader("Content-Type", "application/json");
     int code = http.PATCH(body);
@@ -96,9 +103,10 @@ static int findOrCreateVendor(const char* name) {
     }
 
     // Search for existing vendor
-    String path = String("/api/v1/vendor?name=") + name;
+    char path[192];
+    snprintf(path, sizeof(path), "/api/v1/vendor?name=%s", name);
     String response;
-    int code = httpGet(path.c_str(), response);
+    int code = httpGet(path, response);
 
     Serial.printf("SpoolmanManager: get vendor '%s' code=%d\n", name, code);
 

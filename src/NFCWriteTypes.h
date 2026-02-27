@@ -19,13 +19,13 @@ enum class NFCWriteType : uint8_t {
 struct NFCWriteRequest {
     uint32_t request_id;         // Unique ID for deduplication
     NFCWriteType type;
-    char expected_spool_id[64];  // Only write if this spool is present (empty = any)
+    char expected_spool_id[17];  // Only write if this spool is present (empty = any)
     union {
         float grams_to_remove;
         uint8_t new_color[4];    // RGBA
         uint8_t new_material_type;
         float consumed_weight;   // Absolute consumed weight in grams
-        char brand_name[64];     // Manufacturer name
+        char brand_name[33];     // Manufacturer name
         int32_t spoolman_id;     // Spoolman spool ID for tag write-back
     } data;
 };

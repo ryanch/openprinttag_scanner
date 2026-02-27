@@ -38,7 +38,6 @@ static BLECharacteristic* s_config_write_char = nullptr;
 static bool s_is_connected = false;
 static bool s_is_advertising = false;
 static char s_response_buffer[BLE_RESPONSE_SIZE];
-static String s_write_buffer;
 
 // Forward declarations
 static void process_command(const char* json);
@@ -102,12 +101,13 @@ static void process_command(const char* json) {
     const char* command = doc["command"] | "";
 
     if (strcmp(command, "read_config") == 0) {
-        String config = ConfigurationManager::getInstance().readConfig();
+        char config[512];
+        ConfigurationManager::getInstance().readConfig(config, sizeof(config));
         if (s_config_read_char) {
-            s_config_read_char->setValue(config.c_str());
+            s_config_read_char->setValue(config);
         }
         snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-        Serial.printf("%s: Config read requested, len=%d\n", TAG, config.length());
+        Serial.printf("%s: Config read requested, len=%u\n", TAG, static_cast<unsigned>(strlen(config)));
     }
     else if (strcmp(command, "write_config") == 0) {
         if (ConfigurationManager::getInstance().postConfigUpdate(json)) {
@@ -197,10 +197,10 @@ static void process_command(const char* json) {
                 recentObj["spoolman_id"] = recentEntries[i].spoolman_id;
         }
 
-        String response;
-        serializeJson(responseDoc, response);
+        char response[1024];
+        serializeJson(responseDoc, response, sizeof(response));
         if (s_config_read_char) {
-            s_config_read_char->setValue(response.c_str());
+            s_config_read_char->setValue(response);
         }
         snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
         //Serial.printf("%s: list_spools completed\n", TAG);
@@ -364,7 +364,8 @@ static void process_command(const char* json) {
         } else {
             WiFiClient client;
             HTTPClient http;
-            String testUrl = String(url) + "/api/v1/info";
+            char testUrl[192];
+            snprintf(testUrl, sizeof(testUrl), "%s/api/v1/info", url);
             http.begin(client, testUrl);
             http.setTimeout(5000);
             int httpCode = http.GET();
@@ -387,7 +388,7 @@ static void process_command(const char* json) {
                     snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
                 }
             }
-            Serial.printf("%s: test_spoolman %s -> %d\n", TAG, testUrl.c_str(), httpCode);
+            Serial.printf("%s: test_spoolman %s -> %d\n", TAG, testUrl, httpCode);
         }
     }
     else if (strcmp(command, "test_mqtt") == 0) {
@@ -423,7 +424,8 @@ static void process_command(const char* json) {
         } else {
             WiFiClient client;
             HTTPClient http;
-            String testUrl = String(url) + "/api/v1/status";
+            char testUrl[192];
+            snprintf(testUrl, sizeof(testUrl), "%s/api/v1/status", url);
             http.begin(client, testUrl);
             http.setTimeout(5000);
             if (strlen(apiKey) > 0) {
@@ -438,7 +440,7 @@ static void process_command(const char* json) {
                 snprintf(s_response_buffer, sizeof(s_response_buffer),
                     "{\"status\":\"error\",\"message\":\"HTTP %d\",\"code\":%d}", httpCode, httpCode);
             }
-            Serial.printf("%s: test_prusalink %s -> %d\n", TAG, testUrl.c_str(), httpCode);
+            Serial.printf("%s: test_prusalink %s -> %d\n", TAG, testUrl, httpCode);
         }
     }
     else {
@@ -459,7 +461,6 @@ class ServerCallbacks : public BLEServerCallbacks {
     void onConnect(BLEServer* pServer) override {
         s_is_connected = true;
         s_is_advertising = false;
-        s_write_buffer = "";
         s_response_buffer[0] = '\0';
         Serial.printf("%s: Client connected\n", TAG);
     }

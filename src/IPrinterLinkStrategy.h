@@ -17,7 +17,7 @@ public:
     virtual float getTotalFilamentGrams() const = 0;
 
     // Job state: "PRINTING", "PAUSED", "FINISHED", "STOPPED", "ERROR", or ""
-    virtual String getJobState() const = 0;
+    virtual const char* getJobState() const = 0;
 
     // Connection status
     virtual bool isConnected() const = 0;

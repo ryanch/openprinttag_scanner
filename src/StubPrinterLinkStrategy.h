@@ -11,7 +11,7 @@ public:
     int getJobId() const override { return jobId; }
     float getProgress() const override { return progress; }
     float getTotalFilamentGrams() const override { return totalFilamentG; }
-    String getJobState() const override { return jobState; }
+    const char* getJobState() const override { return jobState; }
     bool isConnected() const override { return true; }  // Always connected
 
 private:
@@ -27,7 +27,7 @@ private:
     int jobId = -1;
     float progress = 0.0f;
     float totalFilamentG = 0.0f;
-    String jobState = "";
+    char jobState[16] = {0};
 };
 
 #endif // STUB_PRINTER_LINK_STRATEGY_H

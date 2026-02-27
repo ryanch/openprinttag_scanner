@@ -8,9 +8,9 @@
 #include <string>
 
 struct SpoolmanSyncRequest {
-    char spool_id[64];           // NFC tag UID hex string
+    char spool_id[17];           // NFC tag UID hex string
     uint8_t material_type;       // OPT_MATERIAL_TYPE_PLA, etc.
-    char manufacturer[64];       // Brand name from tag
+    char manufacturer[33];       // Brand name from tag
     uint8_t color[4];            // RGBA from tag
     float remaining_weight_g;    // Remaining weight in grams
     float initial_weight_g;      // Full spool weight in grams
@@ -41,7 +41,7 @@ private:
     TaskHandle_t taskHandle = nullptr;
 
     static constexpr size_t QUEUE_SIZE = 4;
-    static constexpr size_t TASK_STACK_SIZE = 8192;
+    static constexpr size_t TASK_STACK_SIZE = 6144;
     static constexpr UBaseType_t TASK_PRIORITY = 1;
     static constexpr TickType_t HTTP_MUTEX_TIMEOUT = pdMS_TO_TICKS(10000);
 };

@@ -40,7 +40,7 @@ private:
     IPrinterLinkStrategy* strategy = nullptr;
 
     TaskHandle_t pollingTaskHandle = nullptr;
-    static constexpr size_t POLLING_TASK_STACK_SIZE = 8192;
+    static constexpr size_t POLLING_TASK_STACK_SIZE = 6144;
     static constexpr UBaseType_t POLLING_TASK_PRIORITY = 1;
 };
 

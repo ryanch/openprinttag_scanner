@@ -9,7 +9,7 @@
 struct CurrentSpoolState {
     bool present;
     bool blank_tag_present;
-    char spool_id[64];
+    char spool_id[17];
     uint8_t uid[8];              // ISO15693 uses 8-byte UID
     uint8_t uid_length;
     opt_tag_t tag_data;          // Cached openprinttag data
@@ -18,10 +18,10 @@ struct CurrentSpoolState {
 
 // Recent spool entry for history tracking (RAM only)
 struct RecentSpoolEntry {
-    char spool_id[64];
+    char spool_id[17];
     uint8_t material_type;
     uint8_t color[4];            // RGBA
-    char manufacturer[64];
+    char manufacturer[33];
     int grams_remaining;
     time_t last_seen;  // Unix timestamp (seconds)
     bool valid;
