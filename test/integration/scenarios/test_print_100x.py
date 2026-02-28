@@ -1,13 +1,15 @@
 """
-Test scenario: Run end-to-end print cycle 100 times
+Test scenario: Run end-to-end print cycles for a configurable count.
 """
 import time
 from .base import BaseTestScenario
 
+PRINT_ITERATIONS = 500
+
 
 class Test100xPrint(BaseTestScenario):
     """
-    Endurance test: Run 100 print cycles to verify stability and accuracy.
+    Endurance test: Run many print cycles to verify stability and accuracy.
 
     Validates:
     - Consistent weight deduction across many prints
@@ -17,17 +19,20 @@ class Test100xPrint(BaseTestScenario):
     """
 
     id = "print_100x"
-    name = "100x Print Endurance Test"
-    description = "Run 100 consecutive print cycles (9.18g each) to verify system stability"
+    name = f"{PRINT_ITERATIONS}x Print Endurance Test"
+    description = (
+        f"Run {PRINT_ITERATIONS} consecutive print cycles "
+        "(9.18g each) to verify system stability"
+    )
 
-    ITERATIONS = 100
+    ITERATIONS = PRINT_ITERATIONS
     FILAMENT_PER_PRINT = 9.18  # grams, from sample.bgcode
     INITIAL_WEIGHT = 1000.0
     TOLERANCE = 2.0  # grams tolerance per check
 
     def run(self):
         """
-        Run 100 print cycles:
+        Run many print cycles:
         1. Set spool to 1000g
         2. For each iteration:
            - Start print (9.18g)
@@ -88,7 +93,7 @@ class Test100xPrint(BaseTestScenario):
             self._assert_approx(actual, self.INITIAL_WEIGHT, self.TOLERANCE, "initial weight")
             self._emit_step("reset_weight", "passed", f"Weight set to {actual}g")
 
-            # Step 6: Run 100 print cycles
+            # Step 6: Run configured print cycles
             expected_weight = self.INITIAL_WEIGHT
 
             for i in range(1, self.ITERATIONS + 1):
@@ -178,7 +183,7 @@ class Test100xPrint(BaseTestScenario):
             final_weight = spools["current"]["grams_remaining"]
 
             summary = (
-                f"100x Print Test Complete\n"
+                f"{self.ITERATIONS}x Print Test Complete\n"
                 f"━━━━━━━━━━━━━━━━━━━━━━━━\n"
                 f"Passed:        {stats['passed']}/{stats['total']}\n"
                 f"Failed:        {stats['failed']}/{stats['total']}\n"
