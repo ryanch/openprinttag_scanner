@@ -19,12 +19,14 @@ from pathlib import Path
 sys.path.insert(0, str(Path(__file__).parent))
 
 from mock_prusalink import MockPrusalinkState
+from mock_spoolman import MockSpoolmanState
 from scenarios.test_format_spool import FormatSpoolTest
 from scenarios.test_set_filament import SetFilamentTest
 from scenarios.test_set_filament_profile import SetFilamentProfileTest
 from scenarios.test_print_e2e import PrintE2ETest
 from scenarios.test_print_30_percent import Print30PercentE2ETest
 from scenarios.test_recent_spools import RecentSpoolsTest
+from scenarios.test_spoolman_sync import SpoolmanSyncTest
 
 
 class TestOrchestrator:
@@ -32,6 +34,7 @@ class TestOrchestrator:
 
     def __init__(self):
         self.mock_state = MockPrusalinkState()
+        self.mock_spoolman = MockSpoolmanState()
         self.tests = {
             "format_spool": {
                 "id": "format_spool",
@@ -68,6 +71,12 @@ class TestOrchestrator:
                 "name": "Recent Spools A/B",
                 "description": "Swap from spool A to spool B and verify recent spool history",
                 "class": RecentSpoolsTest
+            },
+            "spoolman_sync": {
+                "id": "spoolman_sync",
+                "name": "Spoolman Sync",
+                "description": "Verify Spoolman sync with spool A/B swap",
+                "class": SpoolmanSyncTest
             }
         }
 
@@ -110,7 +119,7 @@ class TestOrchestrator:
         self._clear_queue(self.server_url_queue)
 
         # Create test instance
-        self.current_test = test_info["class"](self, self.mock_state)
+        self.current_test = test_info["class"](self, self.mock_state, self.mock_spoolman)
 
         # Start in background
         self.current_test_thread = threading.Thread(
@@ -279,6 +288,39 @@ class IntegrationTestHandler(BaseHTTPRequestHandler):
         elif path.startswith("/usb/"):
             self._serve_bgcode(path)
 
+        # Mock Spoolman API
+        elif path == "/api/v1/vendor":
+            query = parse_qs(parsed.query)
+            name_filter = query.get("name", [None])[0]
+            vendors = self.orchestrator.mock_spoolman.get_vendors(name_filter)
+            self._send_json(vendors)
+
+        elif path == "/api/v1/filament":
+            query = parse_qs(parsed.query)
+            vendor_id = query.get("vendor_id", [None])[0]
+            material = query.get("material", [None])[0]
+            if vendor_id:
+                vendor_id = int(vendor_id)
+            filaments = self.orchestrator.mock_spoolman.get_filaments(vendor_id, material)
+            self._send_json(filaments)
+
+        elif path.startswith("/api/v1/spool/") and len(path.split("/")) == 5:
+            # GET /api/v1/spool/<id>
+            spool_id = int(path.split("/")[4])
+            spool = self.orchestrator.mock_spoolman.get_spool_by_id(spool_id)
+            if spool is None:
+                self.send_error(404, "Spool not found")
+            else:
+                self._send_json(spool)
+
+        elif path == "/api/v1/spool":
+            query = parse_qs(parsed.query)
+            filament_id = query.get("filament.id", [None])[0]
+            if filament_id:
+                filament_id = int(filament_id)
+            spools = self.orchestrator.mock_spoolman.get_spools(filament_id)
+            self._send_json(spools)
+
         else:
             self.send_error(404, "Not Found")
 
@@ -308,6 +350,66 @@ class IntegrationTestHandler(BaseHTTPRequestHandler):
             elif action == "server_url":
                 self.orchestrator.submit_server_url(data.get("server_url"))
             self._send_json({"status": "ok"})
+
+        # Mock Spoolman API - POST
+        elif path == "/api/v1/vendor":
+            vendor = self.orchestrator.mock_spoolman.create_vendor(data.get("name"))
+            if vendor is None:
+                self.send_error(400, "Invalid vendor data")
+            else:
+                self._send_json(vendor)
+
+        elif path == "/api/v1/filament":
+            filament = self.orchestrator.mock_spoolman.create_filament(
+                data.get("vendor_id"),
+                data.get("material"),
+                data.get("density"),
+                data.get("diameter"),
+                data.get("weight"),
+                data.get("color_hex")
+            )
+            if filament is None:
+                self.send_error(400, "Invalid filament data")
+            else:
+                self._send_json(filament)
+
+        elif path == "/api/v1/spool":
+            spool = self.orchestrator.mock_spoolman.create_spool(
+                data.get("filament_id"),
+                data.get("remaining_weight"),
+                data.get("initial_weight"),
+                data.get("extra")
+            )
+            if spool is None:
+                self.send_error(400, "Invalid spool data")
+            else:
+                self._send_json(spool)
+
+        else:
+            self.send_error(404, "Not Found")
+
+    def do_PATCH(self):
+        """Handle PATCH requests"""
+        parsed = urlparse(self.path)
+        path = parsed.path
+
+        # Read request body
+        content_length = int(self.headers.get('Content-Length', 0))
+        body = self.rfile.read(content_length) if content_length > 0 else b""
+        data = json.loads(body) if body else {}
+
+        # Mock Spoolman API - PATCH
+        if path.startswith("/api/v1/spool/") and len(path.split("/")) == 5:
+            spool_id = int(path.split("/")[4])
+            spool = self.orchestrator.mock_spoolman.update_spool(
+                spool_id,
+                data.get("remaining_weight"),
+                data.get("filament_id")
+            )
+            if spool is None:
+                self.send_error(404, "Spool not found")
+            else:
+                self._send_json(spool)
 
         else:
             self.send_error(404, "Not Found")

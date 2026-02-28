@@ -575,6 +575,7 @@
                     command: "write_config",
                     prusa_link_url: serverUrl,
                     prusa_link_api_key: "test-api-key",
+                    spoolman_url: serverUrl,
                     poll_interval_ms: 5000,
                     automation_mode: 0
                 }, false);
@@ -595,6 +596,7 @@
                     command: "write_config",
                     prusa_link_url: savedConfig.prusa_link_url || "",
                     prusa_link_api_key: savedConfig.prusa_link_api_key || "",
+                    spoolman_url: savedConfig.spoolman_url || "",
                     poll_interval_ms: savedConfig.poll_interval_ms || 30000,
                     automation_mode: savedConfig.automation_mode || 0
                 }, false);

@@ -88,8 +88,9 @@ test/integration/ha.cpp — Native standalone MQTT/HA connectivity + discovery/s
 test/integration/Makefile — Build/run helper for local HA integration probe
 
 Hardware-in-the-Loop Tests
-test/integration/http_server.py — Test orchestrator + mock PrusaLink API + SSE server
+test/integration/http_server.py — Test orchestrator + mock PrusaLink API + mock Spoolman API + SSE server
 test/integration/mock_prusalink.py — MockPrusalinkState (controls mock API responses)
+test/integration/mock_spoolman.py — Mock Spoolman API state controller
 test/integration/scenarios/base.py — BaseTestScenario with BLE bridge helpers
 test/integration/scenarios/test_format_spool.py — Format spool test
 test/integration/scenarios/test_set_filament.py — Set filament weight test
@@ -97,4 +98,5 @@ test/integration/scenarios/test_set_filament_profile.py — Set filament type/ma
 test/integration/scenarios/test_print_e2e.py — End-to-end print simulation test
 test/integration/scenarios/test_print_30_percent.py — Canceled print at 30% integration test
 test/integration/scenarios/test_recent_spools.py — Swap spool A/B and verify recently seen spool history
+test/integration/scenarios/test_spoolman_sync.py — Spoolman sync verification test
 test/integration/site/index.html — Web Bluetooth test runner UI

@@ -11,9 +11,10 @@ class BaseTestScenario(ABC):
     Each test runs in a background thread and communicates with the browser via SSE.
     """
 
-    def __init__(self, orchestrator, mock_state):
+    def __init__(self, orchestrator, mock_state, mock_spoolman=None):
         self.orchestrator = orchestrator
         self.mock_state = mock_state
+        self.mock_spoolman = mock_spoolman
         self.result = None
         self.error = None
 
