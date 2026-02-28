@@ -15,7 +15,7 @@ class SpoolSwapDuringPrintTest(BaseTestScenario):
     5. Wait for device to detect print
     6. Mid-print: Ask user to swap to spool B
     7. Finish print
-    8. Verify: weight deduction goes to correct spool (likely spool B, the one present at completion)
+    8. Verify: no auto-deduction occurs (spool identity is ambiguous after swap)
     """
 
     def _wait_for_different_spool(self, spool_a_id, max_attempts=15):
@@ -88,7 +88,7 @@ class SpoolSwapDuringPrintTest(BaseTestScenario):
             self._assert(spool_b_id is not None, "Spool B missing id")
             self._assert(spool_b_id != spool_a_id, "Spool B must be different from spool A")
 
-            # Set spool B to a known weight so we can verify deduction
+            # Set spool B to a known baseline so we can verify no deduction
             self._ble_update_spool(spool_b_id, grams_remaining=500)
             self._wait_seconds(3, "Setting spool B to 500g")
             self._emit_step("Swap to Spool B", "passed", f"Detected: {spool_b_id} at 500g")
@@ -102,8 +102,8 @@ class SpoolSwapDuringPrintTest(BaseTestScenario):
             self._wait_seconds(20, "Waiting for device to fetch metadata and update tag")
             self.mock_state.set_idle()
 
-            # Step 9: Verify deduction went to spool B (the one present at completion)
-            self._emit_step("Verify Deduction Target", "running", "Reading final tag weight")
+            # Step 9: Verify no deduction was applied after mid-print spool swap
+            self._emit_step("Verify No Deduction", "running", "Reading final tag weight")
 
             current = self._get_current_spool()
             self._assert(current is not None, "No spool detected after print")
@@ -115,12 +115,12 @@ class SpoolSwapDuringPrintTest(BaseTestScenario):
             self._assert(current_id == spool_b_id,
                         f"Expected spool B ({spool_b_id}), but found {current_id}")
 
-            # Verify deduction: 500g - 9.18g ≈ 491g (±2g tolerance)
-            expected = 500 - 9.18  # 490.82
-            self._assert_approx(final_weight, expected, 2, "grams_remaining")
+            # Spool changed during print, so application should not update any spool weight.
+            self._assert(final_weight == 500,
+                        f"Expected spool B weight to remain 500g, but got {final_weight}g")
 
-            self._emit_step("Verify Deduction Target", "passed",
-                          f"Deduction correctly applied to spool B: {final_weight}g (expected ~{int(expected)}g)")
+            self._emit_step("Verify No Deduction", "passed",
+                          f"No deduction applied after swap: spool B remains {final_weight}g")
 
             self.result = "passed"
 
