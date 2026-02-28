@@ -112,7 +112,7 @@ void ApplicationManager::showStatusOnLCD() {
     } else if (strlen(config.getHAMqttHost()) == 0) {
         haInd = '!';
     } else {
-        haInd = '+';
+        haInd = HomeAssistantManager::getInstance().isConnected() ? '+' : '!';
     }
 #else
     // Native tests do not initialize network/BLE integrations.
