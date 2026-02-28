@@ -351,6 +351,11 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
             opt_get_gp_spoolman_id(&state.tag_data, &tagSpoolmanId);
             fakeSpool.spoolman_id = tagSpoolmanId;
             enqueueSpoolmanSync(fakeSpool);
+        } else {
+            // NFC state may be temporarily unavailable right after a write.
+            // Force a re-read so SPOOL_DETECTED re-emits with full tag data and triggers sync.
+            Serial.println("ApplicationManager: Spool update sync deferred; requesting fresh spool read");
+            NFCManager::getInstance().requestCurrentSpool();
         }
     }
 #endif

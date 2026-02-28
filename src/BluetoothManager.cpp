@@ -520,8 +520,14 @@ static void process_command(const char* json) {
                         Serial.printf("%s: update_spool enqueue failed before any write\n", TAG);
                     }
                 } else {
+                    if (!queued) {
+                        // No tag fields changed, so no write was enqueued.
+                        // Force a re-read so SPOOL_DETECTED is re-emitted and sync paths still run.
+                        NFCManager::getInstance().requestCurrentSpool();
+                        Serial.printf("%s: update_spool no-op, requested fresh spool read\n", TAG);
+                    }
                     snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
-                    Serial.printf("%s: update_spool completed, queued=%d\n", TAG, queued);
+                    Serial.printf("%s: update_spool completed, queued=%d\n", TAG, queuedCount);
                 }
             }
         }
