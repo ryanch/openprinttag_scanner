@@ -323,8 +323,9 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
         updateType != static_cast<uint8_t>(NFCWriteType::FORMAT_NEW) &&
         updateType != static_cast<uint8_t>(NFCWriteType::WRITE_SPOOLMAN_ID);
 
-    // Trigger Spoolman sync after relevant successful tag updates
-    if (spoolmanConfigured && msg.payload.spoolUpdated.success && shouldSyncAfterUpdate) {
+    // Trigger Spoolman sync after relevant successful tag updates (only in SELF_DIRECTED mode)
+    if (automationMode == AutomationMode::SELF_DIRECTED &&
+        spoolmanConfigured && msg.payload.spoolUpdated.success && shouldSyncAfterUpdate) {
         // Read current spool state from NFCManager to get full tag data
         CurrentSpoolState state;
         if (NFCManager::getInstance().getCurrentSpoolState(state) && state.tag_data_valid) {

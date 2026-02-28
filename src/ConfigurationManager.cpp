@@ -1,4 +1,5 @@
 #include "ConfigurationManager.h"
+#include "ApplicationManager.h"
 #include <Preferences.h>
 #include <ArduinoJson.h>
 
@@ -199,6 +200,10 @@ bool ConfigurationManager::postConfigUpdate(const char* json) {
     }
     if (doc["automation_mode"].is<uint8_t>()) {
         _automationMode = doc["automation_mode"].as<uint8_t>();
+        // Notify ApplicationManager immediately so mode change takes effect without reboot
+        ApplicationManager::getInstance().setAutomationMode(static_cast<AutomationMode>(_automationMode));
+        Serial.printf("ConfigurationManager: Automation mode updated to %s\n",
+                      _automationMode == 0 ? "SELF_DIRECTED" : "CONTROLLED_BY_HA");
     }
 
     return saveToNVS();
