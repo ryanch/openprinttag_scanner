@@ -4,17 +4,22 @@
 #include <Arduino.h>
 #include <HTTPClient.h>
 #include <WiFiClient.h>
-#include <ArduinoJson.h>
+#include <json.hpp>
+
 #include "esp_heap_caps.h"
 #include <cstring>
 #include <cstdlib>
 
 static constexpr size_t URL_BUFFER_SIZE = 192;
-static constexpr size_t STATUS_JSON_CAPACITY = 1024;
-static constexpr size_t JOB_JSON_CAPACITY = 4096;
 
+#define PRUSALINK_HEAP_TRACE 1
 #ifndef PRUSALINK_HEAP_TRACE
 #define PRUSALINK_HEAP_TRACE 0
+#endif
+
+#define PRUSALINK_API_TRACE 1
+#ifndef PRUSALINK_API_TRACE
+#define PRUSALINK_API_TRACE 0
 #endif
 
 static bool buildUrl(char* out, size_t outSize, const char* base, const char* path) {
@@ -42,6 +47,274 @@ static void logHeapSnapshot(const char* stage) {
 #else
     (void)stage;
 #endif
+}
+
+using namespace io;
+using namespace json;
+
+#if PRUSALINK_API_TRACE
+static const char* nodeTypeName(json_node_type node) {
+    switch (node) {
+        case json_node_type::field: return "field";
+        case json_node_type::object: return "object";
+        case json_node_type::end_object: return "end_object";
+        case json_node_type::array: return "array";
+        case json_node_type::end_array: return "end_array";
+        case json_node_type::value: return "value";
+        case json_node_type::value_part: return "value_part";
+        case json_node_type::end_value_part: return "end_value_part";
+        default: return "unknown";
+    }
+}
+
+static const char* valueTypeName(json_value_type type) {
+    switch (type) {
+        case json_value_type::none: return "none";
+        case json_value_type::null: return "null";
+        case json_value_type::integer: return "integer";
+        case json_value_type::real: return "real";
+        case json_value_type::boolean: return "boolean";
+        default: return "unknown";
+    }
+}
+
+static void logReaderNode(const char* tag, json_reader& reader) {
+    const char* text = reader.value();
+    if (text == nullptr) {
+        text = "";
+    }
+    Serial.printf("PrusaLinkAPIStrategy[%s]: depth=%u node=%s value_type=%s value='%s'\n",
+                  tag,
+                  reader.depth(),
+                  nodeTypeName(reader.node_type()),
+                  valueTypeName(reader.value_type()),
+                  text);
+}
+#endif
+
+static bool readStringValue(json_reader& reader, char* out, size_t outSize) {
+    if (out == nullptr || outSize == 0) {
+        return false;
+    }
+    out[0] = '\0';
+    json_node_type node = reader.node_type();
+    if (node != json_node_type::value &&
+        node != json_node_type::value_part &&
+        node != json_node_type::end_value_part) {
+        return false;
+    }
+
+    size_t written = 0;
+    auto appendValue = [&]() {
+        const char* part = reader.value();
+        if (part == nullptr) {
+            return;
+        }
+        while (*part != '\0' && written + 1 < outSize) {
+            out[written++] = *part++;
+        }
+        out[written] = '\0';
+    };
+
+    appendValue();
+    if (node == json_node_type::value_part) {
+        while (reader.read()) {
+            json_node_type next = reader.node_type();
+            if (next != json_node_type::value_part &&
+                next != json_node_type::end_value_part) {
+                return written > 0;
+            }
+            appendValue();
+            if (next == json_node_type::end_value_part) {
+                break;
+            }
+        }
+    }
+    return written > 0;
+}
+
+static void parseStatusPayload(stream& stm, bool& outHasJob, int& outJobId, float& outProgress) {
+    outHasJob = false;
+    outJobId = -1;
+    outProgress = 0.0f;
+
+    json_reader reader(stm);
+    bool inJobObject = false;
+    unsigned jobDepth = 0;
+
+    while (reader.read()) {
+        json_node_type node = reader.node_type();
+#if PRUSALINK_API_TRACE
+        logReaderNode("status", reader);
+#endif
+        if (node == json_node_type::field) {
+            const char* field = reader.value();
+            if (!inJobObject && strcmp(field, "job") == 0) {
+                if (reader.read() && reader.node_type() == json_node_type::object) {
+                    inJobObject = true;
+                    jobDepth = reader.depth();
+#if PRUSALINK_API_TRACE
+                    Serial.printf("PrusaLinkAPIStrategy[status]: entered job object depth=%u\n", jobDepth);
+#endif
+                }
+                continue;
+            }
+            if (inJobObject && strcmp(field, "id") == 0) {
+                if (reader.read() &&
+                    reader.node_type() == json_node_type::value &&
+                    (reader.value_type() == json_value_type::integer ||
+                     reader.value_type() == json_value_type::real)) {
+                    outJobId = static_cast<int>(reader.value_int());
+                    outHasJob = true;
+#if PRUSALINK_API_TRACE
+                    Serial.printf("PrusaLinkAPIStrategy[status]: parsed job.id=%d\n", outJobId);
+#endif
+                }
+                continue;
+            }
+            if (inJobObject && strcmp(field, "progress") == 0) {
+                if (reader.read() &&
+                    reader.node_type() == json_node_type::value &&
+                    (reader.value_type() == json_value_type::real ||
+                     reader.value_type() == json_value_type::integer)) {
+                    outProgress = static_cast<float>(reader.value_real());
+#if PRUSALINK_API_TRACE
+                    Serial.printf("PrusaLinkAPIStrategy[status]: parsed job.progress=%.3f\n", outProgress);
+#endif
+                }
+                continue;
+            }
+        } else if (node == json_node_type::end_object && inJobObject && reader.depth() == jobDepth) {
+            inJobObject = false;
+#if PRUSALINK_API_TRACE
+            Serial.println("PrusaLinkAPIStrategy[status]: leaving job object");
+#endif
+        }
+    }
+}
+
+static void parseJobPayload(stream& stm, char* outState, size_t outStateSize, float& outFilamentG,
+                            char* outDownloadRef, size_t outDownloadRefSize) {
+    if (outState != nullptr && outStateSize > 0) {
+        outState[0] = '\0';
+    }
+    if (outDownloadRef != nullptr && outDownloadRefSize > 0) {
+        outDownloadRef[0] = '\0';
+    }
+    outFilamentG = 0.0f;
+
+    json_reader reader(stm);
+    int fileDepth = -1;
+    int metaDepth = -1;
+    int refsDepth = -1;
+
+    while (reader.read()) {
+        json_node_type node = reader.node_type();
+#if PRUSALINK_API_TRACE
+        logReaderNode("job", reader);
+#endif
+        if (node == json_node_type::field) {
+            const char* field = reader.value();
+
+            const bool atTopLevel = (fileDepth < 0 && metaDepth < 0 && refsDepth < 0);
+            if (atTopLevel && strcmp(field, "state") == 0) {
+                if (outState != nullptr && outStateSize > 0 && reader.read()) {
+                    readStringValue(reader, outState, outStateSize);
+#if PRUSALINK_API_TRACE
+                    Serial.printf("PrusaLinkAPIStrategy[job]: parsed state='%s'\n", outState);
+#endif
+                }
+                continue;
+            }
+
+            if (atTopLevel && strcmp(field, "file") == 0) {
+                if (reader.read() && reader.node_type() == json_node_type::object) {
+                    fileDepth = static_cast<int>(reader.depth());
+#if PRUSALINK_API_TRACE
+                    Serial.printf("PrusaLinkAPIStrategy[job]: entered file object depth=%d\n", fileDepth);
+#endif
+                }
+                continue;
+            }
+
+            if (fileDepth >= 0 && strcmp(field, "meta") == 0) {
+#if PRUSALINK_API_TRACE
+                Serial.printf("PrusaLinkAPIStrategy[job]: Found 'meta' field at fileDepth=%d\n", fileDepth);
+#endif
+                if (reader.read() && reader.node_type() == json_node_type::object) {
+                    metaDepth = static_cast<int>(reader.depth());
+#if PRUSALINK_API_TRACE
+                    Serial.printf("PrusaLinkAPIStrategy[job]: entered meta object depth=%d\n", metaDepth);
+#endif
+                } else {
+#if PRUSALINK_API_TRACE
+                    Serial.printf("PrusaLinkAPIStrategy[job]: ERROR - 'meta' is not an object! node_type=%s\n",
+                                  nodeTypeName(reader.node_type()));
+#endif
+                }
+                continue;
+            }
+
+            if (fileDepth >= 0 && strcmp(field, "refs") == 0) {
+                if (reader.read() && reader.node_type() == json_node_type::object) {
+                    refsDepth = static_cast<int>(reader.depth());
+#if PRUSALINK_API_TRACE
+                    Serial.printf("PrusaLinkAPIStrategy[job]: entered refs object depth=%d\n", refsDepth);
+#endif
+                }
+                continue;
+            }
+
+            if (metaDepth >= 0 && strcmp(field, "filament used [g]") == 0) {
+#if PRUSALINK_API_TRACE
+                Serial.printf("PrusaLinkAPIStrategy[job]: Found 'filament used [g]' field at metaDepth=%d\n", metaDepth);
+#endif
+                if (reader.read() &&
+                    reader.node_type() == json_node_type::value &&
+                    (reader.value_type() == json_value_type::real ||
+                     reader.value_type() == json_value_type::integer)) {
+                    outFilamentG = static_cast<float>(reader.value_real());
+#if PRUSALINK_API_TRACE
+                    Serial.printf("PrusaLinkAPIStrategy[job]: parsed filament used [g]=%.3f\n", outFilamentG);
+#endif
+                } else {
+#if PRUSALINK_API_TRACE
+                    Serial.printf("PrusaLinkAPIStrategy[job]: ERROR - failed to read filament value! node_type=%s value_type=%s\n",
+                                  nodeTypeName(reader.node_type()), valueTypeName(reader.value_type()));
+#endif
+                }
+                continue;
+            }
+
+            if (refsDepth >= 0 && strcmp(field, "download") == 0) {
+                if (outDownloadRef != nullptr && outDownloadRefSize > 0 && reader.read()) {
+                    readStringValue(reader, outDownloadRef, outDownloadRefSize);
+#if PRUSALINK_API_TRACE
+                    Serial.printf("PrusaLinkAPIStrategy[job]: parsed refs.download='%s'\n", outDownloadRef);
+#endif
+                }
+                continue;
+            }
+        } else if (node == json_node_type::end_object) {
+            const int depth = static_cast<int>(reader.depth());
+            if (refsDepth >= 0 && depth == refsDepth) {
+                refsDepth = -1;
+#if PRUSALINK_API_TRACE
+                Serial.println("PrusaLinkAPIStrategy[job]: leaving refs object");
+#endif
+            } else if (metaDepth >= 0 && depth == metaDepth) {
+                metaDepth = -1;
+#if PRUSALINK_API_TRACE
+                Serial.println("PrusaLinkAPIStrategy[job]: leaving meta object");
+#endif
+            } else if (fileDepth >= 0 && depth == fileDepth) {
+                fileDepth = -1;
+#if PRUSALINK_API_TRACE
+                Serial.println("PrusaLinkAPIStrategy[job]: leaving file object");
+#endif
+            }
+        }
+    }
 }
 
 void PrusaLinkAPIStrategy::update() {
@@ -77,6 +350,9 @@ void PrusaLinkAPIStrategy::update() {
             Serial.println("PrusaLinkAPIStrategy: status URL too long");
             break;
         }
+#if PRUSALINK_API_TRACE
+        Serial.printf("PrusaLinkAPIStrategy: GET %s\n", statusUrl);
+#endif
         http.begin(statusUrl);
         http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
 
@@ -88,29 +364,25 @@ void PrusaLinkAPIStrategy::update() {
             http.end();
             break;
         }
+#if PRUSALINK_API_TRACE
+        Serial.printf("PrusaLinkAPIStrategy: Status request OK: %d\n", statusCode);
+#endif
         logHeapSnapshot("after_status_get");
 
         connected = true;
-        JsonDocument statusDoc;
         logHeapSnapshot("before_status_deserialize");
-        DeserializationError statusErr = deserializeJson(statusDoc, http.getStream());
+        arduino_stream statusStream(&http.getStream());
+        parseStatusPayload(statusStream, hasJob, jobId, progress);
+#if PRUSALINK_API_TRACE
+        Serial.printf("PrusaLinkAPIStrategy: status parse result hasJob=%d jobId=%d progress=%.3f\n",
+                      hasJob ? 1 : 0, jobId, progress);
+#endif
         logHeapSnapshot("after_status_deserialize");
         http.end();
-        if (statusErr) {
-            Serial.printf("PrusaLinkAPIStrategy: Status JSON parse error: %s\n", statusErr.c_str());
-            break;
-        }
-
-        // Check if there's a job
-        JsonVariant jobVariant = statusDoc["job"];
-        hasJob = !jobVariant.isNull() && jobVariant["id"].is<int>();
 
         if (!hasJob) {
             break;
         }
-
-        jobId = jobVariant["id"].as<int>();
-        progress = jobVariant["progress"].as<float>();
 
         // Get detailed job info
         char jobUrl[URL_BUFFER_SIZE];
@@ -118,6 +390,9 @@ void PrusaLinkAPIStrategy::update() {
             Serial.println("PrusaLinkAPIStrategy: job URL too long");
             break;
         }
+#if PRUSALINK_API_TRACE
+        Serial.printf("PrusaLinkAPIStrategy: GET %s\n", jobUrl);
+#endif
         http.begin(jobUrl);
         http.addHeader("X-Api-Key", config.getPrusaLinkAPIKey());
 
@@ -129,40 +404,52 @@ void PrusaLinkAPIStrategy::update() {
             http.end();
             break;
         }
+#if PRUSALINK_API_TRACE
+        Serial.printf("PrusaLinkAPIStrategy: Job request OK: %d\n", jobStatusCode);
+#endif
         logHeapSnapshot("after_job_get");
 
-        JsonDocument jobDoc;
         logHeapSnapshot("before_job_deserialize");
-        DeserializationError jobErr = deserializeJson(jobDoc, http.getStream());
-        logHeapSnapshot("after_job_deserialize");
-        http.end();
-        if (jobErr) {
-            Serial.printf("PrusaLinkAPIStrategy: Job JSON parse error: %s\n", jobErr.c_str());
+
+        // Read the entire response into a String for debugging
+        String response = http.getString();
+#if PRUSALINK_API_TRACE
+        Serial.printf("PrusaLinkAPIStrategy: Raw job response: %s\n", response.c_str());
+#endif
+
+        // Create mutable copy for buffer_stream (requires non-const pointer)
+        size_t respLen = response.length();
+        uint8_t* respBuf = (uint8_t*)malloc(respLen);
+        if (respBuf == nullptr) {
+            Serial.println("PrusaLinkAPIStrategy: Failed to allocate buffer for job response");
+            http.end();
             break;
         }
+        memcpy(respBuf, response.c_str(), respLen);
+        buffer_stream bufStream(respBuf, respLen);
 
-        const char* state = jobDoc["state"] | "";
-        strncpy(jobState, state, sizeof(jobState) - 1);
+        char parsedState[sizeof(jobState)] = {0};
+        char parsedDownloadRef[sizeof(savedDownloadRef)] = {0};
+        float parsedFilamentG = 0.0f;
+        parseJobPayload(bufStream, parsedState, sizeof(parsedState), parsedFilamentG,
+                        parsedDownloadRef, sizeof(parsedDownloadRef));
+#if PRUSALINK_API_TRACE
+        Serial.printf("PrusaLinkAPIStrategy: job parse result state='%s' filament=%.3f download='%s'\n",
+                      parsedState, parsedFilamentG, parsedDownloadRef);
+#endif
+
+        free(respBuf);
+        logHeapSnapshot("after_job_deserialize");
+        http.end();
+
+        strncpy(jobState, parsedState, sizeof(jobState) - 1);
         jobState[sizeof(jobState) - 1] = '\0';
+        totalFilamentG = parsedFilamentG;
 
-        // Extract filament usage from file metadata
-        JsonVariant fileMeta = jobDoc["file"]["meta"];
-        if (!fileMeta.isNull()) {
-            JsonVariant filamentUsed = fileMeta["filament used [g]"];
-            if (!filamentUsed.isNull()) {
-                totalFilamentG = filamentUsed.as<float>();
-            }
-        }
-
-        // Save download ref for deferred fetch after print completes
-        JsonVariant downloadRefVar = jobDoc["file"]["refs"]["download"];
-        if (!downloadRefVar.isNull()) {
-            const char* downloadRef = downloadRefVar.as<const char*>();
-            if (downloadRef != nullptr) {
-                strncpy(savedDownloadRef, downloadRef, sizeof(savedDownloadRef) - 1);
-                savedDownloadRef[sizeof(savedDownloadRef) - 1] = '\0';
-                savedDownloadRefJobId = jobId;
-            }
+        if (parsedDownloadRef[0] != '\0') {
+            strncpy(savedDownloadRef, parsedDownloadRef, sizeof(savedDownloadRef) - 1);
+            savedDownloadRef[sizeof(savedDownloadRef) - 1] = '\0';
+            savedDownloadRefJobId = jobId;
         }
 
         // Use cached bgcode data if available (from a previous deferred fetch)
@@ -316,18 +603,42 @@ float PrusaLinkAPIStrategy::fetchDeferredFilament() {
         logHeapSnapshot("before_deferred_job_get");
         code = http.GET();
         if (code == 200) {
-            JsonDocument doc;
             logHeapSnapshot("before_deferred_job_deserialize");
-            if (!deserializeJson(doc, http.getStream())) {
-                logHeapSnapshot("after_deferred_job_deserialize");
-                JsonVariant filamentUsed = doc["file"]["meta"]["filament used [g]"];
-                if (!filamentUsed.isNull()) {
-                    result = filamentUsed.as<float>();
+
+            // Read the entire response for debugging
+            String deferredResponse = http.getString();
+#if PRUSALINK_API_TRACE
+            Serial.printf("PrusaLinkAPIStrategy: Deferred job response: %s\n", deferredResponse.c_str());
+#endif
+
+            // Create mutable copy for buffer_stream
+            size_t deferredLen = deferredResponse.length();
+            uint8_t* deferredBuf = (uint8_t*)malloc(deferredLen);
+            if (deferredBuf != nullptr) {
+                memcpy(deferredBuf, deferredResponse.c_str(), deferredLen);
+                buffer_stream bufStream(deferredBuf, deferredLen);
+
+                char stateBuf[2] = {0};
+                char downloadRefBuf[2] = {0};
+                float parsedFilament = 0.0f;
+                parseJobPayload(bufStream, stateBuf, sizeof(stateBuf), parsedFilament,
+                                downloadRefBuf, sizeof(downloadRefBuf));
+
+                free(deferredBuf);
+
+                if (parsedFilament > 0.0f) {
+                    result = parsedFilament;
                     Serial.printf("PrusaLinkAPIStrategy: Got deferred filament from job API: %.2fg\n", result);
+                } else {
+#if PRUSALINK_API_TRACE
+                    Serial.println("PrusaLinkAPIStrategy: WARNING - deferred job parse returned 0g");
+#endif
                 }
             } else {
-                logHeapSnapshot("deferred_job_deserialize_failed");
+                Serial.println("PrusaLinkAPIStrategy: Failed to allocate buffer for deferred response");
             }
+
+            logHeapSnapshot("after_deferred_job_deserialize");
             http.end();
             break;
         } else {

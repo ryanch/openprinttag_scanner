@@ -3,6 +3,7 @@ CC = gcc
 CXXFLAGS = -std=c++14 -DNATIVE_TEST -Wall -Wextra
 CFLAGS = -std=c11 -DNATIVE_TEST -Wall -Wextra
 INCLUDES = -I ../../include -I ../../src -I . -I ../../lib/openprinttag
+JSON_INCLUDES = -I ../../.pio/libdeps/esp32dev/htcw_json/src -I ../../.pio/libdeps/esp32dev/htcw_io/src -I ../../.pio/libdeps/esp32dev/htcw_bits
 
 # OpenPrintTag library sources (compiled as C)
 OPT_C_SRCS = ../../lib/openprinttag/openprinttag_lib.c ../../lib/openprinttag/cbor_native.c
@@ -25,11 +26,15 @@ BGCODE_TARGET = test_bgcode_parser
 LCD_MANAGER_SRCS = test_lcd_manager.cpp $(COMMON_NATIVE_SRCS)
 LCD_MANAGER_TARGET = test_lcd_manager_runner
 
-all: $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(LCD_MANAGER_TARGET)
+JSON_PULL_HELPERS_SRCS = test_json_pull_helpers.cpp ../../src/JsonPullHelpers.cpp ../../.pio/libdeps/esp32dev/htcw_io/src/source/io_stream.cpp
+JSON_PULL_HELPERS_TARGET = test_json_pull_helpers_runner
+
+all: $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(LCD_MANAGER_TARGET) $(JSON_PULL_HELPERS_TARGET)
 	./$(APP_FLOW_TARGET)
 	./$(NFC_READ_TARGET)
 	./$(BGCODE_TARGET)
 	./$(LCD_MANAGER_TARGET)
+	./$(JSON_PULL_HELPERS_TARGET)
 
 # Compile C library objects
 openprinttag_lib.o: ../../lib/openprinttag/openprinttag_lib.c
@@ -50,6 +55,9 @@ $(BGCODE_TARGET): $(BGCODE_SRCS)
 $(LCD_MANAGER_TARGET): $(LCD_MANAGER_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(LCD_MANAGER_SRCS) -o $(LCD_MANAGER_TARGET)
 
+$(JSON_PULL_HELPERS_TARGET): $(JSON_PULL_HELPERS_SRCS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(JSON_INCLUDES) $(JSON_PULL_HELPERS_SRCS) -o $(JSON_PULL_HELPERS_TARGET)
+
 run-app-flow: $(APP_FLOW_TARGET)
 	./$(APP_FLOW_TARGET)
 
@@ -62,7 +70,10 @@ run-bgcode: $(BGCODE_TARGET)
 run-lcd-manager: $(LCD_MANAGER_TARGET)
 	./$(LCD_MANAGER_TARGET)
 
-clean:
-	rm -f $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(LCD_MANAGER_TARGET) $(OPT_OBJS)
+run-json-pull-helpers: $(JSON_PULL_HELPERS_TARGET)
+	./$(JSON_PULL_HELPERS_TARGET)
 
-.PHONY: all clean run-app-flow run-nfc-read run-bgcode run-lcd-manager
+clean:
+	rm -f $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(LCD_MANAGER_TARGET) $(JSON_PULL_HELPERS_TARGET) $(OPT_OBJS)
+
+.PHONY: all clean run-app-flow run-nfc-read run-bgcode run-lcd-manager run-json-pull-helpers

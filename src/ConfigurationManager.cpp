@@ -3,6 +3,9 @@
 #include <Preferences.h>
 #include <ArduinoJson.h>
 
+// JSON capacity for configuration (WiFi, URLs, API keys, MQTT settings)
+static constexpr size_t JSON_CONFIG_CAPACITY = 768;
+
 ConfigurationManager& ConfigurationManager::getInstance() {
     static ConfigurationManager instance;
     return instance;
@@ -119,7 +122,7 @@ size_t ConfigurationManager::readConfig(char* out, size_t outSize) {
         return 0;
     }
 
-    JsonDocument doc;
+    StaticJsonDocument<JSON_CONFIG_CAPACITY> doc;
 
     doc["ssid"] = _ssid;
     // wifi_pass intentionally omitted for security
@@ -144,7 +147,7 @@ size_t ConfigurationManager::readConfig(char* out, size_t outSize) {
 }
 
 bool ConfigurationManager::postConfigUpdate(const char* json) {
-    JsonDocument doc;
+    StaticJsonDocument<JSON_CONFIG_CAPACITY> doc;
     DeserializationError error = deserializeJson(doc, json);
 
     if (error) {

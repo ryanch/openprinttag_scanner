@@ -4,12 +4,217 @@
 #include <HTTPClient.h>
 #include <WiFiClient.h>
 #include <ArduinoJson.h>
+#include <json.hpp>
+
 #include <Arduino.h>
 #include "openprinttag_lib.h"
 
 static constexpr size_t JSON_SMALL_CAPACITY = 256;
 static constexpr size_t JSON_MEDIUM_CAPACITY = 768;
-static constexpr size_t JSON_LARGE_CAPACITY = 2048;
+
+using namespace io;
+using namespace json;
+
+static bool readIntValue(json_reader& reader, int& outValue) {
+    if (reader.node_type() != json_node_type::value) {
+        return false;
+    }
+    if (reader.value_type() == json_value_type::integer) {
+        outValue = static_cast<int>(reader.value_int());
+        return true;
+    }
+    if (reader.value_type() == json_value_type::real) {
+        outValue = static_cast<int>(reader.value_real());
+        return true;
+    }
+    return false;
+}
+
+static bool matchesUuid(const char* storedUuid, const char* uuid) {
+    if (storedUuid == nullptr || uuid == nullptr) {
+        return false;
+    }
+    if (strcmp(storedUuid, uuid) == 0) {
+        return true;
+    }
+    // Spoolman extra field may store UUID as a quoted JSON string: "\"UUID\""
+    const size_t uuidLen = strlen(uuid);
+    const size_t storedLen = strlen(storedUuid);
+    if (storedLen != uuidLen + 2) {
+        return false;
+    }
+    return storedUuid[0] == '"' &&
+           strncmp(storedUuid + 1, uuid, uuidLen) == 0 &&
+           storedUuid[uuidLen + 1] == '"' &&
+           storedUuid[uuidLen + 2] == '\0';
+}
+
+static bool readStringValue(json_reader& reader, char* out, size_t outSize) {
+    if (out == nullptr || outSize == 0) {
+        return false;
+    }
+    out[0] = '\0';
+    json_node_type node = reader.node_type();
+    if (node != json_node_type::value &&
+        node != json_node_type::value_part &&
+        node != json_node_type::end_value_part) {
+        return false;
+    }
+
+    size_t written = 0;
+    auto append = [&]() {
+        const char* v = reader.value();
+        if (v == nullptr) return;
+        while (*v != '\0' && written + 1 < outSize) {
+            out[written++] = *v++;
+        }
+        out[written] = '\0';
+    };
+
+    append();
+    if (node == json_node_type::value_part) {
+        while (reader.read()) {
+            json_node_type next = reader.node_type();
+            if (next != json_node_type::value_part &&
+                next != json_node_type::end_value_part) {
+                return written > 0;
+            }
+            append();
+            if (next == json_node_type::end_value_part) {
+                break;
+            }
+        }
+    }
+    return written > 0;
+}
+
+static bool parseIdFromObject(const char* jsonText, int& outId) {
+    outId = -1;
+    const_buffer_stream stm((const uint8_t*)jsonText, strlen(jsonText));
+    json_reader reader(stm);
+    while (reader.read()) {
+        if (reader.node_type() != json_node_type::field) continue;
+        if (strcmp(reader.value(), "id") != 0) continue;
+        if (reader.read() && readIntValue(reader, outId)) {
+            return true;
+        }
+    }
+    return false;
+}
+
+static bool parseVendorIdByName(const char* jsonText, const char* targetName, int& outId) {
+    outId = -1;
+    const_buffer_stream stm((const uint8_t*)jsonText, strlen(jsonText));
+    json_reader reader(stm);
+
+    while (reader.read()) {
+        if (reader.node_type() != json_node_type::object) {
+            continue;
+        }
+        const unsigned objectDepth = reader.depth();
+        int candidateId = -1;
+        char candidateName[64] = {0};
+        while (reader.read()) {
+            if (reader.node_type() == json_node_type::end_object && reader.depth() == objectDepth) {
+                if (candidateName[0] != '\0' && strcasecmp(candidateName, targetName) == 0 && candidateId >= 0) {
+                    outId = candidateId;
+                    return true;
+                }
+                break;
+            }
+            if (reader.node_type() != json_node_type::field) continue;
+            const char* field = reader.value();
+            if (strcmp(field, "id") == 0) {
+                if (reader.read()) readIntValue(reader, candidateId);
+            } else if (strcmp(field, "name") == 0) {
+                if (reader.read()) {
+                    readStringValue(reader, candidateName, sizeof(candidateName));
+                }
+            }
+        }
+    }
+    return false;
+}
+
+static bool parseFirstArrayItemId(const char* jsonText, int& outId) {
+    outId = -1;
+    const_buffer_stream stm((const uint8_t*)jsonText, strlen(jsonText));
+    json_reader reader(stm);
+
+    while (reader.read()) {
+        if (reader.node_type() != json_node_type::object) continue;
+        const unsigned objectDepth = reader.depth();
+        while (reader.read()) {
+            if (reader.node_type() == json_node_type::end_object && reader.depth() == objectDepth) {
+                break;
+            }
+            if (reader.node_type() != json_node_type::field) continue;
+            if (strcmp(reader.value(), "id") != 0) continue;
+            if (reader.read() && readIntValue(reader, outId)) {
+                return true;
+            }
+        }
+    }
+    return false;
+}
+
+static bool parseSpoolIdByUuid(const char* jsonText, const char* uuid, int& outId) {
+    outId = -1;
+    const_buffer_stream stm((const uint8_t*)jsonText, strlen(jsonText));
+    json_reader reader(stm);
+
+    while (reader.read()) {
+        if (reader.node_type() != json_node_type::object) continue;
+        const unsigned spoolDepth = reader.depth();
+        int spoolId = -1;
+        char tagUuid[80] = {0};
+        while (reader.read()) {
+            if (reader.node_type() == json_node_type::end_object && reader.depth() == spoolDepth) {
+                if (spoolId >= 0 && matchesUuid(tagUuid, uuid)) {
+                    outId = spoolId;
+                    return true;
+                }
+                break;
+            }
+            if (reader.node_type() != json_node_type::field) continue;
+            const char* field = reader.value();
+            if (strcmp(field, "id") == 0) {
+                if (reader.read()) readIntValue(reader, spoolId);
+            } else if (strcmp(field, "extra") == 0) {
+                if (!reader.read() || reader.node_type() != json_node_type::object) {
+                    continue;
+                }
+                const unsigned extraDepth = reader.depth();
+                while (reader.read()) {
+                    if (reader.node_type() == json_node_type::end_object && reader.depth() == extraDepth) {
+                        break;
+                    }
+                    if (reader.node_type() != json_node_type::field) continue;
+                    if (strcmp(reader.value(), "openprinttag_uuid") != 0) continue;
+                    if (reader.read()) {
+                        readStringValue(reader, tagUuid, sizeof(tagUuid));
+                    }
+                }
+            }
+        }
+    }
+    return false;
+}
+
+static bool parseSpoolUuid(const char* jsonText, char* outUuid, size_t outUuidSize) {
+    if (outUuid == nullptr || outUuidSize == 0) return false;
+    outUuid[0] = '\0';
+    const_buffer_stream stm((const uint8_t*)jsonText, strlen(jsonText));
+    json_reader reader(stm);
+
+    while (reader.read()) {
+        if (reader.node_type() != json_node_type::field) continue;
+        if (strcmp(reader.value(), "openprinttag_uuid") != 0) continue;
+        if (!reader.read()) return false;
+        return readStringValue(reader, outUuid, outUuidSize);
+    }
+    return false;
+}
 
 // --- File-local HTTP helpers ---
 
@@ -111,35 +316,23 @@ static int findOrCreateVendor(const char* name) {
     Serial.printf("SpoolmanManager: get vendor '%s' code=%d\n", name, code);
 
     if (code == 200 || code == 201) {
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, response);
-        if (error == DeserializationError::Ok) {
-            JsonArray arr = doc.as<JsonArray>();
-            for (JsonObject vendor : arr) {
-                const char* vendorName = vendor["name"] | "";
-                if (strcasecmp(vendorName, name) == 0) {
-                    int id = vendor["id"] | -1;
-                    Serial.printf("SpoolmanManager: Found vendor '%s' id=%d\n", name, id);
-                    return id;
-                }
-            }
-        } else {
-            Serial.printf("SpoolmanManager: Failed to parse vendor JSON: %s\n", error.c_str());
-            //Serial.print( response );
+        int id = -1;
+        if (parseVendorIdByName(response.c_str(), name, id)) {
+            Serial.printf("SpoolmanManager: Found vendor '%s' id=%d\n", name, id);
+            return id;
         }
     }
 
     // Create new vendor
-    JsonDocument createDoc;
+    StaticJsonDocument<JSON_SMALL_CAPACITY> createDoc;
     createDoc["name"] = name;
     String body;
     serializeJson(createDoc, body);
 
     code = httpPost("/api/v1/vendor", body.c_str(), response);
     if (code == 200) {
-        JsonDocument respDoc;
-        if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
-            int id = respDoc["id"] | -1;
+        int id = -1;
+        if (parseIdFromObject(response.c_str(), id)) {
             Serial.printf("SpoolmanManager: Created vendor '%s' id=%d\n", name, id);
             return id;
         }
@@ -158,17 +351,10 @@ static int findOrCreateFilament(int vendorId, const SpoolmanSyncRequest& req) {
     String response;
     int code = httpGet(path, response);
     if (code == 200) {
-        JsonDocument doc;
-        DeserializationError error = deserializeJson(doc, response);
-        if (error == DeserializationError::Ok) {
-            JsonArray arr = doc.as<JsonArray>();
-            if (arr.size() > 0) {
-                int id = arr[0]["id"] | -1;
-                Serial.printf("SpoolmanManager: Found filament material=%s id=%d\n", material, id);
-                return id;
-            }
-        } else {
-            Serial.printf("SpoolmanManager: Failed to parse filament JSON: %s\n", error.c_str());
+        int id = -1;
+        if (parseFirstArrayItemId(response.c_str(), id)) {
+            Serial.printf("SpoolmanManager: Found filament material=%s id=%d\n", material, id);
+            return id;
         }
     }
 
@@ -176,7 +362,7 @@ static int findOrCreateFilament(int vendorId, const SpoolmanSyncRequest& req) {
     char colorHex[7];
     snprintf(colorHex, sizeof(colorHex), "%02X%02X%02X", req.color[0], req.color[1], req.color[2]);
 
-    JsonDocument createDoc;
+    StaticJsonDocument<JSON_MEDIUM_CAPACITY> createDoc;
     createDoc["name"] = material;
     createDoc["vendor_id"] = vendorId;
     createDoc["material"] = material;
@@ -190,9 +376,8 @@ static int findOrCreateFilament(int vendorId, const SpoolmanSyncRequest& req) {
 
     code = httpPost("/api/v1/filament", body.c_str(), response);
     if (code == 200 || code == 201) {
-        JsonDocument respDoc;
-        if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
-            int id = respDoc["id"] | -1;
+        int id = -1;
+        if (parseIdFromObject(response.c_str(), id)) {
             Serial.printf("SpoolmanManager: Created filament material=%s id=%d\n", material, id);
             return id;
         }
@@ -211,24 +396,10 @@ static int findSpoolByUuid(int filamentId, const char* uuid) {
         return -1;
     }
 
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, response);
-    if (error != DeserializationError::Ok) {
-        Serial.printf("SpoolmanManager: Failed to parse spool JSON: %s\n", error.c_str());
-        return -1;
-    }
-
-    JsonArray arr = doc.as<JsonArray>();
-    for (JsonObject spool : arr) {
-        JsonObject extra = spool["extra"];
-        if (!extra.isNull()) {
-            const char* tagUuid = extra["openprinttag_uuid"] | "";
-            if (strcmp(tagUuid, uuid) == 0) {
-                int id = spool["id"] | -1;
-                Serial.printf("SpoolmanManager: Found spool uuid=%s id=%d\n", uuid, id);
-                return id;
-            }
-        }
+    int id = -1;
+    if (parseSpoolIdByUuid(response.c_str(), uuid, id)) {
+        Serial.printf("SpoolmanManager: Found spool uuid=%s id=%d\n", uuid, id);
+        return id;
     }
 
     return -1;
@@ -238,7 +409,7 @@ static int createSpool(int filamentId, const SpoolmanSyncRequest& req) {
     char colorHex[7];
     snprintf(colorHex, sizeof(colorHex), "%02X%02X%02X", req.color[0], req.color[1], req.color[2]);
 
-    JsonDocument doc;
+    StaticJsonDocument<JSON_MEDIUM_CAPACITY> doc;
     doc["filament_id"] = filamentId;
     doc["remaining_weight"] = req.remaining_weight_g;
     doc["initial_weight"] = req.initial_weight_g;
@@ -255,9 +426,8 @@ static int createSpool(int filamentId, const SpoolmanSyncRequest& req) {
     int code = httpPost("/api/v1/spool", body.c_str(), response);
 
     if (code == 200 || code == 201) {
-        JsonDocument respDoc;
-        if (deserializeJson(respDoc, response) == DeserializationError::Ok) {
-            int id = respDoc["id"] | -1;
+        int id = -1;
+        if (parseIdFromObject(response.c_str(), id)) {
             Serial.printf("SpoolmanManager: Created spool for %s, id=%d\n", req.spool_id, id);
             return id;
         }
@@ -280,28 +450,13 @@ static bool lookupSpoolById(int spoolId, const char* uuid) {
         return false;
     }
 
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, response);
-    if (error != DeserializationError::Ok) {
-        Serial.printf("SpoolmanManager: Failed to parse spool JSON: %s\n", error.c_str());
-        return false;
-    }
-
-    JsonObject extra = doc["extra"];
-    if (extra.isNull()) {
+    char tagUuid[80] = {0};
+    if (!parseSpoolUuid(response.c_str(), tagUuid, sizeof(tagUuid))) {
         Serial.printf("SpoolmanManager: Spool %d has no extra field\n", spoolId);
         return false;
     }
 
-    const char* tagUuid = extra["openprinttag_uuid"] | "";
-    // Spoolman stores extra values as JSON strings (with quotes), so check both
-    if (strcmp(tagUuid, uuid) == 0) {
-        return true;
-    }
-    // Check quoted form: "\"UUID\""
-    char quoted[80];
-    snprintf(quoted, sizeof(quoted), "\"%s\"", uuid);
-    if (strcmp(tagUuid, quoted) == 0) {
+    if (matchesUuid(tagUuid, uuid)) {
         return true;
     }
 
@@ -310,7 +465,7 @@ static bool lookupSpoolById(int spoolId, const char* uuid) {
 }
 
 static bool updateSpool(int spoolId, int filamentId, float remainingWeight) {
-    JsonDocument doc;
+    StaticJsonDocument<JSON_SMALL_CAPACITY> doc;
     doc["remaining_weight"] = remainingWeight;
     if (filamentId >= 0) {
         doc["filament_id"] = filamentId;

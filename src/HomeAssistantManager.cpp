@@ -5,7 +5,8 @@
 #ifndef NATIVE_TEST
   #include <Arduino.h>
   #include <WiFi.h>
-  #include <ArduinoJson.h>
+  #include <json.hpp>
+  
   #include <esp_heap_caps.h>
   #include "NFCManager.h"
   #include "esp_mac.h"
@@ -14,6 +15,122 @@
 #endif
 
 #include <cstring>
+
+#ifndef NATIVE_TEST
+using namespace io;
+using namespace json;
+
+struct ParsedHACommandPayload {
+    char uid[32];
+    char filament_type[16];
+    char color[16];
+    char manufacturer[64];
+    float initial_weight_g;
+    float remaining_g;
+    int32_t spoolman_id;
+    bool has_uid;
+    bool has_filament_type;
+    bool has_color;
+    bool has_manufacturer;
+    bool has_initial_weight_g;
+    bool has_remaining_g;
+    bool has_spoolman_id;
+};
+
+static void initParsedHACommandPayload(ParsedHACommandPayload& out) {
+    memset(&out, 0, sizeof(out));
+    out.initial_weight_g = 0.0f;
+    out.remaining_g = 0.0f;
+    out.spoolman_id = -1;
+}
+
+static bool readStringValue(json_reader& reader, char* out, size_t outSize) {
+    if (out == nullptr || outSize == 0) return false;
+    out[0] = '\0';
+    json_node_type node = reader.node_type();
+    if (node != json_node_type::value &&
+        node != json_node_type::value_part &&
+        node != json_node_type::end_value_part) {
+        return false;
+    }
+
+    size_t written = 0;
+    auto append = [&]() {
+        const char* value = reader.value();
+        if (value == nullptr) return;
+        while (*value != '\0' && written + 1 < outSize) {
+            out[written++] = *value++;
+        }
+        out[written] = '\0';
+    };
+
+    append();
+    if (node == json_node_type::value_part) {
+        while (reader.read()) {
+            json_node_type next = reader.node_type();
+            if (next != json_node_type::value_part &&
+                next != json_node_type::end_value_part) {
+                return written > 0;
+            }
+            append();
+            if (next == json_node_type::end_value_part) {
+                break;
+            }
+        }
+    }
+    return written > 0;
+}
+
+static bool parseHACommandPayload(const char* payload, ParsedHACommandPayload& out) {
+    initParsedHACommandPayload(out);
+    const_buffer_stream stm((const uint8_t*)payload, strlen(payload));
+    json_reader reader(stm);
+
+    if (!reader.read() || reader.node_type() != json_node_type::object) {
+        return false;
+    }
+    const unsigned rootDepth = reader.depth();
+
+    while (reader.read()) {
+        if (reader.node_type() == json_node_type::end_object && reader.depth() == rootDepth) {
+            return true;
+        }
+        if (reader.node_type() != json_node_type::field || reader.depth() != rootDepth) {
+            continue;
+        }
+        const char* field = reader.value();
+        if (!reader.read()) {
+            return false;
+        }
+
+        if (strcmp(field, "uid") == 0) {
+            out.has_uid = readStringValue(reader, out.uid, sizeof(out.uid));
+        } else if (strcmp(field, "filament_type") == 0) {
+            out.has_filament_type = readStringValue(reader, out.filament_type, sizeof(out.filament_type));
+        } else if (strcmp(field, "color") == 0) {
+            out.has_color = readStringValue(reader, out.color, sizeof(out.color));
+        } else if (strcmp(field, "manufacturer") == 0) {
+            out.has_manufacturer = readStringValue(reader, out.manufacturer, sizeof(out.manufacturer));
+        } else if (strcmp(field, "initial_weight_g") == 0 &&
+                   reader.node_type() == json_node_type::value &&
+                   (reader.value_type() == json_value_type::real || reader.value_type() == json_value_type::integer)) {
+            out.initial_weight_g = static_cast<float>(reader.value_real());
+            out.has_initial_weight_g = true;
+        } else if (strcmp(field, "remaining_g") == 0 &&
+                   reader.node_type() == json_node_type::value &&
+                   (reader.value_type() == json_value_type::real || reader.value_type() == json_value_type::integer)) {
+            out.remaining_g = static_cast<float>(reader.value_real());
+            out.has_remaining_g = true;
+        } else if (strcmp(field, "spoolman_id") == 0 &&
+                   reader.node_type() == json_node_type::value &&
+                   reader.value_type() == json_value_type::integer) {
+            out.spoolman_id = static_cast<int32_t>(reader.value_int());
+            out.has_spoolman_id = true;
+        }
+    }
+    return true;
+}
+#endif
 
 HomeAssistantManager& HomeAssistantManager::getInstance() {
     static HomeAssistantManager instance;
@@ -642,10 +759,9 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
         return;
     }
 
-    JsonDocument doc;
-    DeserializationError err = deserializeJson(doc, payload);
-    if (err) {
-        Serial.printf("HomeAssistantManager: JSON parse error: %s\n", err.c_str());
+    ParsedHACommandPayload cmdPayload;
+    if (!parseHACommandPayload(payload, cmdPayload)) {
+        Serial.printf("HomeAssistantManager: JSON parse error\n");
         publishCommandResponse(command, false, "invalid_json");
         return;
     }
@@ -657,7 +773,7 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
         return;
     }
 
-    const char* uidFromPayload = doc["uid"] | "";
+    const char* uidFromPayload = cmdPayload.has_uid ? cmdPayload.uid : "";
     const char* uid = (strlen(uidFromPayload) > 0) ? uidFromPayload : uidFromTopic;
     if (strlen(uid) == 0) {
         Serial.printf("HomeAssistantManager: Rejecting cmd '%s': missing uid in payload/topic: %s\n", command, payload);
@@ -707,41 +823,35 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
                 sizeof(msg.payload.haWriteTag.expected_uid) - 1);
 
         msg.payload.haWriteTag.material_type = currentMaterial;
-        if (doc["filament_type"].is<const char*>()) {
-            const char* filamentType = doc["filament_type"].as<const char*>();
-            msg.payload.haWriteTag.material_type = materialTypeFromString(filamentType);
+        if (cmdPayload.has_filament_type) {
+            msg.payload.haWriteTag.material_type = materialTypeFromString(cmdPayload.filament_type);
         }
 
         memcpy(msg.payload.haWriteTag.color, currentColor, sizeof(msg.payload.haWriteTag.color));
-        if (doc["color"].is<const char*>()) {
-            parseHexColor(doc["color"].as<const char*>(), msg.payload.haWriteTag.color);
+        if (cmdPayload.has_color) {
+            parseHexColor(cmdPayload.color, msg.payload.haWriteTag.color);
         }
 
         strncpy(msg.payload.haWriteTag.manufacturer, currentManufacturer,
                 sizeof(msg.payload.haWriteTag.manufacturer) - 1);
-        if (doc["manufacturer"].is<const char*>()) {
-            const char* mfr = doc["manufacturer"].as<const char*>();
-            strncpy(msg.payload.haWriteTag.manufacturer, mfr,
+        if (cmdPayload.has_manufacturer) {
+            strncpy(msg.payload.haWriteTag.manufacturer, cmdPayload.manufacturer,
                     sizeof(msg.payload.haWriteTag.manufacturer) - 1);
         }
 
         msg.payload.haWriteTag.initial_weight_g = currentFullWeight;
-        if (doc["initial_weight_g"].is<float>()) {
-            msg.payload.haWriteTag.initial_weight_g = doc["initial_weight_g"].as<float>();
-        } else if (doc["initial_weight_g"].is<double>()) {
-            msg.payload.haWriteTag.initial_weight_g = static_cast<float>(doc["initial_weight_g"].as<double>());
+        if (cmdPayload.has_initial_weight_g) {
+            msg.payload.haWriteTag.initial_weight_g = cmdPayload.initial_weight_g;
         }
 
         msg.payload.haWriteTag.remaining_g = currentRemaining;
-        if (doc["remaining_g"].is<float>()) {
-            msg.payload.haWriteTag.remaining_g = doc["remaining_g"].as<float>();
-        } else if (doc["remaining_g"].is<double>()) {
-            msg.payload.haWriteTag.remaining_g = static_cast<float>(doc["remaining_g"].as<double>());
+        if (cmdPayload.has_remaining_g) {
+            msg.payload.haWriteTag.remaining_g = cmdPayload.remaining_g;
         }
 
         msg.payload.haWriteTag.spoolman_id = currentSpoolmanId;
-        if (doc["spoolman_id"].is<int32_t>()) {
-            msg.payload.haWriteTag.spoolman_id = doc["spoolman_id"].as<int32_t>();
+        if (cmdPayload.has_spoolman_id) {
+            msg.payload.haWriteTag.spoolman_id = cmdPayload.spoolman_id;
         }
 
         bool queued = ApplicationManager::getInstance().sendMessage(msg, 50);
@@ -753,12 +863,12 @@ void HomeAssistantManager::handleCommand(const char* topic, const char* payload)
         publishCommandResponse(command, true, nullptr);
 
     } else if (strcmp(command, "update_remaining") == 0) {
-        float remainingG = doc["remaining_g"] | -1.0f;
-        if (remainingG < 0) {
+        if (!cmdPayload.has_remaining_g || cmdPayload.remaining_g < 0.0f) {
             Serial.printf("HomeAssistantManager: update_remaining: missing or negative remaining_g in payload\n");
             publishCommandResponse(command, false, "missing_remaining_g");
             return;
         }
+        float remainingG = cmdPayload.remaining_g;
 
         if (!spool.tag_data_valid) {
             Serial.printf("HomeAssistantManager: update_remaining: tag data unavailable for uid=%s\n", uid);

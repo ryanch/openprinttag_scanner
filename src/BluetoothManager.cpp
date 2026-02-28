@@ -6,6 +6,8 @@
 #include "LCDManager.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
+#include <json.hpp>
+
 #include <BLEDevice.h>
 #include <BLEServer.h>
 #include <BLEUtils.h>
@@ -21,6 +23,8 @@ extern SemaphoreHandle_t g_httpMutex;
 extern LCDManager lcdManager;
 
 static const char* TAG = "BluetoothManager";
+
+static constexpr size_t JSON_RESPONSE_CAPACITY = 2048;
 
 // Custom UUIDs
 #define SERVICE_UUID        "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0001"
@@ -86,20 +90,153 @@ static bool parseHexColor(const char* hex, uint8_t* rgba) {
     return true;
 }
 
+using namespace io;
+using namespace json;
+
+struct ParsedBleCommand {
+    char command[32];
+    char id[32];
+    char type[16];
+    char color[16];
+    char manufacturer[64];
+    char url[160];
+    char api_key[96];
+    float grams_remaining;
+    bool has_command;
+    bool has_id;
+    bool has_type;
+    bool has_color;
+    bool has_manufacturer;
+    bool has_grams_remaining;
+    bool has_url;
+    bool has_api_key;
+};
+
+static void initParsedBleCommand(ParsedBleCommand& out) {
+    memset(&out, 0, sizeof(out));
+    out.grams_remaining = 0.0f;
+}
+
+static bool readStringValue(json_reader& reader, char* out, size_t outSize) {
+    if (out == nullptr || outSize == 0) return false;
+    out[0] = '\0';
+    json_node_type node = reader.node_type();
+    if (node != json_node_type::value &&
+        node != json_node_type::value_part &&
+        node != json_node_type::end_value_part) {
+        return false;
+    }
+
+    size_t written = 0;
+    auto append = [&]() {
+        const char* value = reader.value();
+        if (value == nullptr) return;
+        while (*value != '\0' && written + 1 < outSize) {
+            out[written++] = *value++;
+        }
+        out[written] = '\0';
+    };
+
+    append();
+    if (node == json_node_type::value_part) {
+        while (reader.read()) {
+            json_node_type next = reader.node_type();
+            if (next != json_node_type::value_part &&
+                next != json_node_type::end_value_part) {
+                return written > 0;
+            }
+            append();
+            if (next == json_node_type::end_value_part) {
+                break;
+            }
+        }
+    }
+    return written > 0;
+}
+
+static bool parseBleCommand(const char* jsonText, ParsedBleCommand& out) {
+    initParsedBleCommand(out);
+    const_buffer_stream stm((const uint8_t*)jsonText, strlen(jsonText));
+    json_reader reader(stm);
+    if (!reader.read() || reader.node_type() != json_node_type::object) {
+        return false;
+    }
+    const unsigned rootDepth = reader.depth();
+
+    while (reader.read()) {
+        if (reader.node_type() == json_node_type::end_object && reader.depth() == rootDepth) {
+            return out.has_command;
+        }
+        if (reader.node_type() != json_node_type::field || reader.depth() != rootDepth) {
+            continue;
+        }
+        char field[32];
+        const char* fieldValue = reader.value();
+        if (fieldValue == nullptr) {
+            continue;
+        }
+        strncpy(field, fieldValue, sizeof(field) - 1);
+        field[sizeof(field) - 1] = '\0';
+        if (!reader.read()) {
+            return false;
+        }
+
+        if (strcmp(field, "command") == 0) {
+            out.has_command = readStringValue(reader, out.command, sizeof(out.command));
+        } else if (strcmp(field, "id") == 0) {
+            out.has_id = readStringValue(reader, out.id, sizeof(out.id));
+        } else if (strcmp(field, "type") == 0) {
+            out.has_type = readStringValue(reader, out.type, sizeof(out.type));
+        } else if (strcmp(field, "color") == 0) {
+            out.has_color = readStringValue(reader, out.color, sizeof(out.color));
+        } else if (strcmp(field, "manufacturer") == 0) {
+            out.has_manufacturer = readStringValue(reader, out.manufacturer, sizeof(out.manufacturer));
+        } else if (strcmp(field, "grams_remaining") == 0 &&
+                   reader.node_type() == json_node_type::value &&
+                   (reader.value_type() == json_value_type::real || reader.value_type() == json_value_type::integer)) {
+            out.grams_remaining = static_cast<float>(reader.value_real());
+            out.has_grams_remaining = true;
+        } else if (strcmp(field, "url") == 0) {
+            out.has_url = readStringValue(reader, out.url, sizeof(out.url));
+        } else if (strcmp(field, "api_key") == 0) {
+            out.has_api_key = readStringValue(reader, out.api_key, sizeof(out.api_key));
+        }
+    }
+    return out.has_command;
+}
+
+static bool jsonHasTopLevelField(const char* jsonText, const char* fieldName) {
+    const_buffer_stream stm((const uint8_t*)jsonText, strlen(jsonText));
+    json_reader reader(stm);
+    if (!reader.read() || reader.node_type() != json_node_type::object) {
+        return false;
+    }
+    const unsigned rootDepth = reader.depth();
+    while (reader.read()) {
+        if (reader.node_type() == json_node_type::end_object && reader.depth() == rootDepth) {
+            break;
+        }
+        if (reader.node_type() == json_node_type::field &&
+            reader.depth() == rootDepth &&
+            strcmp(reader.value(), fieldName) == 0) {
+            return true;
+        }
+    }
+    return false;
+}
+
 /**
  * @brief Process a JSON command from the client
  */
 static void process_command(const char* json) {
-    JsonDocument doc;
-    DeserializationError error = deserializeJson(doc, json);
-
-    if (error) {
-        Serial.printf("%s: JSON parse error: %s\n", TAG, error.c_str());
+    ParsedBleCommand cmd;
+    if (!parseBleCommand(json, cmd)) {
+        Serial.printf("%s: JSON parse error\n", TAG);
         snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Invalid JSON\"}");
         return;
     }
 
-    const char* command = doc["command"] | "";
+    const char* command = cmd.command;
 
     if (strcmp(command, "read_config") == 0) {
         char config[512];
@@ -130,7 +267,7 @@ static void process_command(const char* json) {
             }
             return;
         }
-        JsonDocument responseDoc;
+        StaticJsonDocument<JSON_RESPONSE_CAPACITY> responseDoc;
 
         if (spool.present && spool.tag_data_valid) {
             JsonObject current = responseDoc["current"].to<JsonObject>();
@@ -220,7 +357,7 @@ static void process_command(const char* json) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
             Serial.printf("%s: format_spool failed - no tag present\n", TAG);
         } else {
-            const char* requestedId = doc["id"] | "";
+            const char* requestedId = cmd.has_id ? cmd.id : "";
             if (requestedId[0] != '\0' && strcmp(requestedId, spool.spool_id) != 0) {
                 snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
                 Serial.printf("%s: format_spool failed - ID mismatch\n", TAG);
@@ -255,7 +392,7 @@ static void process_command(const char* json) {
             Serial.printf("%s: update_spool failed - no tag present\n", TAG);
         } else if (spool.blank_tag_present) {
             // Blank tag — enqueue FORMAT_NEW
-            const char* requestedId = doc["id"] | "";
+            const char* requestedId = cmd.has_id ? cmd.id : "";
             if (requestedId[0] != '\0' && strcmp(requestedId, spool.spool_id) != 0) {
                 snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
                 Serial.printf("%s: update_spool (format) failed - ID mismatch\n", TAG);
@@ -278,7 +415,7 @@ static void process_command(const char* json) {
             Serial.printf("%s: update_spool failed - tag data not valid\n", TAG);
         } else {
             // Verify spool ID matches
-            const char* requestedId = doc["id"] | "";
+            const char* requestedId = cmd.has_id ? cmd.id : "";
             if (requestedId[0] != '\0' && strcmp(requestedId, spool.spool_id) != 0) {
                 snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
                 Serial.printf("%s: update_spool failed - ID mismatch\n", TAG);
@@ -301,9 +438,8 @@ static void process_command(const char* json) {
                 };
 
                 // Check if type changed
-                if (!doc["type"].isNull()) {
-                    const char* newType = doc["type"] | "";
-                    uint8_t newMaterial = materialTypeFromString(newType);
+                if (cmd.has_type) {
+                    uint8_t newMaterial = materialTypeFromString(cmd.type);
                     uint8_t currentMaterial = 0;
                     opt_get_material_type(&spool.tag_data, &currentMaterial);
                     if (newMaterial != currentMaterial) {
@@ -318,8 +454,8 @@ static void process_command(const char* json) {
                 }
 
                 // Check if color changed
-                if (!enqueueFailed && !doc["color"].isNull()) {
-                    const char* newColor = doc["color"] | "";
+                if (!enqueueFailed && cmd.has_color) {
+                    const char* newColor = cmd.color;
                     uint8_t newRgba[4];
                     if (parseHexColor(newColor, newRgba)) {
                         uint8_t currentColor[4];
@@ -337,8 +473,8 @@ static void process_command(const char* json) {
                 }
 
                 // Check if manufacturer changed
-                if (!enqueueFailed && !doc["manufacturer"].isNull()) {
-                    const char* newBrand = doc["manufacturer"] | "";
+                if (!enqueueFailed && cmd.has_manufacturer) {
+                    const char* newBrand = cmd.manufacturer;
                     char currentBrand[64] = {0};
                     opt_get_brand_name(&spool.tag_data, currentBrand, sizeof(currentBrand));
                     if (strcmp(newBrand, currentBrand) != 0) {
@@ -354,8 +490,8 @@ static void process_command(const char* json) {
                 }
 
                 // Check if grams_remaining changed
-                if (!enqueueFailed && !doc["grams_remaining"].isNull()) {
-                    float newRemaining = doc["grams_remaining"] | 0.0f;
+                if (!enqueueFailed && cmd.has_grams_remaining) {
+                    float newRemaining = cmd.grams_remaining;
                     float full_weight = 0.0f;
                     float currentConsumed = 0.0f;
                     opt_get_actual_full_weight(&spool.tag_data, &full_weight);
@@ -391,7 +527,7 @@ static void process_command(const char* json) {
         }
     }
     else if (strcmp(command, "test_spoolman") == 0) {
-        const char* url = doc["url"] | "";
+        const char* url = cmd.has_url ? cmd.url : "";
         if (strlen(url) == 0) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"error\",\"message\":\"Missing url\"}");
         } else if (xSemaphoreTake(g_httpMutex, pdMS_TO_TICKS(10000)) != pdTRUE) {
@@ -411,12 +547,7 @@ static void process_command(const char* json) {
                 snprintf(s_response_buffer, sizeof(s_response_buffer),
                     "{\"status\":\"error\",\"message\":\"HTTP %d\",\"code\":%d}", httpCode, httpCode);
             } else {
-                JsonDocument infoDoc;
-                DeserializationError err = deserializeJson(infoDoc, body);
-                if (err) {
-                    snprintf(s_response_buffer, sizeof(s_response_buffer),
-                        "{\"status\":\"error\",\"message\":\"Invalid JSON from server\"}");
-                } else if (infoDoc["version"].isNull()) {
+                if (!jsonHasTopLevelField(body.c_str(), "version")) {
                     snprintf(s_response_buffer, sizeof(s_response_buffer),
                         "{\"status\":\"error\",\"message\":\"Missing version in response\"}");
                 } else {
@@ -450,8 +581,8 @@ static void process_command(const char* json) {
         }
     }
     else if (strcmp(command, "test_prusalink") == 0) {
-        const char* url = doc["url"] | "";
-        const char* apiKey = doc["api_key"] | "";
+        const char* url = cmd.has_url ? cmd.url : "";
+        const char* apiKey = cmd.has_api_key ? cmd.api_key : "";
         if (strlen(url) == 0) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"error\",\"message\":\"Missing url\"}");
         } else if (xSemaphoreTake(g_httpMutex, pdMS_TO_TICKS(10000)) != pdTRUE) {

@@ -21,3 +21,5 @@ test/integration/__pycache__/
 test/integration/scenarios/__pycache__/
 test/integration/__pycache__/mock_prusalink.cpython-312.pyc
 test/integration/scenarios/__pycache__/__init__.cpython-312.pyc
+test/native/test_json_pull_helpers
+test/native/test_json_pull_helpers_runner
