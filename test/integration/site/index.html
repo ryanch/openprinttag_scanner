@@ -598,7 +598,28 @@
                     log(`BLE ← ${result.substring(0, 100)}...`);
                     return result;
                 }
-                return null;
+
+                // Read write-characteristic response so command errors (for example Busy)
+                // are surfaced to the test runner instead of failing silently.
+                await new Promise(resolve => setTimeout(resolve, 120));
+                const value = await configWriteCharacteristic.readValue();
+                const decoder = new TextDecoder();
+                const response = decoder.decode(value);
+                log(`BLE ← ${response.substring(0, 100)}...`);
+                try {
+                    const parsed = JSON.parse(response);
+                    const hasError = !!parsed.error || parsed.status === 'error';
+                    if (hasError) {
+                        const message = parsed.error || parsed.message || 'Unknown command error';
+                        throw new Error(message);
+                    }
+                } catch (err) {
+                    if (err instanceof SyntaxError) {
+                        throw new Error(`Invalid JSON response from device: ${response}`);
+                    }
+                    throw err;
+                }
+                return response;
             });
         }
 

@@ -11,7 +11,7 @@ Consider thread safety for all changes
 Add new files to source inventory (one-line)
 Run tests after changes: ./scripts/run_all_tests.sh
 Avoid adding more heap allocations - the device is low on memory.
-Use StaticJsonDocument document, even though it is deprecated. 
+Use StaticJsonDocument document, even though it is deprecated.s
 
 # Architecture summary:
 main.cpp: Initializes all managers, starts FreeRTOS tasks
@@ -65,7 +65,6 @@ docs/index.html — BLE config UI (device setup + spool editing)
 
 Utilities
 src/BgcodeParser.cpp / .h — Extracts "filament used [g]" from .bgcode
-src/JsonPullHelpers.cpp / .h — htcw_json wrapper utilities (field extraction, path navigation, array iteration)
 
 Tests
 OpenPrintTag

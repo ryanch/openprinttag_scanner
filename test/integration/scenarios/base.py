@@ -76,7 +76,17 @@ class BaseTestScenario(ABC):
         """Update spool fields via BLE"""
         cmd = {"command": "update_spool", "id": spool_id}
         cmd.update(fields)
-        self._ble_command(cmd, read_data=False)
+        max_attempts = 4
+        for attempt in range(max_attempts):
+            try:
+                self._ble_command(cmd, read_data=False)
+                return
+            except Exception as e:
+                msg = str(e)
+                is_busy = "Busy" in msg or "Device busy" in msg
+                if not is_busy or attempt == max_attempts - 1:
+                    raise
+                self._wait_seconds(1, f"Retrying update_spool after busy ({attempt + 1}/{max_attempts - 1})")
 
     def _get_current_spool(self):
         """Return currently detected spool dict or None."""

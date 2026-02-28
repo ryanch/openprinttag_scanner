@@ -29,19 +29,21 @@ private:
     static void pollingTaskFunc(void* param);
 
     void handleJobDetected(int jobId, float totalFilamentG);
-    void resolveAndSendJobEnd(int jobId, float progressPercent);
+    void resolveAndSendJobEnd(int jobId, float progressPercent, bool allowDeferredFilament, const char* reason);
     void handleJobDisappeared();
 
     PrinterState state = PrinterState::IDLE;
     int currentJobId = -1;
     float currentJobTotalFilamentG = 0.0f;
     float lastProgressPercent = 0.0f;
+    uint8_t missingJobPollCount = 0;
 
     IPrinterLinkStrategy* strategy = nullptr;
 
     TaskHandle_t pollingTaskHandle = nullptr;
     static constexpr size_t POLLING_TASK_STACK_SIZE = 6144;
     static constexpr UBaseType_t POLLING_TASK_PRIORITY = 1;
+    static constexpr uint8_t JOB_MISSING_GRACE_POLLS = 2;
 };
 
 #endif // PRINTER_MANAGER_H

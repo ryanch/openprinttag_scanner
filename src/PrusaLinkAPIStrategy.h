@@ -16,7 +16,7 @@ public:
     float getTotalFilamentGrams() const override { return totalFilamentG; }
     const char* getJobState() const override { return jobState; }
     bool isConnected() const override { return connected; }
-    float fetchDeferredFilament() override;
+    float fetchDeferredFilament(int expectedJobId) override;
 
 private:
     static constexpr size_t BGCODE_BUF_SIZE = 8192;

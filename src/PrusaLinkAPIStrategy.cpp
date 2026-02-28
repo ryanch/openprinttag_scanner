@@ -9,6 +9,7 @@
 #include "esp_heap_caps.h"
 #include <cstring>
 #include <cstdlib>
+#include <cctype>
 
 static constexpr size_t URL_BUFFER_SIZE = 192;
 
@@ -36,6 +37,36 @@ static bool buildJobUrl(char* out, size_t outSize, const char* base, int jobId) 
     }
     int written = snprintf(out, outSize, "%s/api/v1/job/%d", base, jobId);
     return written > 0 && static_cast<size_t>(written) < outSize;
+}
+
+static float parseFilamentFromRawJobJson(const String& response) {
+    const char* key = "\"filament used [g]\"";
+    int keyPos = response.indexOf(key);
+    if (keyPos < 0) {
+        return 0.0f;
+    }
+
+    const char* raw = response.c_str();
+    const char* p = raw + keyPos + strlen(key);
+
+    while (*p != '\0' && *p != ':') {
+        p++;
+    }
+    if (*p != ':') {
+        return 0.0f;
+    }
+    p++;
+
+    while (*p != '\0' && isspace(static_cast<unsigned char>(*p))) {
+        p++;
+    }
+
+    char* end = nullptr;
+    float val = strtof(p, &end);
+    if (end == p || val <= 0.0f) {
+        return 0.0f;
+    }
+    return val;
 }
 
 static void logHeapSnapshot(const char* stage) {
@@ -442,6 +473,14 @@ void PrusaLinkAPIStrategy::update() {
         logHeapSnapshot("after_job_deserialize");
         http.end();
 
+        if (parsedFilamentG <= 0.0f) {
+            float rawParsed = parseFilamentFromRawJobJson(response);
+            if (rawParsed > 0.0f) {
+                parsedFilamentG = rawParsed;
+                Serial.printf("PrusaLinkAPIStrategy: Parsed filament from raw job JSON fallback: %.2fg\n", parsedFilamentG);
+            }
+        }
+
         strncpy(jobState, parsedState, sizeof(jobState) - 1);
         jobState[sizeof(jobState) - 1] = '\0';
         totalFilamentG = parsedFilamentG;
@@ -566,9 +605,15 @@ float PrusaLinkAPIStrategy::fetchFilamentFromBgcode(const char* downloadRef) {
     return result;
 }
 
-float PrusaLinkAPIStrategy::fetchDeferredFilament() {
-    if (savedDownloadRefJobId < 0) return 0.0f;
-    if (bgcodeFilamentJobId == savedDownloadRefJobId && bgcodeFilamentG > 0.0f)
+float PrusaLinkAPIStrategy::fetchDeferredFilament(int expectedJobId) {
+    if (expectedJobId < 0) return 0.0f;
+    if (savedDownloadRefJobId != expectedJobId) {
+        Serial.printf("PrusaLinkAPIStrategy: Deferred filament skipped, expected job %d but saved ref is job %d\n",
+            expectedJobId, savedDownloadRefJobId);
+        return 0.0f;
+    }
+
+    if (bgcodeFilamentJobId == expectedJobId && bgcodeFilamentG > 0.0f)
         return bgcodeFilamentG;
 
     bool mutexHeld = false;
@@ -585,7 +630,7 @@ float PrusaLinkAPIStrategy::fetchDeferredFilament() {
     http.useHTTP10(true);
     http.setReuse(false);
     char jobUrl[URL_BUFFER_SIZE];
-    if (!buildJobUrl(jobUrl, sizeof(jobUrl), config.getPrusaLinkURL(), savedDownloadRefJobId)) {
+    if (!buildJobUrl(jobUrl, sizeof(jobUrl), config.getPrusaLinkURL(), expectedJobId)) {
         if (mutexHeld) xSemaphoreGive(httpMutex_);
         Serial.println("PrusaLinkAPIStrategy: deferred job URL too long");
         return 0.0f;
@@ -626,10 +671,21 @@ float PrusaLinkAPIStrategy::fetchDeferredFilament() {
 
                 free(deferredBuf);
 
+                if (parsedFilament <= 0.0f) {
+                    float rawParsed = parseFilamentFromRawJobJson(deferredResponse);
+                    if (rawParsed > 0.0f) {
+                        parsedFilament = rawParsed;
+                        Serial.printf("PrusaLinkAPIStrategy: Parsed deferred filament from raw JSON fallback: %.2fg\n",
+                            parsedFilament);
+                    }
+                }
+
                 if (parsedFilament > 0.0f) {
                     result = parsedFilament;
                     Serial.printf("PrusaLinkAPIStrategy: Got deferred filament from job API: %.2fg\n", result);
                 } else {
+                    Serial.printf("PrusaLinkAPIStrategy: Deferred job API attempt %d/%d had no filament metadata yet\n",
+                        attempt, maxAttempts);
 #if PRUSALINK_API_TRACE
                     Serial.println("PrusaLinkAPIStrategy: WARNING - deferred job parse returned 0g");
 #endif
@@ -640,7 +696,10 @@ float PrusaLinkAPIStrategy::fetchDeferredFilament() {
 
             logHeapSnapshot("after_deferred_job_deserialize");
             http.end();
-            break;
+            if (result > 0.0f) {
+                break;
+            }
+            continue;
         } else {
             Serial.printf("PrusaLinkAPIStrategy: Deferred job API attempt %d/%d failed: %d\n", attempt, maxAttempts, code);
             logHeapSnapshot("deferred_job_get_failed");
@@ -657,7 +716,7 @@ float PrusaLinkAPIStrategy::fetchDeferredFilament() {
         result = fetchFilamentFromBgcode(savedDownloadRef);
     }
 
-    bgcodeFilamentJobId = savedDownloadRefJobId;
+    bgcodeFilamentJobId = expectedJobId;
     bgcodeFilamentG = result;
 
     if (mutexHeld) xSemaphoreGive(httpMutex_);
