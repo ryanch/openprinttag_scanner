@@ -26,6 +26,7 @@ class Test100xPrint(BaseTestScenario):
     )
 
     ITERATIONS = PRINT_ITERATIONS
+    RESET_INTERVAL = 100
     FILAMENT_PER_PRINT = 9.18  # grams, from sample.bgcode
     INITIAL_WEIGHT = 1000.0
     TOLERANCE = 2.0  # grams tolerance per check
@@ -156,6 +157,33 @@ class Test100xPrint(BaseTestScenario):
                         self._emit_progress(
                             f"Progress: {i}/{self.ITERATIONS} ({stats['passed']} passed, {stats['failed']} failed, "
                             f"avg drift last 10: {avg_drift:+.2f}g)"
+                        )
+
+                    # Reset spool weight every 100 iterations to avoid negative expected values
+                    if i % self.RESET_INTERVAL == 0:
+                        self._emit_step(
+                            f"reset_weight_{i}",
+                            "running",
+                            f"Iteration {i}: resetting spool to {self.INITIAL_WEIGHT}g"
+                        )
+                        self._ble_update_spool(
+                            spool_id,
+                            grams_remaining=int(self.INITIAL_WEIGHT)
+                        )
+                        self._wait_seconds(3, f"NFC write reset at iteration {i}")
+                        spools = self._ble_list_spools()
+                        reset_weight = spools["current"]["grams_remaining"]
+                        self._assert_approx(
+                            reset_weight,
+                            self.INITIAL_WEIGHT,
+                            self.TOLERANCE,
+                            f"reset weight at iteration {i}"
+                        )
+                        expected_weight = self.INITIAL_WEIGHT
+                        self._emit_step(
+                            f"reset_weight_{i}",
+                            "passed",
+                            f"Iteration {i}: weight reset to {reset_weight}g"
                         )
 
                 except Exception as e:
