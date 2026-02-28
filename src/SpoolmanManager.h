@@ -28,6 +28,11 @@ public:
     bool isConfigured() const;
 
 private:
+    struct SpoolIdCacheEntry {
+        char spool_id[17];
+        int32_t spoolman_id;
+    };
+
     SpoolmanManager() = default;
     SpoolmanManager(const SpoolmanManager&) = delete;
     SpoolmanManager& operator=(const SpoolmanManager&) = delete;
@@ -35,10 +40,14 @@ private:
     static void taskFunc(void* param);
     void taskLoop();
     bool syncSpool(const SpoolmanSyncRequest& req, int& resolvedSpoolmanId);
+    int32_t lookupCachedSpoolmanId(const char* spoolId) const;
+    void storeCachedSpoolmanId(const char* spoolId, int32_t spoolmanId);
 
     QueueHandle_t syncQueue = nullptr;
     SemaphoreHandle_t httpMutex_ = nullptr;
     TaskHandle_t taskHandle = nullptr;
+    SpoolIdCacheEntry spoolIdCache_[8] = {};
+    uint8_t spoolIdCacheWriteIndex_ = 0;
 
     static constexpr size_t QUEUE_SIZE = 4;
     static constexpr size_t TASK_STACK_SIZE = 6144;

@@ -392,14 +392,26 @@ static int findSpoolByUuid(int filamentId, const char* uuid) {
     snprintf(path, sizeof(path), "/api/v1/spool?filament.id=%d", filamentId);
     String response;
     int code = httpGet(path, response);
-    if (code != 200) {
-        return -1;
+    if (code == 200) {
+        int id = -1;
+        if (parseSpoolIdByUuid(response.c_str(), uuid, id)) {
+            Serial.printf("SpoolmanManager: Found spool uuid=%s id=%d in filament=%d\n",
+                          uuid, id, filamentId);
+            return id;
+        }
     }
 
-    int id = -1;
-    if (parseSpoolIdByUuid(response.c_str(), uuid, id)) {
-        Serial.printf("SpoolmanManager: Found spool uuid=%s id=%d\n", uuid, id);
-        return id;
+    // Fallback search across all spools to avoid duplicate UUID entries when
+    // a prior sync used different filament metadata for the same physical tag.
+    response = "";
+    code = httpGet("/api/v1/spool", response);
+    if (code == 200) {
+        int id = -1;
+        if (parseSpoolIdByUuid(response.c_str(), uuid, id)) {
+            Serial.printf("SpoolmanManager: Found spool uuid=%s id=%d via global lookup\n",
+                          uuid, id);
+            return id;
+        }
     }
 
     return -1;
@@ -462,6 +474,23 @@ static bool lookupSpoolById(int spoolId, const char* uuid) {
 
     Serial.printf("SpoolmanManager: Spool %d UUID mismatch: '%s' != '%s'\n", spoolId, tagUuid, uuid);
     return false;
+}
+
+static int findSpoolByUuidGlobal(const char* uuid) {
+    String response;
+    int code = httpGet("/api/v1/spool", response);
+    if (code != 200) {
+        return -1;
+    }
+
+    int id = -1;
+    if (parseSpoolIdByUuid(response.c_str(), uuid, id)) {
+        Serial.printf("SpoolmanManager: Recovered spool uuid=%s id=%d via global lookup\n",
+                      uuid, id);
+        return id;
+    }
+
+    return -1;
 }
 
 static bool updateSpool(int spoolId, int filamentId, float remainingWeight) {
@@ -536,6 +565,40 @@ bool SpoolmanManager::isConfigured() const {
     return strlen(ConfigurationManager::getInstance().getSpoolmanURL()) > 0;
 }
 
+int32_t SpoolmanManager::lookupCachedSpoolmanId(const char* spoolId) const {
+    if (spoolId == nullptr || spoolId[0] == '\0') {
+        return -1;
+    }
+    for (size_t i = 0; i < (sizeof(spoolIdCache_) / sizeof(spoolIdCache_[0])); ++i) {
+        if (spoolIdCache_[i].spool_id[0] == '\0') {
+            continue;
+        }
+        if (strcmp(spoolIdCache_[i].spool_id, spoolId) == 0 && spoolIdCache_[i].spoolman_id > 0) {
+            return spoolIdCache_[i].spoolman_id;
+        }
+    }
+    return -1;
+}
+
+void SpoolmanManager::storeCachedSpoolmanId(const char* spoolId, int32_t spoolmanId) {
+    if (spoolId == nullptr || spoolId[0] == '\0' || spoolmanId <= 0) {
+        return;
+    }
+
+    for (size_t i = 0; i < (sizeof(spoolIdCache_) / sizeof(spoolIdCache_[0])); ++i) {
+        if (strcmp(spoolIdCache_[i].spool_id, spoolId) == 0) {
+            spoolIdCache_[i].spoolman_id = spoolmanId;
+            return;
+        }
+    }
+
+    SpoolIdCacheEntry& slot = spoolIdCache_[spoolIdCacheWriteIndex_];
+    strncpy(slot.spool_id, spoolId, sizeof(slot.spool_id) - 1);
+    slot.spool_id[sizeof(slot.spool_id) - 1] = '\0';
+    slot.spoolman_id = spoolmanId;
+    spoolIdCacheWriteIndex_ = (spoolIdCacheWriteIndex_ + 1) % (sizeof(spoolIdCache_) / sizeof(spoolIdCache_[0]));
+}
+
 void SpoolmanManager::taskFunc(void* param) {
     SpoolmanManager* self = static_cast<SpoolmanManager*>(param);
     self->taskLoop();
@@ -576,10 +639,19 @@ bool SpoolmanManager::syncSpool(const SpoolmanSyncRequest& req, int& resolvedSpo
     resolvedSpoolmanId = -1;
     bool success = false;
 
-    // Fast path: if we have a spoolman_id from the tag, try direct lookup
-    if (req.spoolman_id > 0) {
-        Serial.printf("SpoolmanManager: Fast path - looking up spool %d\n", req.spoolman_id);
-        if (lookupSpoolById(req.spoolman_id, req.spool_id)) {
+    // Prefer a known-good ID for this spool UID over potentially stale tag data.
+    int32_t preferredSpoolmanId = req.spoolman_id;
+    int32_t cachedSpoolmanId = lookupCachedSpoolmanId(req.spool_id);
+    if (cachedSpoolmanId > 0 && cachedSpoolmanId != req.spoolman_id) {
+        Serial.printf("SpoolmanManager: Using cached spoolman_id=%d for spool %s (tag had %d)\n",
+                      cachedSpoolmanId, req.spool_id, req.spoolman_id);
+        preferredSpoolmanId = cachedSpoolmanId;
+    }
+
+    // Fast path: if we have a spoolman_id (from cache or tag), try direct lookup.
+    if (preferredSpoolmanId > 0) {
+        Serial.printf("SpoolmanManager: Fast path - looking up spool %d\n", preferredSpoolmanId);
+        if (lookupSpoolById(preferredSpoolmanId, req.spool_id)) {
             // UUID matches - just update remaining weight
             // We still need a filament_id for updateSpool; get it from the spool response
             // But updateSpool only needs it for the PATCH body, and the spool already has it.
@@ -587,16 +659,39 @@ bool SpoolmanManager::syncSpool(const SpoolmanSyncRequest& req, int& resolvedSpo
             int vendorId = findOrCreateVendor(req.manufacturer);
             int filamentId = (vendorId >= 0) ? findOrCreateFilament(vendorId, req) : -1;
             if (filamentId >= 0) {
-                success = updateSpool(req.spoolman_id, filamentId, req.remaining_weight_g);
+                success = updateSpool(preferredSpoolmanId, filamentId, req.remaining_weight_g);
             } else {
                 // Filament lookup failed but spool exists - update without changing filament_id
                 // Use a minimal PATCH with just remaining_weight
-                success = updateSpool(req.spoolman_id, -1, req.remaining_weight_g);
+                success = updateSpool(preferredSpoolmanId, -1, req.remaining_weight_g);
             }
-            resolvedSpoolmanId = req.spoolman_id;
+            resolvedSpoolmanId = preferredSpoolmanId;
+            if (success) {
+                storeCachedSpoolmanId(req.spool_id, resolvedSpoolmanId);
+            }
             xSemaphoreGive(httpMutex_);
             return success;
         }
+
+        // Stale/mismatched spoolman_id on tag (common right after tag swaps/writeback):
+        // recover by UUID before creating vendor/filament/spool to avoid duplicates.
+        int existingSpoolId = findSpoolByUuidGlobal(req.spool_id);
+        if (existingSpoolId > 0) {
+            int vendorId = findOrCreateVendor(req.manufacturer);
+            int filamentId = (vendorId >= 0) ? findOrCreateFilament(vendorId, req) : -1;
+            if (filamentId >= 0) {
+                success = updateSpool(existingSpoolId, filamentId, req.remaining_weight_g);
+            } else {
+                success = updateSpool(existingSpoolId, -1, req.remaining_weight_g);
+            }
+            if (success) {
+                resolvedSpoolmanId = existingSpoolId;
+                storeCachedSpoolmanId(req.spool_id, resolvedSpoolmanId);
+                xSemaphoreGive(httpMutex_);
+                return true;
+            }
+        }
+
         Serial.println("SpoolmanManager: Fast path failed, falling back to slow path");
     }
 
@@ -626,6 +721,7 @@ bool SpoolmanManager::syncSpool(const SpoolmanSyncRequest& req, int& resolvedSpo
 
     if (success && spoolId > 0) {
         resolvedSpoolmanId = spoolId;
+        storeCachedSpoolmanId(req.spool_id, resolvedSpoolmanId);
     }
 
     xSemaphoreGive(httpMutex_);
