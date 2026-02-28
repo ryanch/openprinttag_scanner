@@ -16,6 +16,7 @@ class SpoolmanSyncTest(BaseTestScenario):
     def run(self):
         try:
             self._emit_step("Test Start", "running", "Starting Spoolman sync test")
+            initial_spool_count = len(self.mock_spoolman.spools)
 
             # Step 1: Save original config
             self._emit_step("Save Config", "running", "Reading device configuration")
@@ -53,9 +54,12 @@ class SpoolmanSyncTest(BaseTestScenario):
             self._assert(spoolman_id_a is not None, "Spoolman ID missing for spool A")
             self._assert(spoolman_id_a > 0, f"Invalid spoolman_id for spool A: {spoolman_id_a}")
 
-            # Check mock state for duplicates
+            # Check mock state growth from baseline
             mock_spool_count = len(self.mock_spoolman.spools)
-            self._assert(mock_spool_count == 1, f"Expected 1 spool in Spoolman, found {mock_spool_count}")
+            self._assert(
+                mock_spool_count == initial_spool_count + 1,
+                f"Expected Spoolman spool count to grow by 1 (baseline={initial_spool_count}), found {mock_spool_count}"
+            )
 
             # Verify no duplicate UUIDs
             duplicate_check = self._check_for_duplicate_uuids(spool_a_id)
@@ -97,9 +101,12 @@ class SpoolmanSyncTest(BaseTestScenario):
             self._assert(spoolman_id_b > 0, f"Invalid spoolman_id for spool B: {spoolman_id_b}")
             self._assert(spoolman_id_b != spoolman_id_a, f"Spool B has same spoolman_id as A: {spoolman_id_b}")
 
-            # Check mock state for duplicates
+            # Check mock state growth from baseline
             mock_spool_count = len(self.mock_spoolman.spools)
-            self._assert(mock_spool_count == 2, f"Expected 2 spools in Spoolman, found {mock_spool_count}")
+            self._assert(
+                mock_spool_count == initial_spool_count + 2,
+                f"Expected Spoolman spool count to grow by 2 (baseline={initial_spool_count}), found {mock_spool_count}"
+            )
 
             # Verify no duplicate UUIDs for spool B
             duplicate_check_b = self._check_for_duplicate_uuids(spool_b_id)
@@ -130,9 +137,12 @@ class SpoolmanSyncTest(BaseTestScenario):
             self._assert(final_spoolman_id_a == spoolman_id_a,
                         f"Spoolman ID changed! Was {spoolman_id_a}, now {final_spoolman_id_a}")
 
-            # Final check: still only 2 spools total, no duplicates
+            # Final check: still only +2 from baseline, no duplicates
             mock_spool_count = len(self.mock_spoolman.spools)
-            self._assert(mock_spool_count == 2, f"Expected 2 spools in Spoolman, found {mock_spool_count}")
+            self._assert(
+                mock_spool_count == initial_spool_count + 2,
+                f"Expected Spoolman spool count to remain baseline+2 ({initial_spool_count + 2}), found {mock_spool_count}"
+            )
 
             duplicate_check_final = self._check_for_duplicate_uuids(spool_a_id)
             self._assert(duplicate_check_final["count"] == 1,

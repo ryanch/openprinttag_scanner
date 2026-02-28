@@ -12,12 +12,12 @@
 
 static constexpr size_t URL_BUFFER_SIZE = 192;
 
-#define PRUSALINK_HEAP_TRACE 1
+//#define PRUSALINK_HEAP_TRACE 1
 #ifndef PRUSALINK_HEAP_TRACE
 #define PRUSALINK_HEAP_TRACE 0
 #endif
 
-#define PRUSALINK_API_TRACE 1
+//#define PRUSALINK_API_TRACE 1
 #ifndef PRUSALINK_API_TRACE
 #define PRUSALINK_API_TRACE 0
 #endif

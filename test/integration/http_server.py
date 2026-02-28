@@ -182,6 +182,12 @@ class TestOrchestrator:
         self._clear_queue(self.user_action_queue)
         self._clear_queue(self.server_url_queue)
 
+        # Reset mock API state for test isolation.
+        # Without this, Spoolman/PrusaLink state can leak between scenarios.
+        self.mock_spoolman.reset()
+        self.mock_state.set_idle()
+        self.mock_state.set_error_mode(False)
+
         # Create test instance
         self.current_test = test_info["class"](self, self.mock_state, self.mock_spoolman)
 
