@@ -1315,7 +1315,16 @@ opt_error_t opt_add_consumed_weight(opt_tag_t *tag, float grams_delta) {
     opt_error_t err = opt_get_consumed_weight(tag, &current);
     if (err != OPT_OK) return err;
 
-    return opt_set_consumed_weight(tag, current + grams_delta);
+    float new_consumed = current + grams_delta;
+
+    // Clamp consumed weight to not exceed total weight
+    float total = 0;
+    err = opt_get_actual_full_weight(tag, &total);
+    if (err == OPT_OK && new_consumed > total) {
+        new_consumed = total;
+    }
+
+    return opt_set_consumed_weight(tag, new_consumed);
 }
 
 opt_error_t opt_get_gp_spoolman_id(const opt_tag_t *tag, int32_t *id) {
