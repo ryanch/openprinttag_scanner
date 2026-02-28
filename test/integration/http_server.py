@@ -28,6 +28,12 @@ from scenarios.test_print_30_percent import Print30PercentE2ETest
 from scenarios.test_recent_spools import RecentSpoolsTest
 from scenarios.test_spoolman_sync import SpoolmanSyncTest
 from scenarios.test_print_100x import Test100xPrint
+from scenarios.test_color_update import ColorUpdateTest
+from scenarios.test_spool_swap_during_print import SpoolSwapDuringPrintTest
+from scenarios.test_zero_weight_handling import ZeroWeightHandlingTest
+from scenarios.test_printer_api_errors import PrinterAPIErrorsTest
+from scenarios.test_print_progress_edge_cases import PrintProgressEdgeCasesTest
+from scenarios.test_automation_mode_controlled import AutomationModeControlledTest
 
 
 class TestOrchestrator:
@@ -92,6 +98,48 @@ class TestOrchestrator:
                 "description": "Run 100 consecutive print cycles (⚠️ ~60 min runtime)",
                 "class": Test100xPrint,
                 "include_in_run_all": False
+            },
+            "color_update": {
+                "id": "color_update",
+                "name": "Color Field Testing",
+                "description": "Test updating and verifying spool color field",
+                "class": ColorUpdateTest,
+                "include_in_run_all": True
+            },
+            "spool_swap_during_print": {
+                "id": "spool_swap_during_print",
+                "name": "Mid-Print Spool Swap",
+                "description": "Swap spools mid-print and verify deduction target",
+                "class": SpoolSwapDuringPrintTest,
+                "include_in_run_all": True
+            },
+            "zero_weight_handling": {
+                "id": "zero_weight_handling",
+                "name": "Zero Weight Boundary",
+                "description": "Test weight clamping when spool reaches 0g",
+                "class": ZeroWeightHandlingTest,
+                "include_in_run_all": True
+            },
+            "printer_api_errors": {
+                "id": "printer_api_errors",
+                "name": "PrusaLink Error Handling",
+                "description": "Test resilience to printer API failures",
+                "class": PrinterAPIErrorsTest,
+                "include_in_run_all": True
+            },
+            "print_progress_edge_cases": {
+                "id": "print_progress_edge_cases",
+                "name": "Print Progress Edge Cases",
+                "description": "Test cancel at 0%, finish at 100%, and 100% dwell",
+                "class": PrintProgressEdgeCasesTest,
+                "include_in_run_all": True
+            },
+            "automation_mode_controlled": {
+                "id": "automation_mode_controlled",
+                "name": "HA Controlled Mode",
+                "description": "Verify automation_mode=1 disables auto-deduction",
+                "class": AutomationModeControlledTest,
+                "include_in_run_all": True
             }
         }
 
@@ -286,17 +334,29 @@ class IntegrationTestHandler(BaseHTTPRequestHandler):
         elif path == "/api/v1/status":
             if not self._check_api_key():
                 return
+            # Check for error mode
+            if self.orchestrator.mock_state.is_error_mode():
+                self.send_error(500, "Internal Server Error (mock error mode)")
+                return
             response = self.orchestrator.mock_state.get_status_response()
             self._send_json(response)
 
         elif path == "/api/v1/job":
             if not self._check_api_key():
                 return
+            # Check for error mode
+            if self.orchestrator.mock_state.is_error_mode():
+                self.send_error(500, "Internal Server Error (mock error mode)")
+                return
             response = self.orchestrator.mock_state.get_job_response()
             self._send_json(response)
 
         elif path.startswith("/api/v1/job/"):
             if not self._check_api_key():
+                return
+            # Check for error mode
+            if self.orchestrator.mock_state.is_error_mode():
+                self.send_error(500, "Internal Server Error (mock error mode)")
                 return
             response = self.orchestrator.mock_state.get_job_response()
             self._send_json(response)

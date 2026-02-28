@@ -100,4 +100,10 @@ test/integration/scenarios/test_print_30_percent.py — Canceled print at 30% in
 test/integration/scenarios/test_print_100x.py — 100x print endurance test (excluded from run-all)
 test/integration/scenarios/test_recent_spools.py — Swap spool A/B and verify recently seen spool history
 test/integration/scenarios/test_spoolman_sync.py — Spoolman sync verification test
+test/integration/scenarios/test_color_update.py — Color field update and verification test
+test/integration/scenarios/test_spool_swap_during_print.py — Mid-print spool swap edge case test
+test/integration/scenarios/test_zero_weight_handling.py — Zero weight boundary and clamping test
+test/integration/scenarios/test_printer_api_errors.py — PrusaLink API error resilience test
+test/integration/scenarios/test_print_progress_edge_cases.py — Print progress edge cases (0%, 100%, dwell)
+test/integration/scenarios/test_automation_mode_controlled.py — HA-controlled mode (no auto-deduction) test
 test/integration/site/index.html — Web Bluetooth test runner UI

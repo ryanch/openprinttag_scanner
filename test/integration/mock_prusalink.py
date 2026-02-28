@@ -10,6 +10,7 @@ class MockPrusalinkState:
         self._filament_g = 0.0
         self._download_ref = None
         self._progress = 0.0
+        self._error_mode = False  # When True, return 500 errors
 
     def set_idle(self):
         """No job, printer idle"""
@@ -31,6 +32,18 @@ class MockPrusalinkState:
         """Job complete, 100% progress"""
         self._status = "FINISHED"
         self._progress = 100.0
+
+    def set_canceled(self):
+        """Job canceled"""
+        self._status = "CANCELED"
+
+    def set_error_mode(self, enabled):
+        """Enable/disable API error responses (500 errors)"""
+        self._error_mode = enabled
+
+    def is_error_mode(self):
+        """Check if error mode is enabled"""
+        return self._error_mode
 
     def get_status_response(self):
         """For GET /api/v1/status"""
