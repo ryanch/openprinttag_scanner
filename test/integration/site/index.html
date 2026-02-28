@@ -390,6 +390,8 @@
         let eventSource = null;
         let serverUrl = null;  // Server's LAN IP for device config
         let isRunningAllTests = false;
+        let activeTestId = null;
+        let activeTestLogs = [];
 
         function hasSavedConfig() {
             return !!savedConfig;
@@ -465,9 +467,67 @@
             const entry = document.createElement('div');
             entry.className = `log-entry ${type}`;
             const timestamp = new Date().toLocaleTimeString();
-            entry.textContent = `[${timestamp}] ${message}`;
+            const formattedMessage = `[${timestamp}] ${message}`;
+            entry.textContent = formattedMessage;
             logArea.appendChild(entry);
             logArea.scrollTop = logArea.scrollHeight;
+
+            if (activeTestId) {
+                activeTestLogs.push(formattedMessage);
+            }
+        }
+
+        function logWithInlineAction(message, type, actionLabel, actionFn) {
+            const logArea = document.getElementById('log-area');
+            const entry = document.createElement('div');
+            entry.className = `log-entry ${type}`;
+            const timestamp = new Date().toLocaleTimeString();
+            entry.textContent = `[${timestamp}] ${message}`;
+
+            const button = document.createElement('button');
+            button.className = 'inline-link';
+            button.textContent = actionLabel;
+            button.addEventListener('click', actionFn);
+            entry.appendChild(button);
+
+            logArea.appendChild(entry);
+            logArea.scrollTop = logArea.scrollHeight;
+        }
+
+        function buildFailureReportPayload(testFile, testLogs) {
+            return `test ${testFile} failed, with logs: ${testLogs.join('\n')}`;
+        }
+
+        async function copyFailureReportToClipboard(testFile, testLogs) {
+            const payload = buildFailureReportPayload(testFile, testLogs);
+            try {
+                if (navigator.clipboard && navigator.clipboard.writeText) {
+                    await navigator.clipboard.writeText(payload);
+                } else {
+                    const textArea = document.createElement('textarea');
+                    textArea.value = payload;
+                    textArea.style.position = 'fixed';
+                    textArea.style.left = '-9999px';
+                    document.body.appendChild(textArea);
+                    textArea.focus();
+                    textArea.select();
+                    const copied = document.execCommand('copy');
+                    document.body.removeChild(textArea);
+                    if (!copied) {
+                        throw new Error('Clipboard copy command failed');
+                    }
+                }
+                log('Failure payload copied to clipboard', 'success');
+            } catch (error) {
+                log(`Failed to copy failure payload: ${error.message}`, 'error');
+            }
+        }
+
+        function getTestFilePath(testId) {
+            if (!testId) {
+                return 'test/integration/scenarios/unknown_test.py';
+            }
+            return `test/integration/scenarios/test_${testId}.py`;
         }
 
         // BLE Connection
@@ -673,6 +733,8 @@
         async function runTest(testId) {
             try {
                 setRunButtonsDisabled(true);
+                activeTestId = testId;
+                activeTestLogs = [];
 
                 currentSteps = {};
                 document.getElementById('current-test').style.display = 'block';
@@ -784,7 +846,19 @@
                     log('Test PASSED ✓', 'success');
                 } else {
                     log(`Test FAILED: ${data.error || 'Unknown error'}`, 'error');
+                    const failedTestId = activeTestId;
+                    const failedTestLogs = activeTestLogs.slice();
+                    const testFile = getTestFilePath(failedTestId);
+                    logWithInlineAction(
+                        'Copy failure payload to clipboard',
+                        'error',
+                        '(click)',
+                        () => copyFailureReportToClipboard(testFile, failedTestLogs)
+                    );
                 }
+
+                activeTestId = null;
+                activeTestLogs = [];
 
                 // Re-enable buttons for single test runs.
                 if (!isRunningAllTests) {
