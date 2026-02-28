@@ -97,6 +97,7 @@ test/integration/scenarios/test_set_filament.py — Set filament weight test
 test/integration/scenarios/test_set_filament_profile.py — Set filament type/manufacturer test
 test/integration/scenarios/test_print_e2e.py — End-to-end print simulation test
 test/integration/scenarios/test_print_30_percent.py — Canceled print at 30% integration test
+test/integration/scenarios/test_print_100x.py — 100x print endurance test (excluded from run-all)
 test/integration/scenarios/test_recent_spools.py — Swap spool A/B and verify recently seen spool history
 test/integration/scenarios/test_spoolman_sync.py — Spoolman sync verification test
 test/integration/site/index.html — Web Bluetooth test runner UI

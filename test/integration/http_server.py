@@ -27,6 +27,7 @@ from scenarios.test_print_e2e import PrintE2ETest
 from scenarios.test_print_30_percent import Print30PercentE2ETest
 from scenarios.test_recent_spools import RecentSpoolsTest
 from scenarios.test_spoolman_sync import SpoolmanSyncTest
+from scenarios.test_print_100x import Test100xPrint
 
 
 class TestOrchestrator:
@@ -40,43 +41,57 @@ class TestOrchestrator:
                 "id": "format_spool",
                 "name": "Format Spool",
                 "description": "Format NFC tag and verify default values",
-                "class": FormatSpoolTest
+                "class": FormatSpoolTest,
+                "include_in_run_all": True
             },
             "set_filament": {
                 "id": "set_filament",
                 "name": "Set Filament Weight",
                 "description": "Update and verify filament weight",
-                "class": SetFilamentTest
+                "class": SetFilamentTest,
+                "include_in_run_all": True
             },
             "set_filament_profile": {
                 "id": "set_filament_profile",
                 "name": "Set Filament Type + Manufacturer",
                 "description": "Change PLA->PETG and Unknown->Prusament",
-                "class": SetFilamentProfileTest
+                "class": SetFilamentProfileTest,
+                "include_in_run_all": True
             },
             "print_e2e": {
                 "id": "print_e2e",
                 "name": "End-to-End Print",
                 "description": "Full print simulation with weight deduction",
-                "class": PrintE2ETest
+                "class": PrintE2ETest,
+                "include_in_run_all": True
             },
             "print_30_percent": {
                 "id": "print_30_percent",
                 "name": "End-to-End Test - 30% Print",
                 "description": "Cancel at 30% and verify partial filament deduction",
-                "class": Print30PercentE2ETest
+                "class": Print30PercentE2ETest,
+                "include_in_run_all": True
             },
             "recent_spools": {
                 "id": "recent_spools",
                 "name": "Recent Spools A/B",
                 "description": "Swap from spool A to spool B and verify recent spool history",
-                "class": RecentSpoolsTest
+                "class": RecentSpoolsTest,
+                "include_in_run_all": True
             },
             "spoolman_sync": {
                 "id": "spoolman_sync",
                 "name": "Spoolman Sync",
                 "description": "Verify Spoolman sync with spool A/B swap",
-                "class": SpoolmanSyncTest
+                "class": SpoolmanSyncTest,
+                "include_in_run_all": True
+            },
+            "print_100x": {
+                "id": "print_100x",
+                "name": "100x Print Endurance",
+                "description": "Run 100 consecutive print cycles (⚠️ ~60 min runtime)",
+                "class": Test100xPrint,
+                "include_in_run_all": False
             }
         }
 
@@ -97,7 +112,8 @@ class TestOrchestrator:
                 {
                     "id": t["id"],
                     "name": t["name"],
-                    "description": t["description"]
+                    "description": t["description"],
+                    "include_in_run_all": t.get("include_in_run_all", True)
                 }
                 for t in self.tests.values()
             ],
