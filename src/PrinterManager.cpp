@@ -201,5 +201,5 @@ void PrinterManager::handleJobDisappeared() {
     Serial.printf("PrinterManager: Job %d disappeared at %.1f%% - treating as %s\n",
         currentJobId, lastProgressPercent, progress >= 100.0f ? "finished" : "canceled");
 
-    resolveAndSendJobEnd(currentJobId, progress, false, "job_disappeared");
+    resolveAndSendJobEnd(currentJobId, progress, true, "job_disappeared");
 }

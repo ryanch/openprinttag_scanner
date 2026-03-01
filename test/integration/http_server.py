@@ -34,6 +34,7 @@ from scenarios.test_zero_weight_handling import ZeroWeightHandlingTest
 from scenarios.test_printer_api_errors import PrinterAPIErrorsTest
 from scenarios.test_print_progress_edge_cases import PrintProgressEdgeCasesTest
 from scenarios.test_automation_mode_controlled import AutomationModeControlledTest
+from scenarios.test_job_disappeared_deduction import JobDisappearedDeductionTest
 
 
 class TestOrchestrator:
@@ -139,6 +140,13 @@ class TestOrchestrator:
                 "name": "HA Controlled Mode",
                 "description": "Verify automation_mode=1 disables auto-deduction",
                 "class": AutomationModeControlledTest,
+                "include_in_run_all": True
+            },
+            "job_disappeared_deduction": {
+                "id": "job_disappeared_deduction",
+                "name": "Job Disappeared Deduction",
+                "description": "Verify filament deduction when job API returns 204",
+                "class": JobDisappearedDeductionTest,
                 "include_in_run_all": True
             }
         }
@@ -355,7 +363,11 @@ class IntegrationTestHandler(BaseHTTPRequestHandler):
                 self.send_error(500, "Internal Server Error (mock error mode)")
                 return
             response = self.orchestrator.mock_state.get_job_response()
-            self._send_json(response)
+            if response is None:
+                self.send_response(204)
+                self.end_headers()
+            else:
+                self._send_json(response)
 
         elif path.startswith("/api/v1/job/"):
             if not self._check_api_key():
@@ -365,7 +377,11 @@ class IntegrationTestHandler(BaseHTTPRequestHandler):
                 self.send_error(500, "Internal Server Error (mock error mode)")
                 return
             response = self.orchestrator.mock_state.get_job_response()
-            self._send_json(response)
+            if response is None:
+                self.send_response(204)
+                self.end_headers()
+            else:
+                self._send_json(response)
 
         elif path.startswith("/usb/"):
             self._serve_bgcode(path)

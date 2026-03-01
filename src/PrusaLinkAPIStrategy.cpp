@@ -704,7 +704,7 @@ float PrusaLinkAPIStrategy::fetchDeferredFilament(int expectedJobId) {
             Serial.printf("PrusaLinkAPIStrategy: Deferred job API attempt %d/%d failed: %d\n", attempt, maxAttempts, code);
             logHeapSnapshot("deferred_job_get_failed");
             http.end();
-            if (code == 405) {
+            if (code == 405 || code == 204) {
                 Serial.println("PrusaLinkAPIStrategy: 405 Method Not Allowed - skipping further job API retries");
                 break;
             }

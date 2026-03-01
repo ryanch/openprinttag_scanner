@@ -68,7 +68,7 @@ class MockPrusalinkState:
     def get_job_response(self):
         """For GET /api/v1/job and /api/v1/job/{id}"""
         if self._job_id is None:
-            return {"state": "Idle"}
+            return None
 
         response = {
             "id": self._job_id,
