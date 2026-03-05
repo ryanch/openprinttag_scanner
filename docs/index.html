@@ -335,6 +335,70 @@
             margin-left: 0.5rem;
         }
 
+        .actions-wrapper {
+            position: relative;
+            margin-left: 0.5rem;
+        }
+
+        .actions-dropdown {
+            position: absolute;
+            right: 0;
+            top: 100%;
+            background-color: var(--prusa-dark-gray);
+            border: 1px solid var(--prusa-medium-gray);
+            border-radius: 6px;
+            min-width: 160px;
+            z-index: 100;
+            box-shadow: 0 4px 12px rgba(0,0,0,0.4);
+            display: none;
+        }
+
+        .actions-dropdown.open {
+            display: block;
+        }
+
+        .actions-dropdown button {
+            display: block;
+            width: 100%;
+            text-align: left;
+            padding: 0.6rem 1rem;
+            background: none;
+            border: none;
+            color: var(--prusa-text);
+            font-size: 0.85rem;
+            cursor: pointer;
+            border-radius: 0;
+        }
+
+        .actions-dropdown button:hover {
+            background-color: var(--prusa-medium-gray);
+            transform: none;
+        }
+
+        .file-info {
+            margin-top: 0.75rem;
+            padding: 0.75rem;
+            background-color: var(--prusa-medium-gray);
+            border-radius: 4px;
+            font-size: 0.85rem;
+        }
+
+        .file-info .file-name {
+            font-weight: 600;
+        }
+
+        .file-info .file-size {
+            color: var(--prusa-light-gray);
+        }
+
+        .file-info .file-error {
+            color: var(--prusa-red);
+        }
+
+        .file-info .file-ok {
+            color: #4CAF50;
+        }
+
         .empty-state {
             text-align: center;
             padding: 2rem;
@@ -676,6 +740,33 @@
         </div>
     </div>
 
+    <!-- Write Binary Data Modal -->
+    <div id="raw-write-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Write Binary Data</h2>
+                <button class="modal-close" id="raw-write-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <p style="color: var(--prusa-light-gray); font-size: 0.85rem; margin-bottom: 1rem;">
+                    Upload a .bin file containing raw OpenPrintTag NDEF/CBOR data to write directly to the NFC tag.
+                </p>
+                <input type="hidden" id="raw-write-spool-id">
+                <div class="form-group">
+                    <label for="raw-write-file">Binary File (.bin)</label>
+                    <input type="file" id="raw-write-file" accept=".bin" style="color: var(--prusa-text);">
+                </div>
+                <div id="raw-write-file-info" class="file-info" style="display: none;"></div>
+            </div>
+            <div class="modal-footer">
+                <div class="modal-footer-actions">
+                    <button class="secondary" id="raw-write-cancel">Cancel</button>
+                    <button id="raw-write-submit" class="danger" disabled>Write to Tag</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // DOM Elements
         const connectButton = document.getElementById('connect-button');
@@ -709,6 +800,16 @@
         const editGrams = document.getElementById('edit-grams');
         const consumeAmount = document.getElementById('consume-amount');
         const adjustGramsButton = document.getElementById('adjust-grams-btn');
+
+        // Raw write modal elements
+        const rawWriteModal = document.getElementById('raw-write-modal');
+        const rawWriteClose = document.getElementById('raw-write-close');
+        const rawWriteCancel = document.getElementById('raw-write-cancel');
+        const rawWriteSubmit = document.getElementById('raw-write-submit');
+        const rawWriteSpoolId = document.getElementById('raw-write-spool-id');
+        const rawWriteFile = document.getElementById('raw-write-file');
+        const rawWriteFileInfo = document.getElementById('raw-write-file-info');
+        let rawWriteFileData = null;
 
         // Bluetooth UUIDs
         const SERVICE_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0001";
@@ -815,9 +916,20 @@
             let buttons = '';
             if (isCurrent) {
                 buttons += `<button class="spool-edit-btn" data-spool-id="${spool.id}">Edit</button>`;
-            }
-            if (cachedSpoolmanUrl && spool.spoolman_id > 0) {
-                buttons += `<button class="spool-edit-btn secondary" data-spoolman-url="${cachedSpoolmanUrl}/spool/show/${spool.spoolman_id}">Open In Spoolman</button>`;
+                // Actions dropdown for current spool
+                let dropdownItems = '';
+                if (cachedSpoolmanUrl && spool.spoolman_id > 0) {
+                    dropdownItems += `<button data-action="open-spoolman" data-url="${cachedSpoolmanUrl}/spool/show/${spool.spoolman_id}">Open In Spoolman</button>`;
+                }
+                dropdownItems += `<button data-action="write-binary">Write Binary Data</button>`;
+                buttons += `<div class="actions-wrapper">
+                    <button class="spool-edit-btn secondary actions-toggle">Actions</button>
+                    <div class="actions-dropdown">${dropdownItems}</div>
+                </div>`;
+            } else {
+                if (cachedSpoolmanUrl && spool.spoolman_id > 0) {
+                    buttons += `<button class="spool-edit-btn secondary" data-spoolman-url="${cachedSpoolmanUrl}/spool/show/${spool.spoolman_id}">Open In Spoolman</button>`;
+                }
             }
 
             card.innerHTML = `
@@ -836,6 +948,32 @@
             if (isCurrent) {
                 const editBtn = card.querySelector('.spool-edit-btn');
                 editBtn.addEventListener('click', () => openEditModal(spool));
+
+                // Actions dropdown toggle
+                const actionsToggle = card.querySelector('.actions-toggle');
+                const actionsDropdown = card.querySelector('.actions-dropdown');
+                if (actionsToggle && actionsDropdown) {
+                    actionsToggle.addEventListener('click', (e) => {
+                        e.stopPropagation();
+                        actionsDropdown.classList.toggle('open');
+                    });
+
+                    const spoolmanAction = actionsDropdown.querySelector('[data-action="open-spoolman"]');
+                    if (spoolmanAction) {
+                        spoolmanAction.addEventListener('click', () => {
+                            window.open(spoolmanAction.dataset.url, '_blank');
+                            actionsDropdown.classList.remove('open');
+                        });
+                    }
+
+                    const writeBinaryAction = actionsDropdown.querySelector('[data-action="write-binary"]');
+                    if (writeBinaryAction) {
+                        writeBinaryAction.addEventListener('click', () => {
+                            actionsDropdown.classList.remove('open');
+                            openRawWriteModal(spool.id);
+                        });
+                    }
+                }
             }
 
             const spoolmanBtn = card.querySelector('[data-spoolman-url]');
@@ -906,6 +1044,104 @@
         function closeEditModal() {
             editModal.classList.remove('active');
         }
+
+        function openRawWriteModal(spoolId) {
+            rawWriteSpoolId.value = spoolId;
+            rawWriteFile.value = '';
+            rawWriteFileInfo.style.display = 'none';
+            rawWriteFileData = null;
+            rawWriteSubmit.disabled = true;
+            rawWriteSubmit.textContent = 'Write to Tag';
+            rawWriteModal.classList.add('active');
+        }
+
+        function closeRawWriteModal() {
+            rawWriteModal.classList.remove('active');
+        }
+
+        rawWriteClose.addEventListener('click', closeRawWriteModal);
+        rawWriteCancel.addEventListener('click', closeRawWriteModal);
+        rawWriteModal.addEventListener('click', (e) => {
+            if (e.target === rawWriteModal) closeRawWriteModal();
+        });
+
+        rawWriteFile.addEventListener('change', async (e) => {
+            const file = e.target.files[0];
+            rawWriteFileData = null;
+            rawWriteSubmit.disabled = true;
+
+            if (!file) {
+                rawWriteFileInfo.style.display = 'none';
+                return;
+            }
+
+            rawWriteFileInfo.style.display = 'block';
+            const data = new Uint8Array(await file.arrayBuffer());
+
+            if (data.length < 8 || data.length > 312) {
+                rawWriteFileInfo.innerHTML = `<span class="file-name">${file.name}</span> (${data.length} bytes)<br><span class="file-error">Invalid size: must be 8-312 bytes</span>`;
+                return;
+            }
+            if (data[0] !== 0xE1) {
+                rawWriteFileInfo.innerHTML = `<span class="file-name">${file.name}</span> (${data.length} bytes)<br><span class="file-error">Invalid data: first byte must be 0xE1 (CC magic)</span>`;
+                return;
+            }
+
+            rawWriteFileData = data;
+            rawWriteSubmit.disabled = false;
+            rawWriteFileInfo.innerHTML = `<span class="file-name">${file.name}</span> (${data.length} bytes)<br><span class="file-ok">Valid OpenPrintTag binary</span>`;
+        });
+
+        rawWriteSubmit.addEventListener('click', async () => {
+            if (!configWriteCharacteristic || !rawWriteFileData) return;
+
+            if (!window.confirm('This will overwrite ALL data on the NFC tag. Continue?')) return;
+
+            rawWriteSubmit.disabled = true;
+            rawWriteSubmit.textContent = 'Writing...';
+
+            try {
+                // Base64 encode the binary data
+                let binary = '';
+                for (let i = 0; i < rawWriteFileData.length; i++) {
+                    binary += String.fromCharCode(rawWriteFileData[i]);
+                }
+                const base64Data = btoa(binary);
+
+                const response = await enqueueCommand(async () => {
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode(JSON.stringify({
+                            command: 'write_raw_tag',
+                            id: rawWriteSpoolId.value,
+                            data: base64Data
+                        }))
+                    );
+                    const responseValue = await configWriteCharacteristic.readValue();
+                    return JSON.parse(textDecoder.decode(responseValue));
+                });
+
+                if (response.error) {
+                    alert('Write failed: ' + response.error);
+                    rawWriteSubmit.disabled = false;
+                    rawWriteSubmit.textContent = 'Write to Tag';
+                } else {
+                    rawWriteSubmit.textContent = 'Success!';
+                    setTimeout(() => {
+                        closeRawWriteModal();
+                        loadSpools();
+                    }, 1500);
+                }
+            } catch (err) {
+                alert('Write failed: ' + err.message);
+                rawWriteSubmit.disabled = false;
+                rawWriteSubmit.textContent = 'Write to Tag';
+            }
+        });
+
+        // Close any open actions dropdown when clicking outside
+        document.addEventListener('click', () => {
+            document.querySelectorAll('.actions-dropdown.open').forEach(d => d.classList.remove('open'));
+        });
 
         // Sync color inputs
         editColor.addEventListener('input', () => {

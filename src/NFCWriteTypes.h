@@ -13,7 +13,8 @@ enum class NFCWriteType : uint8_t {
     SET_CONSUMED_WEIGHT,  // Set absolute consumed weight
     SET_BRAND_NAME,       // Set manufacturer name
     FORMAT_NEW,           // Format a blank tag with defaults
-    WRITE_SPOOLMAN_ID     // Write Spoolman spool ID to aux region
+    WRITE_SPOOLMAN_ID,    // Write Spoolman spool ID to aux region
+    WRITE_RAW_TAG         // Write raw binary data to entire tag
 };
 
 struct NFCWriteRequest {

@@ -535,6 +535,20 @@ void NFCManager::sendTagRemovedMessage() {
     ApplicationManager::getInstance().sendMessage(msg);
 }
 
+bool NFCManager::enqueueRawWrite(const NFCWriteRequest& req, const uint8_t* data, size_t dataSize) {
+    if (dataSize == 0 || dataSize > RAW_WRITE_BUFFER_SIZE) {
+        return false;
+    }
+    if (rawWritePending_) {
+        Serial.println("NFCManager: Raw write already pending");
+        return false;
+    }
+    memcpy(rawWriteBuffer_, data, dataSize);
+    rawWriteBufferSize_ = dataSize;
+    rawWritePending_ = true;
+    return enqueueWrite(req);
+}
+
 bool NFCManager::enqueueWrite(const NFCWriteRequest& req) {
     if (writeQueue == nullptr) {
         return false;
@@ -602,6 +616,86 @@ void NFCManager::processWriteQueue() {
     }
 }
 
+bool NFCManager::writeRawTag() {
+    Serial.println("NFCManager: writeRawTag() called");
+
+    // Copy raw data into a local opt_tag_t
+    opt_tag_t localTag;
+    opt_init(&localTag);
+    memcpy(localTag.data, rawWriteBuffer_, rawWriteBufferSize_);
+    localTag.data_size = rawWriteBufferSize_;
+    localTag.initialized = true;
+
+    // Write all pages to NFC tag
+    Serial.println("NFCManager: Writing raw data to NFC tag...");
+    opt_nfc_hal_t* hal = connection_->getHal();
+    opt_error_t err = opt_write_to_nfc(&localTag, hal);
+    if (err != OPT_OK) {
+        Serial.printf("NFCManager: Failed to write raw tag: %s\n", opt_error_str(err));
+        rawWritePending_ = false;
+        return false;
+    }
+
+    // Re-read and verify with retries
+    Serial.println("NFCManager: Verifying raw write...");
+    const int maxRetries = 3;
+    for (int retry = 0; retry < maxRetries; retry++) {
+        vTaskDelay(pdMS_TO_TICKS(50 * (retry + 1)));
+
+        err = opt_read_from_nfc(&localTag, hal, 0, 78);
+        if (err == OPT_OK) {
+            err = opt_parse_ndef(&localTag);
+            if (err == OPT_OK) {
+                if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+                    Serial.println("NFCManager: Could not acquire tagMutex after raw write verify");
+                    rawWritePending_ = false;
+                    return false;
+                }
+                currentSpool.tag_data = localTag;
+                currentSpool.tag_data_valid = true;
+                currentSpool.blank_tag_present = false;
+                lastSeenValid = false;  // Force re-detection on next scan
+                addToRecentSpools();
+                sendSpoolDetectedMessage();
+                xSemaphoreGive(tagMutex);
+
+                rawWritePending_ = false;
+                Serial.println("NFCManager: writeRawTag() complete - verified");
+                return true;
+            }
+            Serial.printf("NFCManager: Parse failed on retry %d: %s\n", retry + 1, opt_error_str(err));
+        } else {
+            Serial.printf("NFCManager: Re-read failed on retry %d: %s\n", retry + 1, opt_error_str(err));
+        }
+    }
+
+    // All retries failed - fall back to trusting in-memory data
+    Serial.println("NFCManager: Verification retries exhausted, trusting in-memory data");
+    err = opt_parse_ndef(&localTag);
+    if (err != OPT_OK) {
+        Serial.printf("NFCManager: Failed to parse in-memory raw data: %s\n", opt_error_str(err));
+        rawWritePending_ = false;
+        return false;
+    }
+
+    if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        Serial.println("NFCManager: Could not acquire tagMutex after raw write fallback");
+        rawWritePending_ = false;
+        return false;
+    }
+    currentSpool.tag_data = localTag;
+    currentSpool.tag_data_valid = true;
+    currentSpool.blank_tag_present = false;
+    lastSeenValid = false;
+    addToRecentSpools();
+    sendSpoolDetectedMessage();
+    xSemaphoreGive(tagMutex);
+
+    rawWritePending_ = false;
+    Serial.println("NFCManager: writeRawTag() complete - unverified");
+    return true;
+}
+
 bool NFCManager::executeWrite(const NFCWriteRequest& request) {
     // Handle FORMAT_NEW — formatNewSpool() manages its own mutex
     if (request.type == NFCWriteType::FORMAT_NEW) {
@@ -620,6 +714,30 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
 
         // formatNewSpool() does NFC I/O without mutex, takes mutex at end for state copy
         return formatNewSpool();
+    }
+
+    // Handle WRITE_RAW_TAG — writeRawTag() manages its own mutex
+    if (request.type == NFCWriteType::WRITE_RAW_TAG) {
+        if (!rawWritePending_) {
+            Serial.println("NFCManager: WRITE_RAW_TAG - no raw data pending");
+            return false;
+        }
+        // Validate under mutex
+        if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+            Serial.println("NFCManager: WRITE_RAW_TAG - could not acquire tagMutex");
+            rawWritePending_ = false;
+            return false;
+        }
+        if (request.expected_spool_id[0] != '\0' &&
+            strcmp(currentSpool.spool_id, request.expected_spool_id) != 0) {
+            xSemaphoreGive(tagMutex);
+            Serial.println("NFCManager: WRITE_RAW_TAG rejected - UID mismatch");
+            rawWritePending_ = false;
+            return false;
+        }
+        xSemaphoreGive(tagMutex);
+
+        return writeRawTag();
     }
 
     // For non-FORMAT writes: take mutex to validate + modify in-memory data, then release for NFC I/O

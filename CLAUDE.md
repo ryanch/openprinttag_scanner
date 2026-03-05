@@ -11,7 +11,8 @@ Consider thread safety for all changes
 Add new files to source inventory (one-line)
 Run tests after changes: ./scripts/run_all_tests.sh
 Avoid adding more heap allocations - the device is low on memory.
-Use StaticJsonDocument document, even though it is deprecated.s
+Use StaticJsonDocument document, even though it is deprecated.
+Use LSP plugins when searching for C/C++ and typescript idenfitiers.
 
 # Architecture summary:
 main.cpp: Initializes all managers, starts FreeRTOS tasks
@@ -81,6 +82,7 @@ test/native/test_app_flow.cpp — App state transitions
 test/native/test_bgcode_parser.cpp — Parser validation
 test/native/test_lcd_manager.cpp — LCD message merge timing behavior
 test/native/test_nfc_read.cpp — NFC read behavior
+test/native/test_raw_write.cpp — Raw binary write to NFC tag
 test/native/TestableApplicationManager.h — Queue bypass harness
 test/native/TestNFCManager.h — Write queue tracker
 test/native/test_helpers.h — Factories + assertions

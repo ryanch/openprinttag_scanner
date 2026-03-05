@@ -18,6 +18,7 @@
 #include <time.h>
 #include <HTTPClient.h>
 #include <WiFiClient.h>
+#include <base64.hpp>
 
 extern SemaphoreHandle_t g_httpMutex;
 extern LCDManager lcdManager;
@@ -101,6 +102,7 @@ struct ParsedBleCommand {
     char manufacturer[64];
     char url[160];
     char api_key[96];
+    char data[420];  // Base64-encoded raw tag data (~416 chars for 312 bytes)
     float grams_remaining;
     bool has_command;
     bool has_id;
@@ -110,6 +112,7 @@ struct ParsedBleCommand {
     bool has_grams_remaining;
     bool has_url;
     bool has_api_key;
+    bool has_data;
 };
 
 static void initParsedBleCommand(ParsedBleCommand& out) {
@@ -200,6 +203,8 @@ static bool parseBleCommand(const char* jsonText, ParsedBleCommand& out) {
             out.has_url = readStringValue(reader, out.url, sizeof(out.url));
         } else if (strcmp(field, "api_key") == 0) {
             out.has_api_key = readStringValue(reader, out.api_key, sizeof(out.api_key));
+        } else if (strcmp(field, "data") == 0) {
+            out.has_data = readStringValue(reader, out.data, sizeof(out.data));
         }
     }
     return out.has_command;
@@ -584,6 +589,56 @@ static void process_command(const char* json) {
             }
             Serial.printf("%s: test_mqtt restart -> %s (state=%d)\n", TAG,
                           connected ? "OK" : "FAIL", mqttState);
+        }
+    }
+    else if (strcmp(command, "write_raw_tag") == 0) {
+        CurrentSpoolState spool;
+        if (!NFCManager::getInstance().getCurrentSpoolState(spool)) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
+            if (s_config_write_char) {
+                s_config_write_char->setValue(s_response_buffer);
+            }
+            return;
+        }
+
+        if (!spool.present) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
+            Serial.printf("%s: write_raw_tag failed - no tag present\n", TAG);
+        } else if (!cmd.has_data) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Missing data\"}");
+            Serial.printf("%s: write_raw_tag failed - no data field\n", TAG);
+        } else {
+            const char* requestedId = cmd.has_id ? cmd.id : "";
+            if (requestedId[0] != '\0' && strcmp(requestedId, spool.spool_id) != 0) {
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
+                Serial.printf("%s: write_raw_tag failed - ID mismatch\n", TAG);
+            } else {
+                // Decode base64 data
+                uint8_t decoded[320];
+                unsigned int dataLen = strlen(cmd.data);
+                unsigned int decodedLen = decode_base64((const unsigned char*)cmd.data, dataLen, decoded);
+
+                if (decodedLen == 0 || decodedLen > 320) {
+                    snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Invalid data size\"}");
+                    Serial.printf("%s: write_raw_tag failed - decoded size %u\n", TAG, decodedLen);
+                } else if (decoded[0] != 0xE1) {
+                    snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Invalid data (bad CC)\"}");
+                    Serial.printf("%s: write_raw_tag failed - first byte 0x%02X != 0xE1\n", TAG, decoded[0]);
+                } else {
+                    NFCWriteRequest req;
+                    memset(&req, 0, sizeof(req));
+                    req.request_id = ++s_request_id_counter;
+                    req.type = NFCWriteType::WRITE_RAW_TAG;
+                    strncpy(req.expected_spool_id, spool.spool_id, sizeof(req.expected_spool_id) - 1);
+                    if (!NFCManager::getInstance().enqueueRawWrite(req, decoded, decodedLen)) {
+                        snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
+                        Serial.printf("%s: write_raw_tag failed - enqueue failed\n", TAG);
+                    } else {
+                        snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
+                        Serial.printf("%s: write_raw_tag - enqueued %u bytes\n", TAG, decodedLen);
+                    }
+                }
+            }
         }
     }
     else if (strcmp(command, "test_prusalink") == 0) {

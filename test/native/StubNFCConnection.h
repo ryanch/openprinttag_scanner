@@ -67,6 +67,7 @@ public:
 
     const std::vector<PageWrite>& getPageWrites() const { return pageWrites_; }
     size_t getWriteCount() const { return pageWrites_.size(); }
+    void clearPageWrites() { pageWrites_.clear(); }
 
     // Reset test state (not to be confused with hardware reset())
     void resetTestState() {
@@ -86,7 +87,7 @@ private:
     bool tagPresent_ = false;
     uint8_t tagUid_[8] = {0};
     uint8_t tagUidLength_ = 8;
-    uint8_t tagData_[256] = {0};
+    uint8_t tagData_[320] = {0};
     size_t tagDataSize_ = 0;
 
     // Error simulation

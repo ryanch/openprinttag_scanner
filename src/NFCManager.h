@@ -18,6 +18,7 @@ public:
     bool begin();                                    // Init hardware + queues
     void startScanTask();                            // Start FreeRTOS scan task
     bool enqueueWrite(const NFCWriteRequest& req);   // Queue a write request
+    bool enqueueRawWrite(const NFCWriteRequest& req, const uint8_t* data, size_t dataSize);
     bool isRequestCompleted(uint32_t request_id);    // Check if request done
     void requestCurrentSpool();                      // Clear dedup to resend current spool
     bool scanOnce();                                 // Single scan cycle (for testing)
@@ -25,6 +26,14 @@ public:
 
     // Dependency injection for testing
     void setConnection(NFCConnectionI* conn) { connection_ = conn; }
+    void resetWriteState() {
+        rawWritePending_ = false;
+        // Drain write queue
+        if (writeQueue) {
+            NFCWriteRequest dummy;
+            while (xQueueReceive(writeQueue, &dummy, 0) == pdTRUE) {}
+        }
+    }
 
     // Recent spools history (RAM only)
     static constexpr size_t MAX_RECENT_SPOOLS = 10;
@@ -68,6 +77,13 @@ private:
     RecentSpoolEntry recentSpools[MAX_RECENT_SPOOLS];
     size_t recentSpoolsCount = 0;
     void addToRecentSpools();
+
+    // Raw tag write sidecar buffer (filled by BLE context, consumed by scan task)
+    static constexpr size_t RAW_WRITE_BUFFER_SIZE = 320;
+    uint8_t rawWriteBuffer_[RAW_WRITE_BUFFER_SIZE];
+    size_t rawWriteBufferSize_ = 0;
+    bool rawWritePending_ = false;
+    bool writeRawTag();
 
     // Write queue (FreeRTOS)
     QueueHandle_t writeQueue = nullptr;

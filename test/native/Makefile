@@ -29,12 +29,17 @@ LCD_MANAGER_TARGET = test_lcd_manager_runner
 JSON_PULL_HELPERS_SRCS = test_json_pull_helpers.cpp ../../src/JsonPullHelpers.cpp ../../.pio/libdeps/esp32dev/htcw_io/src/source/io_stream.cpp
 JSON_PULL_HELPERS_TARGET = test_json_pull_helpers_runner
 
-all: $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(LCD_MANAGER_TARGET) $(JSON_PULL_HELPERS_TARGET)
+# Raw write tests (uses real NFCManager with StubNFCConnection)
+RAW_WRITE_SRCS = test_raw_write.cpp $(COMMON_NATIVE_SRCS)
+RAW_WRITE_TARGET = test_raw_write_runner
+
+all: $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(LCD_MANAGER_TARGET) $(JSON_PULL_HELPERS_TARGET) $(RAW_WRITE_TARGET)
 	./$(APP_FLOW_TARGET)
 	./$(NFC_READ_TARGET)
 	./$(BGCODE_TARGET)
 	./$(LCD_MANAGER_TARGET)
 	./$(JSON_PULL_HELPERS_TARGET)
+	./$(RAW_WRITE_TARGET)
 
 # Compile C library objects
 openprinttag_lib.o: ../../lib/openprinttag/openprinttag_lib.c
@@ -58,6 +63,9 @@ $(LCD_MANAGER_TARGET): $(LCD_MANAGER_SRCS)
 $(JSON_PULL_HELPERS_TARGET): $(JSON_PULL_HELPERS_SRCS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(JSON_INCLUDES) $(JSON_PULL_HELPERS_SRCS) -o $(JSON_PULL_HELPERS_TARGET)
 
+$(RAW_WRITE_TARGET): $(RAW_WRITE_SRCS) $(OPT_OBJS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(RAW_WRITE_SRCS) $(OPT_OBJS) -o $(RAW_WRITE_TARGET)
+
 run-app-flow: $(APP_FLOW_TARGET)
 	./$(APP_FLOW_TARGET)
 
@@ -73,7 +81,10 @@ run-lcd-manager: $(LCD_MANAGER_TARGET)
 run-json-pull-helpers: $(JSON_PULL_HELPERS_TARGET)
 	./$(JSON_PULL_HELPERS_TARGET)
 
-clean:
-	rm -f $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(LCD_MANAGER_TARGET) $(JSON_PULL_HELPERS_TARGET) $(OPT_OBJS)
+run-raw-write: $(RAW_WRITE_TARGET)
+	./$(RAW_WRITE_TARGET)
 
-.PHONY: all clean run-app-flow run-nfc-read run-bgcode run-lcd-manager run-json-pull-helpers
+clean:
+	rm -f $(APP_FLOW_TARGET) $(NFC_READ_TARGET) $(BGCODE_TARGET) $(LCD_MANAGER_TARGET) $(JSON_PULL_HELPERS_TARGET) $(RAW_WRITE_TARGET) $(OPT_OBJS)
+
+.PHONY: all clean run-app-flow run-nfc-read run-bgcode run-lcd-manager run-json-pull-helpers run-raw-write

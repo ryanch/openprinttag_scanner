@@ -73,24 +73,44 @@ private:
     NativeQueueRegistry() = default;
 };
 
-// FreeRTOS queue function stubs (no-op for direct testing approach)
+// Functional byte-buffer queue for native testing
+struct NativeByteQueue {
+    std::queue<std::vector<uint8_t>> items;
+    size_t itemSize;
+    size_t maxItems;
+};
+
 inline QueueHandle_t xQueueCreate(UBaseType_t length, UBaseType_t itemSize) {
-    (void)length; (void)itemSize;
-    // Return dummy non-null to pass initialization; native tests use direct message injection
-    return reinterpret_cast<QueueHandle_t>(0x1);
+    auto* q = new NativeByteQueue();
+    q->itemSize = itemSize;
+    q->maxItems = length;
+    return reinterpret_cast<QueueHandle_t>(q);
 }
 
 inline BaseType_t xQueueSend(QueueHandle_t queue, const void* item, TickType_t wait) {
-    (void)queue; (void)item; (void)wait;
-    return pdFALSE; // Native tests bypass queue
+    (void)wait;
+    if (!queue) return pdFALSE;
+    auto* q = reinterpret_cast<NativeByteQueue*>(queue);
+    if (q->items.size() >= q->maxItems) return pdFALSE;
+    std::vector<uint8_t> data(q->itemSize);
+    memcpy(data.data(), item, q->itemSize);
+    q->items.push(std::move(data));
+    return pdTRUE;
 }
 
 inline BaseType_t xQueueReceive(QueueHandle_t queue, void* item, TickType_t wait) {
-    (void)queue; (void)item; (void)wait;
-    return pdFALSE; // Native tests bypass queue
+    (void)wait;
+    if (!queue) return pdFALSE;
+    auto* q = reinterpret_cast<NativeByteQueue*>(queue);
+    if (q->items.empty()) return pdFALSE;
+    memcpy(item, q->items.front().data(), q->itemSize);
+    q->items.pop();
+    return pdTRUE;
 }
 
-inline void vQueueDelete(QueueHandle_t queue) { (void)queue; }
+inline void vQueueDelete(QueueHandle_t queue) {
+    if (queue) delete reinterpret_cast<NativeByteQueue*>(queue);
+}
 
 // FreeRTOS semaphore stubs
 inline SemaphoreHandle_t xSemaphoreCreateMutex() { return nullptr; }
@@ -113,10 +133,14 @@ inline BaseType_t xTaskCreatePinnedToCore(
     return pdPASS;
 }
 
-// FreeRTOS queue additional stubs
+// FreeRTOS queue peek
 inline BaseType_t xQueuePeek(QueueHandle_t queue, void* item, TickType_t wait) {
-    (void)queue; (void)item; (void)wait;
-    return pdFALSE;
+    (void)wait;
+    if (!queue) return pdFALSE;
+    auto* q = reinterpret_cast<NativeByteQueue*>(queue);
+    if (q->items.empty()) return pdFALSE;
+    memcpy(item, q->items.front().data(), q->itemSize);
+    return pdTRUE;
 }
 
 // Arduino timing functions
