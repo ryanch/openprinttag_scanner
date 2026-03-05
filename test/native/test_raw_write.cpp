@@ -66,6 +66,27 @@ static bool loadBinFile() {
     return g_binDataSize > 0;
 }
 
+static bool sawSuccessfulSpoolUpdate() {
+    const auto& msgs = ApplicationManager::getInstance().getSentMessages();
+    for (const auto& msg : msgs) {
+        if (msg.type == AppMessageType::SPOOL_UPDATED) {
+            return msg.payload.spoolUpdated.success;
+        }
+    }
+    return false;
+}
+
+static bool sawSpoolDetectedWithId(int32_t spoolmanId) {
+    const auto& msgs = ApplicationManager::getInstance().getSentMessages();
+    for (const auto& msg : msgs) {
+        if (msg.type == AppMessageType::SPOOL_DETECTED &&
+            msg.payload.spoolDetected.spoolman_id == spoolmanId) {
+            return true;
+        }
+    }
+    return false;
+}
+
 void setup_test() {
     g_stubNfc = new StubNFCConnection();
     g_lcd = new LCDManager();
@@ -272,6 +293,66 @@ int test_raw_write_clears_dedup() {
     return 0;
 }
 
+// Test: write spoolman ID against real bin tag and verify readback
+int test_write_spoolman_id_real_bin() {
+    setup_test();
+
+    uint8_t uid[8] = {0x17, 0x5A, 0xEC, 0x18, 0x09, 0x01, 0x04, 0xE0};
+    setupTagPresent(uid, 8);
+    ApplicationManager::getInstance().reset();
+
+    NFCWriteRequest req;
+    memset(&req, 0, sizeof(req));
+    req.request_id = 600;
+    req.type = NFCWriteType::WRITE_SPOOLMAN_ID;
+    strncpy(req.expected_spool_id, "175AEC18090104E0", sizeof(req.expected_spool_id) - 1);
+    req.data.spoolman_id = 4321;
+
+    TEST_ASSERT(NFCManager::getInstance().enqueueWrite(req));
+    NFCManager::getInstance().scanOnce();
+    TEST_ASSERT(sawSuccessfulSpoolUpdate());
+
+    ApplicationManager::getInstance().reset();
+    NFCManager::getInstance().requestCurrentSpool();
+    NFCManager::getInstance().scanOnce();
+    TEST_ASSERT(sawSpoolDetectedWithId(4321));
+
+    teardown_test();
+    return 0;
+}
+
+// Test: dirty-write failure falls back to raw write and still succeeds
+int test_dirty_write_fallback_to_raw() {
+    setup_test();
+
+    uint8_t uid[8] = {0x17, 0x5A, 0xEC, 0x18, 0x09, 0x01, 0x04, 0xE0};
+    setupTagPresent(uid, 8);
+    g_stubNfc->clearPageWrites();
+    ApplicationManager::getInstance().reset();
+
+    NFCWriteRequest req;
+    memset(&req, 0, sizeof(req));
+    req.request_id = 700;
+    req.type = NFCWriteType::CHANGE_COLOR;
+    strncpy(req.expected_spool_id, "175AEC18090104E0", sizeof(req.expected_spool_id) - 1);
+    req.data.new_color[0] = 0x10;
+    req.data.new_color[1] = 0x20;
+    req.data.new_color[2] = 0x30;
+    req.data.new_color[3] = 0xFF;
+
+    TEST_ASSERT(NFCManager::getInstance().enqueueWrite(req));
+
+    // Force first write failure (dirty-page write), then allow fallback raw write to proceed.
+    g_stubNfc->setFailNextWrites(1);
+    NFCManager::getInstance().scanOnce();
+
+    TEST_ASSERT(sawSuccessfulSpoolUpdate());
+    TEST_ASSERT(g_stubNfc->getWriteCount() > 1);
+
+    teardown_test();
+    return 0;
+}
+
 int main() {
     if (!loadBinFile()) {
         printf("FATAL: Could not load test bin file\n");
@@ -288,6 +369,8 @@ int main() {
     RUN_TEST(test_raw_write_rejected_id_mismatch);
     RUN_TEST(test_raw_write_double_enqueue_blocked);
     RUN_TEST(test_raw_write_clears_dedup);
+    RUN_TEST(test_write_spoolman_id_real_bin);
+    RUN_TEST(test_dirty_write_fallback_to_raw);
 
     printf("\n=== Results: %d/%d passed ===\n", passed, total);
 

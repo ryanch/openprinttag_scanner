@@ -15,6 +15,10 @@ extern "C" {
 #include "openprinttag_lib.h"
 }
 
+#include <cmath>
+#include <cstdio>
+#include <cstring>
+
 // Test assertion helpers (minimal, local to this test)
 #define TEST_ASSERT(cond) \
     do { \
@@ -50,6 +54,23 @@ extern "C" {
 
 static StubNFCConnection* g_stubNfc = nullptr;
 static LCDManager* g_lcd = nullptr;
+
+static bool loadBinFile(const char* pathA, const char* pathB, uint8_t* out, size_t outSize, size_t* readSize) {
+    FILE* f = fopen(pathA, "rb");
+    if (!f && pathB) {
+        f = fopen(pathB, "rb");
+    }
+    if (!f) {
+        return false;
+    }
+    *readSize = fread(out, 1, outSize, f);
+    fclose(f);
+    return *readSize > 0;
+}
+
+static bool nearlyEqual(float a, float b, float epsilon = 0.0001f) {
+    return std::fabs(a - b) <= epsilon;
+}
 
 void setup_nfc_test() {
     g_stubNfc = new StubNFCConnection();
@@ -158,6 +179,54 @@ int test_blank_tag_removal_sends_tag_removed_message() {
     return 0;
 }
 
+// Test: Real OpenPrintTag binary with extra metadata still parses as valid spool
+int test_real_spool_bin_parses_as_valid_spool() {
+    setup_nfc_test();
+
+    uint8_t spoolData[320] = {0};
+    size_t spoolDataSize = 0;
+    bool loaded = loadBinFile("../res/openprinttag_PETG_Jet_Black.bin",
+                              "test/res/openprinttag_PETG_Jet_Black.bin",
+                              spoolData, sizeof(spoolData), &spoolDataSize);
+    TEST_ASSERT(loaded);
+
+    uint8_t uid[8] = {0x17, 0x5A, 0xEC, 0x18, 0x09, 0x01, 0x04, 0xE0};
+    g_stubNfc->setTagPresent(true);
+    g_stubNfc->setTagUid(uid, 8);
+    g_stubNfc->setTagData(spoolData, spoolDataSize);
+
+    bool parsed = NFCManager::getInstance().scanOnce();
+    TEST_ASSERT(parsed);
+    TEST_ASSERT_EQ(g_stubNfc->getWriteCount(), (size_t)0);
+
+    const auto& sent = ApplicationManager::getInstance().getSentMessages();
+    bool sawSpoolDetected = false;
+    bool sawBlankTag = false;
+    for (const auto& msg : sent) {
+        if (msg.type == AppMessageType::BLANK_TAG_DETECTED) {
+            sawBlankTag = true;
+        }
+        if (msg.type == AppMessageType::SPOOL_DETECTED) {
+            sawSpoolDetected = true;
+            TEST_ASSERT_EQ(strcmp(msg.payload.spoolDetected.spool_id, "175AEC18090104E0"), 0);
+            TEST_ASSERT_EQ(msg.payload.spoolDetected.material_type, OPT_MATERIAL_TYPE_PETG);
+            TEST_ASSERT(nearlyEqual(msg.payload.spoolDetected.kg_remaining, 1.05f));
+            TEST_ASSERT_EQ(msg.payload.spoolDetected.primary_color[0], (uint8_t)0x24);
+            TEST_ASSERT_EQ(msg.payload.spoolDetected.primary_color[1], (uint8_t)0x29);
+            TEST_ASSERT_EQ(msg.payload.spoolDetected.primary_color[2], (uint8_t)0x2A);
+            TEST_ASSERT_EQ(strcmp(msg.payload.spoolDetected.material_name, "PETG Jet Black"), 0);
+            TEST_ASSERT_EQ(strcmp(msg.payload.spoolDetected.manufacturer, "Prusament"), 0);
+            break;
+        }
+    }
+
+    TEST_ASSERT(sawSpoolDetected);
+    TEST_ASSERT(!sawBlankTag);
+
+    teardown_nfc_test();
+    return 0;
+}
+
 int main() {
     int passed = 0, failed = 0, total = 0;
 
@@ -167,6 +236,7 @@ int main() {
     RUN_TEST(test_blank_spool_not_formatted);
     RUN_TEST(test_read_error_not_formatted);
     RUN_TEST(test_blank_tag_removal_sends_tag_removed_message);
+    RUN_TEST(test_real_spool_bin_parses_as_valid_spool);
 
     printf("\n=== Results: %d/%d passed ===\n", passed, total);
 

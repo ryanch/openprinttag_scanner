@@ -696,6 +696,31 @@ bool NFCManager::writeRawTag() {
     return true;
 }
 
+static bool isAuxOnlyWrite(const NFCWriteType type) {
+    return type == NFCWriteType::REMOVE_WEIGHT ||
+           type == NFCWriteType::SET_CONSUMED_WEIGHT ||
+           type == NFCWriteType::WRITE_SPOOLMAN_ID;
+}
+
+static opt_error_t applyWriteUpdate(opt_tag_t& tag, const NFCWriteRequest& request) {
+    switch (request.type) {
+        case NFCWriteType::REMOVE_WEIGHT:
+            return opt_add_consumed_weight(&tag, request.data.grams_to_remove);
+        case NFCWriteType::CHANGE_COLOR:
+            return opt_set_primary_color(&tag, request.data.new_color);
+        case NFCWriteType::CHANGE_FILAMENT_TYPE:
+            return opt_set_material_type(&tag, request.data.new_material_type);
+        case NFCWriteType::SET_CONSUMED_WEIGHT:
+            return opt_set_consumed_weight(&tag, request.data.consumed_weight);
+        case NFCWriteType::SET_BRAND_NAME:
+            return opt_set_brand_name(&tag, request.data.brand_name);
+        case NFCWriteType::WRITE_SPOOLMAN_ID:
+            return opt_set_gp_spoolman_id(&tag, request.data.spoolman_id);
+        default:
+            return OPT_ERR_INVALID_PARAM;
+    }
+}
+
 bool NFCManager::executeWrite(const NFCWriteRequest& request) {
     // Handle FORMAT_NEW — formatNewSpool() manages its own mutex
     if (request.type == NFCWriteType::FORMAT_NEW) {
@@ -760,102 +785,100 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
         }
     }
 
-    opt_error_t err;
+    // Snapshot current tag into reusable scratch storage under mutex; do not mutate shared state until write succeeds.
+    writeScratchTag_ = currentSpool.tag_data;
+    xSemaphoreGive(tagMutex);
 
-    // Modify in-memory tag data under mutex (fast CBOR field update)
-    switch (request.type) {
-        case NFCWriteType::REMOVE_WEIGHT:
-            err = opt_add_consumed_weight(&currentSpool.tag_data, request.data.grams_to_remove);
-            break;
-        case NFCWriteType::CHANGE_COLOR:
-            err = opt_set_primary_color(&currentSpool.tag_data, request.data.new_color);
-            break;
-        case NFCWriteType::CHANGE_FILAMENT_TYPE:
-            err = opt_set_material_type(&currentSpool.tag_data, request.data.new_material_type);
-            break;
-        case NFCWriteType::SET_CONSUMED_WEIGHT:
-            err = opt_set_consumed_weight(&currentSpool.tag_data, request.data.consumed_weight);
-            break;
-        case NFCWriteType::SET_BRAND_NAME:
-            err = opt_set_brand_name(&currentSpool.tag_data, request.data.brand_name);
-            break;
-        case NFCWriteType::WRITE_SPOOLMAN_ID:
-            err = opt_set_gp_spoolman_id(&currentSpool.tag_data, request.data.spoolman_id);
-            break;
-        default:
-            xSemaphoreGive(tagMutex);
-            Serial.printf("NFCManager: Unknown write type: %u\n", static_cast<uint8_t>(request.type));
-            return false;
-    }
-
+    // Preflight update on a copy to detect overflow before touching shared state.
+    opt_tag_t& updatedTag = writeScratchTag_;
+    opt_error_t err = applyWriteUpdate(updatedTag, request);
     if (err != OPT_OK) {
-        xSemaphoreGive(tagMutex);
-        Serial.printf("NFCManager: Failed to update in-memory tag data: %s\n", opt_error_str(err));
+        if (err == OPT_ERR_REGION_OVERFLOW) {
+            Serial.println("NFCManager: Region overflow during preflight update; keeping original tag data");
+        } else {
+            Serial.printf("NFCManager: Failed to update in-memory tag data: %s\n", opt_error_str(err));
+        }
         return false;
     }
 
-    xSemaphoreGive(tagMutex);
-
     // NFC I/O without mutex — only scan task touches the hardware
     opt_nfc_hal_t* hal = connection_->getHal();
+    const bool auxOnlyWrite = isAuxOnlyWrite(request.type);
+    if (auxOnlyWrite) {
+        err = opt_write_aux_region(&updatedTag, hal);
+    } else {
+        err = opt_write_dirty_pages(&updatedTag, hal);
+    }
+
+    if (err != OPT_OK) {
+        Serial.printf("NFCManager: Write failed (%s), attempting raw fallback\n", opt_error_str(err));
+
+        // Fallback: write full binary image from updatedTag directly.
+        // This avoids nesting another large opt_tag_t on NFCScanTask stack.
+        err = opt_write_to_nfc(&updatedTag, hal);
+        if (err == OPT_OK) {
+            const int maxRetries = 3;
+            for (int retry = 0; retry < maxRetries; retry++) {
+                vTaskDelay(pdMS_TO_TICKS(50 * (retry + 1)));
+                err = opt_read_from_nfc(&updatedTag, hal, 0, 78);
+                if (err == OPT_OK) {
+                    err = opt_parse_ndef(&updatedTag);
+                    if (err == OPT_OK) {
+                        break;
+                    }
+                }
+            }
+            if (err == OPT_OK) {
+                if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+                    Serial.println("NFCManager: executeWrite fallback succeeded but commit lock failed");
+                    return false;
+                }
+                currentSpool.tag_data = updatedTag;
+                currentSpool.tag_data_valid = true;
+                currentSpool.blank_tag_present = false;
+                lastSeenValid = false;
+                addToRecentSpools();
+                sendSpoolDetectedMessage();
+                xSemaphoreGive(tagMutex);
+                return true;
+            }
+        }
+
+        Serial.printf("NFCManager: Raw fallback failed (%s)\n", opt_error_str(err));
+        return false;
+    }
+
+    // Commit the successful update to shared state.
+    if (xSemaphoreTake(tagMutex, pdMS_TO_TICKS(100)) != pdTRUE) {
+        Serial.println("NFCManager: executeWrite - write succeeded but commit lock failed");
+        return false;
+    }
+    currentSpool.tag_data = updatedTag;
+    currentSpool.tag_data_valid = true;
+    currentSpool.blank_tag_present = false;
+    xSemaphoreGive(tagMutex);
 
     switch (request.type) {
         case NFCWriteType::REMOVE_WEIGHT:
-            err = opt_write_aux_region(&currentSpool.tag_data, hal);
-            if (err != OPT_OK) {
-                Serial.printf("NFCManager: Failed to write aux region: %s\n", opt_error_str(err));
-                return false;
-            }
             Serial.printf("NFCManager: Removed %.2f grams from spool\n", request.data.grams_to_remove);
             break;
-
         case NFCWriteType::CHANGE_COLOR:
-            err = opt_write_dirty_pages(&currentSpool.tag_data, hal);
-            if (err != OPT_OK) {
-                Serial.printf("NFCManager: Failed to write color: %s\n", opt_error_str(err));
-                return false;
-            }
             Serial.printf("NFCManager: Changed color to RGBA(%u,%u,%u,%u)\n",
                 request.data.new_color[0], request.data.new_color[1],
                 request.data.new_color[2], request.data.new_color[3]);
             break;
-
         case NFCWriteType::CHANGE_FILAMENT_TYPE:
-            err = opt_write_dirty_pages(&currentSpool.tag_data, hal);
-            if (err != OPT_OK) {
-                Serial.printf("NFCManager: Failed to write material type: %s\n", opt_error_str(err));
-                return false;
-            }
             Serial.printf("NFCManager: Changed material type to %u\n", request.data.new_material_type);
             break;
-
         case NFCWriteType::SET_CONSUMED_WEIGHT:
-            err = opt_write_aux_region(&currentSpool.tag_data, hal);
-            if (err != OPT_OK) {
-                Serial.printf("NFCManager: Failed to write aux region: %s\n", opt_error_str(err));
-                return false;
-            }
             Serial.printf("NFCManager: Set consumed weight to %.2f grams\n", request.data.consumed_weight);
             break;
-
         case NFCWriteType::SET_BRAND_NAME:
-            err = opt_write_dirty_pages(&currentSpool.tag_data, hal);
-            if (err != OPT_OK) {
-                Serial.printf("NFCManager: Failed to write brand name: %s\n", opt_error_str(err));
-                return false;
-            }
             Serial.printf("NFCManager: Set brand name to %s\n", request.data.brand_name);
             break;
-
         case NFCWriteType::WRITE_SPOOLMAN_ID:
-            err = opt_write_aux_region(&currentSpool.tag_data, hal);
-            if (err != OPT_OK) {
-                Serial.printf("NFCManager: Failed to write spoolman ID: %s\n", opt_error_str(err));
-                return false;
-            }
             Serial.printf("NFCManager: Wrote spoolman ID %d to tag\n", request.data.spoolman_id);
             break;
-
         default:
             break;
     }

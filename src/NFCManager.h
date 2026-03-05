@@ -84,6 +84,7 @@ private:
     size_t rawWriteBufferSize_ = 0;
     bool rawWritePending_ = false;
     bool writeRawTag();
+    opt_tag_t writeScratchTag_;   // Reused by scan task write path to avoid large stack frames
 
     // Write queue (FreeRTOS)
     QueueHandle_t writeQueue = nullptr;

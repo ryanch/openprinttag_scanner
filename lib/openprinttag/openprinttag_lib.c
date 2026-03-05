@@ -994,16 +994,17 @@ opt_error_t opt_parse_ndef(opt_tag_t *tag) {
                         return OPT_ERR_CBOR_DECODE;
                     }
 
-                    /* Determine meta size by parsing */
-                    CborValue iter;
-                    if (cbor_value_enter_container(&root, &iter) == CborNoError) {
-                        while (!cbor_value_at_end(&iter)) {
-                            cbor_value_advance(&iter);
-                        }
+                    /* Determine meta size as the byte-length of the first CBOR item.
+                     * This avoids accidentally scanning into main/aux region data. */
+                    CborValue after_meta = root;
+                    if (cbor_value_advance(&after_meta) != CborNoError) {
+                        return OPT_ERR_CBOR_DECODE;
                     }
 
-                    /* The iterator position tells us meta size */
-                    size_t meta_size = iter.source.ptr - payload;
+                    size_t meta_size = after_meta.source.ptr - payload;
+                    if (meta_size == 0 || meta_size > payload_len) {
+                        return OPT_ERR_CBOR_DECODE;
+                    }
                     tag->meta.offset = 0;
                     tag->meta.size = meta_size;
                     tag->meta.valid = true;
@@ -1026,6 +1027,16 @@ opt_error_t opt_parse_ndef(opt_tag_t *tag) {
                     }
                     if (cbor_find_field(payload, meta_size, OPT_META_AUX_SIZE, &value, &parser) == OPT_OK) {
                         cbor_get_int(&value, &aux_size);
+                    }
+
+                    if (main_offset < 0 || main_offset >= (int64_t)payload_len) {
+                        return OPT_ERR_CBOR_DECODE;
+                    }
+                    if (aux_offset < 0 || aux_offset > (int64_t)payload_len) {
+                        return OPT_ERR_CBOR_DECODE;
+                    }
+                    if (aux_offset > 0 && aux_offset < main_offset) {
+                        return OPT_ERR_CBOR_DECODE;
                     }
 
                     /* Set up main region */
@@ -1331,17 +1342,22 @@ opt_error_t opt_get_gp_spoolman_id(const opt_tag_t *tag, int32_t *id) {
     if (!tag || !id) return OPT_ERR_INVALID_PARAM;
     if (!tag->aux.valid) return OPT_ERR_FIELD_NOT_FOUND;
 
-    /* Verify gp_range_user == "openscan" */
+    /* Preferred path: gp_range_user == "openscan" */
     char user[16] = {0};
     opt_error_t err = get_region_string_field(tag, &tag->aux, OPT_AUX_GP_RANGE_USER, user, sizeof(user));
-    if (err != OPT_OK) return OPT_ERR_FIELD_NOT_FOUND;
-    if (strcmp(user, OPT_GP_RANGE_USER_OPENSCAN) != 0) return OPT_ERR_FIELD_NOT_FOUND;
+    if (err == OPT_OK && strcmp(user, OPT_GP_RANGE_USER_OPENSCAN) == 0) {
+        int64_t val;
+        err = get_region_int_field(tag, &tag->aux, OPT_AUX_GP_SPOOLMAN_ID, &val);
+        if (err != OPT_OK) return err;
+        *id = (int32_t)val;
+        return OPT_OK;
+    }
 
-    /* Read the spoolman ID */
+    /* Compatibility fallback: accept raw spoolman-id key without gp_range_user.
+     * This keeps reads working for tags where aux space is too tight to add user key. */
     int64_t val;
     err = get_region_int_field(tag, &tag->aux, OPT_AUX_GP_SPOOLMAN_ID, &val);
     if (err != OPT_OK) return err;
-
     *id = (int32_t)val;
     return OPT_OK;
 }
@@ -1350,16 +1366,39 @@ opt_error_t opt_set_gp_spoolman_id(opt_tag_t *tag, int32_t id) {
     if (!tag) return OPT_ERR_INVALID_PARAM;
     if (!tag->aux.valid) return OPT_ERR_INVALID_PARAM;
 
-    /* Set gp_range_user to "openscan" */
-    opt_field_update_t update = { .key = OPT_AUX_GP_RANGE_USER, .type = FIELD_STRING,
-                                  .str_val = OPT_GP_RANGE_USER_OPENSCAN };
-    opt_error_t err = update_region_field(tag, &tag->aux, &update);
-    if (err != OPT_OK) return err;
-
-    /* Set the spoolman ID */
+    /* Set the spoolman ID first (critical field). */
     opt_field_update_t id_update = { .key = OPT_AUX_GP_SPOOLMAN_ID, .type = FIELD_INT,
                                      .int_val = id };
-    return update_region_field(tag, &tag->aux, &id_update);
+    opt_error_t err = update_region_field(tag, &tag->aux, &id_update);
+    if (err == OPT_ERR_REGION_OVERFLOW) {
+        /* Tight aux fallback: write a minimal one-field map with spoolman ID. */
+        uint8_t *aux_data = tag->data + tag->payload_offset + tag->aux.offset;
+        size_t offset = 0;
+        if (tag->aux.size < 2) return OPT_ERR_REGION_OVERFLOW;
+        aux_data[offset++] = 0xA1;  /* definite map with one key/value pair */
+
+        err = cbor_encode_int_key(aux_data, tag->aux.size, &offset, OPT_AUX_GP_SPOOLMAN_ID);
+        if (err != OPT_OK) return err;
+        err = cbor_encode_int_val(aux_data, tag->aux.size, &offset, id);
+        if (err != OPT_OK) return err;
+
+        if (offset > tag->aux.size) {
+            return OPT_ERR_REGION_OVERFLOW;
+        }
+        memset(aux_data + offset, 0, tag->aux.size - offset);
+        opt_mark_dirty(tag, tag->payload_offset + tag->aux.offset, tag->aux.size);
+        return OPT_OK;
+    }
+    if (err != OPT_OK) return err;
+
+    /* Best-effort namespace marker. If region is full, keep the ID we just wrote. */
+    opt_field_update_t user_update = { .key = OPT_AUX_GP_RANGE_USER, .type = FIELD_STRING,
+                                       .str_val = OPT_GP_RANGE_USER_OPENSCAN };
+    err = update_region_field(tag, &tag->aux, &user_update);
+    if (err == OPT_ERR_REGION_OVERFLOW) {
+        return OPT_OK;
+    }
+    return err;
 }
 
 /*============================================================================

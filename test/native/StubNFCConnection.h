@@ -58,6 +58,7 @@ public:
 
     void setReadError(bool error) { readError_ = error; }
     void setWriteError(bool error) { writeError_ = error; }
+    void setFailNextWrites(size_t count) { failNextWrites_ = count; }
 
     // Test inspection methods
     struct PageWrite {
@@ -74,6 +75,7 @@ public:
         tagPresent_ = false;
         readError_ = false;
         writeError_ = false;
+        failNextWrites_ = 0;
         pageWrites_.clear();
         memset(tagData_, 0, sizeof(tagData_));
         tagDataSize_ = 0;
@@ -93,6 +95,7 @@ private:
     // Error simulation
     bool readError_ = false;
     bool writeError_ = false;
+    size_t failNextWrites_ = 0;
 
     // Write tracking
     std::vector<PageWrite> pageWrites_;
@@ -115,6 +118,10 @@ private:
     static opt_error_t halWritePage(void* ctx, uint8_t page, const uint8_t* data) {
         StubNFCConnection* self = static_cast<StubNFCConnection*>(ctx);
         if (self->writeError_) {
+            return OPT_ERR_NFC_WRITE;
+        }
+        if (self->failNextWrites_ > 0) {
+            self->failNextWrites_--;
             return OPT_ERR_NFC_WRITE;
         }
 
