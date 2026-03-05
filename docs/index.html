@@ -340,6 +340,28 @@
             margin-left: 0.5rem;
         }
 
+        .actions-toggle {
+            display: inline-flex;
+            align-items: center;
+            gap: 0.35rem;
+            border: 1px solid #5a5a5a;
+            background-color: #444;
+            box-shadow: inset 0 0 0 1px rgba(255, 255, 255, 0.04);
+            white-space: nowrap;
+        }
+
+        .actions-toggle::after {
+            content: "▼";
+            font-size: 0.65rem;
+            line-height: 1;
+            opacity: 0.9;
+        }
+
+        .actions-toggle:hover {
+            border-color: #707070;
+            background-color: #505050;
+        }
+
         .actions-dropdown {
             position: absolute;
             right: 0;
@@ -347,10 +369,12 @@
             background-color: var(--prusa-dark-gray);
             border: 1px solid var(--prusa-medium-gray);
             border-radius: 6px;
-            min-width: 160px;
+            min-width: 210px;
             z-index: 100;
             box-shadow: 0 4px 12px rgba(0,0,0,0.4);
             display: none;
+            margin-top: 0.35rem;
+            white-space: nowrap;
         }
 
         .actions-dropdown.open {
@@ -366,8 +390,12 @@
             border: none;
             color: var(--prusa-text);
             font-size: 0.85rem;
+            font-weight: 500;
+            text-transform: none;
+            letter-spacing: 0;
             cursor: pointer;
             border-radius: 0;
+            white-space: nowrap;
         }
 
         .actions-dropdown button:hover {
@@ -822,6 +850,7 @@
         let configReadCharacteristic;
         let currentSpoolData = null;
         let recentSpoolsData = [];
+        let openActionsSpoolId = null;
         let spoolPollInterval = null;
         let cachedSpoolmanUrl = '';
         const SPOOL_POLL_INTERVAL_MS = 3000;
@@ -923,7 +952,7 @@
                 }
                 dropdownItems += `<button data-action="write-binary">Write Binary Data</button>`;
                 buttons += `<div class="actions-wrapper">
-                    <button class="spool-edit-btn secondary actions-toggle">Actions</button>
+                    <button type="button" class="spool-edit-btn secondary actions-toggle" aria-haspopup="menu" aria-expanded="false">Actions</button>
                     <div class="actions-dropdown">${dropdownItems}</div>
                 </div>`;
             } else {
@@ -953,9 +982,16 @@
                 const actionsToggle = card.querySelector('.actions-toggle');
                 const actionsDropdown = card.querySelector('.actions-dropdown');
                 if (actionsToggle && actionsDropdown) {
+                    if (openActionsSpoolId === spool.id) {
+                        actionsDropdown.classList.add('open');
+                        actionsToggle.setAttribute('aria-expanded', 'true');
+                    }
+
                     actionsToggle.addEventListener('click', (e) => {
                         e.stopPropagation();
-                        actionsDropdown.classList.toggle('open');
+                        const isOpen = actionsDropdown.classList.toggle('open');
+                        actionsToggle.setAttribute('aria-expanded', isOpen ? 'true' : 'false');
+                        openActionsSpoolId = isOpen ? spool.id : null;
                     });
 
                     const spoolmanAction = actionsDropdown.querySelector('[data-action="open-spoolman"]');
@@ -963,6 +999,8 @@
                         spoolmanAction.addEventListener('click', () => {
                             window.open(spoolmanAction.dataset.url, '_blank');
                             actionsDropdown.classList.remove('open');
+                            actionsToggle.setAttribute('aria-expanded', 'false');
+                            openActionsSpoolId = null;
                         });
                     }
 
@@ -970,6 +1008,8 @@
                     if (writeBinaryAction) {
                         writeBinaryAction.addEventListener('click', () => {
                             actionsDropdown.classList.remove('open');
+                            actionsToggle.setAttribute('aria-expanded', 'false');
+                            openActionsSpoolId = null;
                             openRawWriteModal(spool.id);
                         });
                     }
@@ -1003,6 +1043,7 @@
             } else if (currentSpoolData) {
                 currentSpoolContainer.appendChild(renderSpoolCard(currentSpoolData, true));
             } else {
+                openActionsSpoolId = null;
                 currentSpoolContainer.innerHTML = `
                     <div class="empty-state">
                         <div class="empty-state-icon">&#128451;</div>
@@ -1140,7 +1181,12 @@
 
         // Close any open actions dropdown when clicking outside
         document.addEventListener('click', () => {
-            document.querySelectorAll('.actions-dropdown.open').forEach(d => d.classList.remove('open'));
+            document.querySelectorAll('.actions-dropdown.open').forEach(d => {
+                d.classList.remove('open');
+                const toggle = d.parentElement?.querySelector('.actions-toggle');
+                if (toggle) toggle.setAttribute('aria-expanded', 'false');
+            });
+            openActionsSpoolId = null;
         });
 
         // Sync color inputs
