@@ -111,4 +111,5 @@ test/integration/scenarios/test_printer_api_errors.py — PrusaLink API error re
 test/integration/scenarios/test_print_progress_edge_cases.py — Print progress edge cases (0%, 100%, dwell)
 test/integration/scenarios/test_automation_mode_controlled.py — HA-controlled mode (no auto-deduction) test
 test/integration/scenarios/test_job_disappeared_deduction.py — Job disappeared (204) bgcode fallback deduction test
+test/integration/scenarios/test_real_tag.py — Raw binary write from fixture and 100g deduction verification
 test/integration/site/index.html — Web Bluetooth test runner UI

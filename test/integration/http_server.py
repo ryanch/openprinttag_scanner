@@ -35,6 +35,7 @@ from scenarios.test_printer_api_errors import PrinterAPIErrorsTest
 from scenarios.test_print_progress_edge_cases import PrintProgressEdgeCasesTest
 from scenarios.test_automation_mode_controlled import AutomationModeControlledTest
 from scenarios.test_job_disappeared_deduction import JobDisappearedDeductionTest
+from scenarios.test_real_tag import RealTagBinaryWriteTest
 
 
 class TestOrchestrator:
@@ -147,6 +148,13 @@ class TestOrchestrator:
                 "name": "Job Disappeared Deduction",
                 "description": "Verify filament deduction when job API returns 204",
                 "class": JobDisappearedDeductionTest,
+                "include_in_run_all": True
+            },
+            "test_real_tag": {
+                "id": "test_real_tag",
+                "name": "Test with Real Tag",
+                "description": "Write PETG Jet Black binary, verify 1050g, then deduct 100g",
+                "class": RealTagBinaryWriteTest,
                 "include_in_run_all": True
             }
         }
