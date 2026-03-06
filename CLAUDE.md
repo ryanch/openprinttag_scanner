@@ -65,6 +65,7 @@ src/BluetoothManager.cpp / .h — BLE services + connections
 docs/index.html — BLE config UI (device setup + spool editing)
 
 Utilities
+src/ConversionUtils.cpp / .h — Shared data format conversion utilities (material types, colors, density defaults)
 src/BgcodeParser.cpp / .h — Extracts "filament used [g]" from .bgcode
 
 Tests

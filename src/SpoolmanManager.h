@@ -36,6 +36,7 @@ public:
     void startTask();
     bool enqueueSync(const SpoolmanSyncRequest& req);
     bool isConfigured() const;
+    bool getSpoolDetails(int32_t spoolmanId, SpoolDetails& outDetails);
 
 private:
     struct SpoolIdCacheEntry {
@@ -52,7 +53,6 @@ private:
     bool syncSpool(const SpoolmanSyncRequest& req, int& resolvedSpoolmanId);
     int32_t lookupCachedSpoolmanId(const char* spoolId) const;
     void storeCachedSpoolmanId(const char* spoolId, int32_t spoolmanId);
-    bool getSpoolDetails(int32_t spoolmanId, SpoolDetails& outDetails);
 
     QueueHandle_t syncQueue = nullptr;
     SemaphoreHandle_t httpMutex_ = nullptr;

@@ -1,7 +1,9 @@
 #include "NFCManager.h"
+#include "ConversionUtils.h"
 #ifndef NATIVE_TEST
   #include "ApplicationManager.h"
   #include "HardwareNFCConnection.h"
+  #include "SpoolmanManager.h"
   #include <Arduino.h>
 #else
   #include "platform/NativePlatform.h"
@@ -17,6 +19,9 @@
 #ifdef DUMP_TAGS_TO_CONSOLE
     #include <base64.hpp>
 #endif
+
+// Static member initialization
+uint32_t NFCManager::s_write_request_id_counter = 1000;
 
 NFCManager& NFCManager::getInstance() {
     static NFCManager instance;
@@ -547,6 +552,86 @@ bool NFCManager::enqueueRawWrite(const NFCWriteRequest& req, const uint8_t* data
     rawWriteBufferSize_ = dataSize;
     rawWritePending_ = true;
     return enqueueWrite(req);
+}
+
+uint32_t NFCManager::generateRequestId() {
+    return ++s_write_request_id_counter;
+}
+
+bool NFCManager::writeSpoolmanDataToTag(int32_t spoolman_id, const char* expected_spool_id) {
+#ifdef NATIVE_TEST
+    // In native tests, SpoolmanManager is not available
+    Serial.println("NFCManager: writeSpoolmanDataToTag not supported in native tests");
+    return false;
+#else
+    // 1. Validate input
+    if (spoolman_id <= 0) {
+        Serial.printf("NFCManager: Invalid spoolman_id: %d\n", spoolman_id);
+        return false;
+    }
+
+    // 2. Fetch spool details from Spoolman
+    SpoolDetails details;
+    if (!SpoolmanManager::getInstance().getSpoolDetails(spoolman_id, details)) {
+        Serial.printf("NFCManager: Failed to fetch Spoolman spool %d\n", spoolman_id);
+        return false;
+    }
+
+    // 3. Validate weight data
+    if (details.initial_weight_g <= 0 || details.remaining_weight_g < 0) {
+        Serial.println("NFCManager: Invalid weight data from Spoolman");
+        return false;
+    }
+    if (details.remaining_weight_g > details.initial_weight_g) {
+        Serial.println("NFCManager: Remaining weight exceeds initial weight");
+        return false;
+    }
+
+    // 4. Build complete tag in memory (use writeScratchTag_ to avoid stack overflow)
+    opt_init(&writeScratchTag_);
+    opt_error_t err = opt_format_empty_tag(&writeScratchTag_, 312, 32);
+    if (err != OPT_OK) {
+        Serial.printf("NFCManager: Failed to format tag: %s\n", opt_error_str(err));
+        return false;
+    }
+
+    // 5. Convert and populate fields
+    uint8_t material_enum = materialTypeFromString(details.material_type);
+    opt_set_material_type(&writeScratchTag_, material_enum);
+
+    uint8_t rgba[4] = {255, 255, 255, 255};  // Default white
+    parseHexColor(details.color_hex, rgba);  // Best effort
+    opt_set_primary_color(&writeScratchTag_, rgba);
+
+    opt_set_brand_name(&writeScratchTag_, details.manufacturer);
+    opt_set_actual_full_weight(&writeScratchTag_, details.initial_weight_g);
+
+    float consumed = details.initial_weight_g - details.remaining_weight_g;
+    opt_set_consumed_weight(&writeScratchTag_, consumed);
+
+    // Set defaults for missing fields
+    float density = getDefaultDensity(material_enum);
+    opt_set_density(&writeScratchTag_, density);
+    opt_set_filament_diameter(&writeScratchTag_, 1.75f);
+
+    // Write Spoolman ID to aux region
+    opt_set_gp_spoolman_id(&writeScratchTag_, spoolman_id);
+
+    // 6. Enqueue raw write
+    NFCWriteRequest req;
+    memset(&req, 0, sizeof(req));  // CRITICAL: zero-init (per MEMORY.md)
+    req.request_id = generateRequestId();
+    req.type = NFCWriteType::WRITE_RAW_TAG;
+    if (expected_spool_id != nullptr) {
+        strncpy(req.expected_spool_id, expected_spool_id, sizeof(req.expected_spool_id) - 1);
+    }
+
+    bool queued = enqueueRawWrite(req, writeScratchTag_.data, writeScratchTag_.data_size);
+    if (queued) {
+        Serial.printf("NFCManager: Queued write for Spoolman spool %d\n", spoolman_id);
+    }
+    return queued;
+#endif
 }
 
 bool NFCManager::enqueueWrite(const NFCWriteRequest& req) {

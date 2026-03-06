@@ -51,9 +51,6 @@ private:
     static void mqttCallback(char* topic, uint8_t* payload, unsigned int length);
     void handleCommand(const char* topic, const char* payload);
     void publishCommandResponse(const char* command, bool success, const char* error);
-    static uint8_t materialTypeFromString(const char* type);
-    static const char* materialTypeToString(uint8_t type);
-    static bool parseHexColor(const char* hex, uint8_t* rgba);
 
     WiFiClient wifiClient;
     PubSubClient mqttClient;

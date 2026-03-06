@@ -19,6 +19,7 @@ public:
     void startScanTask();                            // Start FreeRTOS scan task
     bool enqueueWrite(const NFCWriteRequest& req);   // Queue a write request
     bool enqueueRawWrite(const NFCWriteRequest& req, const uint8_t* data, size_t dataSize);
+    bool writeSpoolmanDataToTag(int32_t spoolman_id, const char* expected_spool_id = nullptr);
     bool isRequestCompleted(uint32_t request_id);    // Check if request done
     void requestCurrentSpool();                      // Clear dedup to resend current spool
     bool scanOnce();                                 // Single scan cycle (for testing)
@@ -66,6 +67,7 @@ private:
     // Deduplication
     void markRequestCompleted(uint32_t request_id);
     bool isDuplicateSpool(const uint8_t* uid, uint8_t uid_length);
+    uint32_t generateRequestId();
 
     // State
     CurrentSpoolState currentSpool;
@@ -95,6 +97,7 @@ private:
     uint32_t completedRequests[COMPLETED_REQUESTS_SIZE];
     size_t completedRequestsIndex = 0;
     SemaphoreHandle_t completedMutex = nullptr;
+    static uint32_t s_write_request_id_counter;
 
     // Task handle
     TaskHandle_t scanTaskHandle = nullptr;

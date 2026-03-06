@@ -1,6 +1,7 @@
 #include "HomeAssistantManager.h"
 #include "ApplicationManager.h"
 #include "ConfigurationManager.h"
+#include "ConversionUtils.h"
 
 #ifndef NATIVE_TEST
   #include <Arduino.h>
@@ -920,53 +921,6 @@ void HomeAssistantManager::publishCommandResponse(const char* command, bool succ
     mqttClient.publish(respTopic, respPayload, false);
 }
 
-// Helper functions shared with BluetoothManager (duplicated here to avoid cross-dependency)
-uint8_t HomeAssistantManager::materialTypeFromString(const char* type) {
-    if (strcmp(type, "PLA") == 0) return OPT_MATERIAL_TYPE_PLA;
-    if (strcmp(type, "PETG") == 0) return OPT_MATERIAL_TYPE_PETG;
-    if (strcmp(type, "ABS") == 0) return OPT_MATERIAL_TYPE_ABS;
-    if (strcmp(type, "ASA") == 0) return OPT_MATERIAL_TYPE_ASA;
-    if (strcmp(type, "TPU") == 0) return OPT_MATERIAL_TYPE_TPU;
-    if (strcmp(type, "PC") == 0) return OPT_MATERIAL_TYPE_PC;
-    if (strcmp(type, "Nylon") == 0) return OPT_MATERIAL_TYPE_PA6;
-    if (strcmp(type, "PVA") == 0) return OPT_MATERIAL_TYPE_PVA;
-    if (strcmp(type, "HIPS") == 0) return OPT_MATERIAL_TYPE_HIPS;
-    return OPT_MATERIAL_TYPE_PLA;
-}
-
-const char* HomeAssistantManager::materialTypeToString(uint8_t type) {
-    switch (type) {
-        case OPT_MATERIAL_TYPE_PLA: return "PLA";
-        case OPT_MATERIAL_TYPE_PETG: return "PETG";
-        case OPT_MATERIAL_TYPE_ABS: return "ABS";
-        case OPT_MATERIAL_TYPE_ASA: return "ASA";
-        case OPT_MATERIAL_TYPE_TPU: return "TPU";
-        case OPT_MATERIAL_TYPE_PC: return "PC";
-        case OPT_MATERIAL_TYPE_PA6: return "Nylon";
-        case OPT_MATERIAL_TYPE_PVA: return "PVA";
-        case OPT_MATERIAL_TYPE_HIPS: return "HIPS";
-        default: return "PLA";
-    }
-}
-
-bool HomeAssistantManager::parseHexColor(const char* hex, uint8_t* rgba) {
-    if (hex[0] != '#' || strlen(hex) != 7) {
-        rgba[0] = rgba[1] = rgba[2] = 255;
-        rgba[3] = 255;
-        return false;
-    }
-    unsigned int r, g, b;
-    if (sscanf(hex + 1, "%02x%02x%02x", &r, &g, &b) != 3) {
-        rgba[0] = rgba[1] = rgba[2] = 255;
-        rgba[3] = 255;
-        return false;
-    }
-    rgba[0] = r;
-    rgba[1] = g;
-    rgba[2] = b;
-    rgba[3] = 255;
-    return true;
-}
 
 #endif // !NATIVE_TEST
 
