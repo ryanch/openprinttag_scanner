@@ -519,6 +519,145 @@ static bool updateSpool(int spoolId, int filamentId, float remainingWeight) {
 
 // --- SpoolmanManager class implementation ---
 
+bool SpoolmanManager::getSpoolDetails(int32_t spoolmanId, SpoolDetails& outDetails) {
+    // Initialize output structure
+    memset(&outDetails, 0, sizeof(outDetails));
+    outDetails.valid = false;
+    outDetails.spoolman_id = -1;
+
+    // Validate input
+    if (spoolmanId <= 0) {
+        Serial.printf("SpoolmanManager: getSpoolDetails - invalid spoolman_id=%d\n", spoolmanId);
+        return false;
+    }
+
+    // Build API path
+    char path[64];
+    snprintf(path, sizeof(path), "/api/v1/spool/%d", spoolmanId);
+
+    // Make HTTP GET request
+    String response;
+    int code = httpGet(path, response);
+
+    if (code != 200) {
+        Serial.printf("SpoolmanManager: getSpoolDetails(%d) returned HTTP %d\n", spoolmanId, code);
+        return false;
+    }
+
+    // Parse JSON response using streaming parser
+    const_buffer_stream stm((const uint8_t*)response.c_str(), response.length());
+    json_reader reader(stm);
+
+    bool inFilament = false;
+    bool inVendor = false;
+    unsigned filamentDepth = 0;
+    unsigned vendorDepth = 0;
+    bool hasId = false;
+    bool hasMaterial = false;
+
+    while (reader.read()) {
+        json_node_type nodeType = reader.node_type();
+
+        // Track entry into nested objects
+        if (nodeType == json_node_type::field) {
+            const char* field = reader.value();
+
+            if (strcmp(field, "filament") == 0) {
+                if (reader.read() && reader.node_type() == json_node_type::object) {
+                    inFilament = true;
+                    filamentDepth = reader.depth();
+                }
+                continue;
+            } else if (inFilament && strcmp(field, "vendor") == 0) {
+                if (reader.read() && reader.node_type() == json_node_type::object) {
+                    inVendor = true;
+                    vendorDepth = reader.depth();
+                }
+                continue;
+            }
+
+            // Read next value
+            if (!reader.read()) {
+                break;
+            }
+
+            // Extract fields based on context
+            if (inVendor) {
+                if (strcmp(field, "name") == 0) {
+                    readStringValue(reader, outDetails.manufacturer, sizeof(outDetails.manufacturer));
+                }
+            } else if (inFilament) {
+                if (strcmp(field, "material") == 0) {
+                    if (readStringValue(reader, outDetails.material_type, sizeof(outDetails.material_type))) {
+                        hasMaterial = true;
+                    }
+                } else if (strcmp(field, "color_hex") == 0) {
+                    char colorBuf[8] = {0};
+                    if (readStringValue(reader, colorBuf, sizeof(colorBuf))) {
+                        // Ensure color has '#' prefix
+                        if (colorBuf[0] == '#') {
+                            strncpy(outDetails.color_hex, colorBuf, sizeof(outDetails.color_hex) - 1);
+                        } else {
+                            snprintf(outDetails.color_hex, sizeof(outDetails.color_hex), "#%s", colorBuf);
+                        }
+                    }
+                } else if (strcmp(field, "weight") == 0) {
+                    // Fallback capacity if initial_weight is not set
+                    if (outDetails.initial_weight_g == 0.0f && reader.value_type() == json_value_type::real) {
+                        outDetails.initial_weight_g = static_cast<float>(reader.value_real());
+                    }
+                }
+            } else {
+                // Top-level spool fields
+                if (strcmp(field, "id") == 0) {
+                    int id = -1;
+                    if (readIntValue(reader, id)) {
+                        outDetails.spoolman_id = id;
+                        hasId = true;
+                    }
+                } else if (strcmp(field, "remaining_weight") == 0) {
+                    if (reader.value_type() == json_value_type::real) {
+                        outDetails.remaining_weight_g = static_cast<float>(reader.value_real());
+                    } else if (reader.value_type() == json_value_type::integer) {
+                        outDetails.remaining_weight_g = static_cast<float>(reader.value_int());
+                    }
+                } else if (strcmp(field, "initial_weight") == 0) {
+                    if (reader.value_type() == json_value_type::real) {
+                        outDetails.initial_weight_g = static_cast<float>(reader.value_real());
+                    } else if (reader.value_type() == json_value_type::integer) {
+                        outDetails.initial_weight_g = static_cast<float>(reader.value_int());
+                    }
+                }
+            }
+        } else if (nodeType == json_node_type::end_object) {
+            // Track exit from nested objects
+            if (inVendor && reader.depth() <= vendorDepth) {
+                inVendor = false;
+            } else if (inFilament && reader.depth() <= filamentDepth) {
+                inFilament = false;
+            }
+        }
+    }
+
+    // Mark as valid if we got the essential fields
+    outDetails.valid = hasId && hasMaterial;
+
+    if (outDetails.valid) {
+        Serial.printf("SpoolmanManager: getSpoolDetails(%d) success - %s %s, color=%s, %.1fg/%.1fg\n",
+                      outDetails.spoolman_id,
+                      outDetails.manufacturer,
+                      outDetails.material_type,
+                      outDetails.color_hex,
+                      outDetails.remaining_weight_g,
+                      outDetails.initial_weight_g);
+    } else {
+        Serial.printf("SpoolmanManager: getSpoolDetails(%d) incomplete - hasId=%d, hasMaterial=%d\n",
+                      spoolmanId, hasId, hasMaterial);
+    }
+
+    return outDetails.valid;
+}
+
 SpoolmanManager& SpoolmanManager::getInstance() {
     static SpoolmanManager instance;
     return instance;

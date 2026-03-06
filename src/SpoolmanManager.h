@@ -19,6 +19,16 @@ struct SpoolmanSyncRequest {
     int32_t spoolman_id;         // Spoolman ID from tag (-1 if absent)
 };
 
+struct SpoolDetails {
+    int32_t spoolman_id;
+    float remaining_weight_g;
+    float initial_weight_g;      // capacity
+    char color_hex[8];           // "#RRGGBB\0"
+    char manufacturer[64];       // vendor name
+    char material_type[32];      // e.g., "PLA", "PETG"
+    bool valid;                  // indicates successful retrieval
+};
+
 class SpoolmanManager {
 public:
     static SpoolmanManager& getInstance();
@@ -42,6 +52,7 @@ private:
     bool syncSpool(const SpoolmanSyncRequest& req, int& resolvedSpoolmanId);
     int32_t lookupCachedSpoolmanId(const char* spoolId) const;
     void storeCachedSpoolmanId(const char* spoolId, int32_t spoolmanId);
+    bool getSpoolDetails(int32_t spoolmanId, SpoolDetails& outDetails);
 
     QueueHandle_t syncQueue = nullptr;
     SemaphoreHandle_t httpMutex_ = nullptr;
