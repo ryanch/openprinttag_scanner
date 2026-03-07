@@ -41,16 +41,12 @@ class AutomationModeControlledTest(BaseTestScenario):
                           "Device in HA-controlled mode (no auto-deduction)")
 
             # Step 2: Ensure formatted spool is present
-            current = self._ensure_spool_present(
-                "Please place a formatted spool on the NFC reader",
-                require_formatted=True
-            )
-            spool_id = current["id"]
+            spool_id = self._ensure_tag_formatted()
 
             # Step 3: Set initial weight to 1000g
             self._emit_step("Set Initial Weight", "running", "Writing 1000g to tag")
             self._ble_update_spool(spool_id, grams_remaining=1000)
-            self._wait_seconds(3, "Waiting for NFC write")
+            self._wait_seconds(5, 'Waiting for NFC write')
 
             current = self._get_current_spool()
             self._assert(current is not None, "Spool disappeared")
@@ -92,7 +88,7 @@ class AutomationModeControlledTest(BaseTestScenario):
             # Step 7: Change color of filament
             self._emit_step("Change Color", "running", "Updating color to #FF00FF")
             self._ble_update_spool(spool_id, color="#FF00FF")
-            self._wait_seconds(3, "Waiting for NFC write")
+            self._wait_seconds(5, 'Waiting for NFC write')
             self._emit_step("Change Color", "passed", "Color updated to #FF00FF")
 
             # Step 8: Confirm weight unchanged

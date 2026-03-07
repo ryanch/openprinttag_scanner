@@ -74,6 +74,8 @@ bool NFCManager::begin() {
     completedRequestsIndex = 0;
     memset(recentSpools, 0, sizeof(recentSpools));
     recentSpoolsCount = 0;
+    suppressReDetection_ = false;
+    suppressReDetectionUid_[0] = '\0';
 
     Serial.println("NFCManager: Initialized successfully");
     return true;
@@ -194,8 +196,23 @@ void NFCManager::scanLoop() {
             connection_->setCurrentUid(uid, uidLength);
 
             // Check if this is the same spool we already processed
-            if (!isDuplicateSpool(uid, uidLength)) {
-                Serial.println("NFCManager: New spool, reading tag...");
+            // Also suppress re-detection if writes are in progress for this tag
+            bool shouldSkipReRead = isDuplicateSpool(uid, uidLength);
+
+            if (suppressReDetection_) {
+                char uidHex[17];
+                for (uint8_t i = 0; i < uidLength && i < 8; i++) {
+                    sprintf(uidHex + (i * 2), "%02X", uid[i]);
+                }
+                uidHex[uidLength * 2] = '\0';
+
+                if (strcmp(uidHex, suppressReDetectionUid_) == 0) {
+                    shouldSkipReRead = true;  // Skip re-read for tag being written to
+                }
+            }
+
+            if (!shouldSkipReRead) {
+                Serial.println("NFCManager: New spool detected, reading tag...");
                 // readAndParseTag manages its own mutex internally
                 if (!readAndParseTag(uid, uidLength)) {
                     Serial.println("NFCManager: readAndParseTag() failed - treating as blank tag");
@@ -221,6 +238,10 @@ void NFCManager::scanLoop() {
                         Serial.println("NFCManager: Could not acquire tagMutex");
                     }
                 }
+            } else {
+                // Tag is a duplicate - skip re-reading
+                // This log would be too verbose (every 50ms), so commenting out
+                // Serial.println("NFCManager: Same tag detected, skipping read");
             }
 
             // Process any pending write requests while tag is present
@@ -237,6 +258,11 @@ void NFCManager::scanLoop() {
                 currentSpool.present = false;
                 currentSpool.blank_tag_present = false;
                 lastSeenValid = false;
+
+                // Clear suppression if tag removed
+                suppressReDetection_ = false;
+                suppressReDetectionUid_[0] = '\0';
+
                 xSemaphoreGive(tagMutex);
             }
         }
@@ -396,10 +422,24 @@ bool NFCManager::formatNewSpool() {
                 currentSpool.tag_data_valid = true;
                 currentSpool.blank_tag_present = false;
                 addToRecentSpools();
-                sendSpoolDetectedMessage();
-                xSemaphoreGive(tagMutex);
 
-                Serial.println("NFCManager: formatNewSpool() complete - verified");
+                // Check if write queue is empty (no batched writes pending)
+                NFCWriteRequest dummyReq;
+                bool queueEmpty = (writeQueue == nullptr || xQueuePeek(writeQueue, &dummyReq, 0) != pdTRUE);
+
+                if (queueEmpty) {
+                    // No batched writes - send SpoolDetected immediately
+                    sendSpoolDetectedMessage();
+                    Serial.println("NFCManager: formatNewSpool() complete - verified (queue empty, sent SpoolDetected)");
+                } else {
+                    // Batched writes pending - set suppression flag
+                    suppressReDetection_ = true;
+                    strncpy(suppressReDetectionUid_, currentSpool.spool_id, sizeof(suppressReDetectionUid_) - 1);
+                    suppressReDetectionUid_[sizeof(suppressReDetectionUid_) - 1] = '\0';
+                    Serial.println("NFCManager: formatNewSpool() complete - verified (suppressing re-read for batched writes)");
+                }
+
+                xSemaphoreGive(tagMutex);
                 return true;
             }
             Serial.printf("NFCManager: Parse failed on retry %d: %s\n", retry + 1, opt_error_str(err));
@@ -425,10 +465,24 @@ bool NFCManager::formatNewSpool() {
     currentSpool.tag_data_valid = true;
     currentSpool.blank_tag_present = false;
     addToRecentSpools();
-    sendSpoolDetectedMessage();
-    xSemaphoreGive(tagMutex);
 
-    Serial.println("NFCManager: formatNewSpool() complete - unverified");
+    // Check if write queue is empty (no batched writes pending)
+    NFCWriteRequest dummyReq2;
+    bool queueEmpty = (writeQueue == nullptr || xQueuePeek(writeQueue, &dummyReq2, 0) != pdTRUE);
+
+    if (queueEmpty) {
+        // No batched writes - send SpoolDetected immediately
+        sendSpoolDetectedMessage();
+        Serial.println("NFCManager: formatNewSpool() complete - unverified (queue empty, sent SpoolDetected)");
+    } else {
+        // Batched writes pending - set suppression flag
+        suppressReDetection_ = true;
+        strncpy(suppressReDetectionUid_, currentSpool.spool_id, sizeof(suppressReDetectionUid_) - 1);
+        suppressReDetectionUid_[sizeof(suppressReDetectionUid_) - 1] = '\0';
+        Serial.println("NFCManager: formatNewSpool() complete - unverified (suppressing re-read for batched writes)");
+    }
+
+    xSemaphoreGive(tagMutex);
     return true;
 }
 
@@ -644,7 +698,18 @@ bool NFCManager::enqueueWrite(const NFCWriteRequest& req) {
         return true;  // Already done, return success
     }
 
-    return xQueueSend(writeQueue, &req, pdMS_TO_TICKS(100)) == pdTRUE;
+    bool queued = xQueueSend(writeQueue, &req, pdMS_TO_TICKS(100)) == pdTRUE;
+
+    // If this is part of a batch (suppress_sync or FORMAT_NEW), set suppression flag
+    if (queued && (req.suppress_sync || req.type == NFCWriteType::FORMAT_NEW)) {
+        suppressReDetection_ = true;
+        if (req.expected_spool_id[0] != '\0') {
+            strncpy(suppressReDetectionUid_, req.expected_spool_id, sizeof(suppressReDetectionUid_) - 1);
+            suppressReDetectionUid_[sizeof(suppressReDetectionUid_) - 1] = '\0';
+        }
+    }
+
+    return queued;
 }
 
 void NFCManager::processWriteQueue() {
@@ -693,11 +758,27 @@ void NFCManager::processWriteQueue() {
         msg.payload.spoolUpdated.spool_id[sizeof(msg.payload.spoolUpdated.spool_id) - 1] = '\0';
         msg.payload.spoolUpdated.update_type = static_cast<uint8_t>(request.type);
         msg.payload.spoolUpdated.success = success;
+        msg.payload.spoolUpdated.suppress_sync = request.suppress_sync;
         msg.payload.spoolUpdated.kg_remaining = snapshotValid ? snapshotRemainingGrams / 1000.0f : 0;
         ApplicationManager::getInstance().sendMessage(msg);
 
         // One write per cycle — break to let scan loop run between writes
         break;
+    }
+
+    // Check if queue is now empty
+    NFCWriteRequest peekReq;
+    if (xQueuePeek(writeQueue, &peekReq, 0) != pdTRUE) {
+        // Queue is empty - clear suppression flag
+        if (suppressReDetection_) {
+            Serial.println("NFCManager: Write queue empty, clearing suppression (NOT sending SpoolDetected - batched writes had suppress_sync)");
+            suppressReDetection_ = false;
+            suppressReDetectionUid_[0] = '\0';
+
+            // DON'T send SpoolDetected - the batched writes had suppress_sync flag
+            // which means they don't want to trigger Spoolman sync.
+            // ApplicationManager already received SPOOL_UPDATED events for each write.
+        }
     }
 }
 
@@ -797,6 +878,8 @@ static opt_error_t applyWriteUpdate(opt_tag_t& tag, const NFCWriteRequest& reque
             return opt_set_material_type(&tag, request.data.new_material_type);
         case NFCWriteType::SET_CONSUMED_WEIGHT:
             return opt_set_consumed_weight(&tag, request.data.consumed_weight);
+        case NFCWriteType::SET_INITIAL_WEIGHT:
+            return opt_set_actual_full_weight(&tag, request.data.consumed_weight);  // Reuse consumed_weight field for the initial weight value
         case NFCWriteType::SET_BRAND_NAME:
             return opt_set_brand_name(&tag, request.data.brand_name);
         case NFCWriteType::WRITE_SPOOLMAN_ID:
@@ -938,6 +1021,7 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
         Serial.println("NFCManager: executeWrite - write succeeded but commit lock failed");
         return false;
     }
+
     currentSpool.tag_data = updatedTag;
     currentSpool.tag_data_valid = true;
     currentSpool.blank_tag_present = false;
@@ -957,6 +1041,9 @@ bool NFCManager::executeWrite(const NFCWriteRequest& request) {
             break;
         case NFCWriteType::SET_CONSUMED_WEIGHT:
             Serial.printf("NFCManager: Set consumed weight to %.2f grams\n", request.data.consumed_weight);
+            break;
+        case NFCWriteType::SET_INITIAL_WEIGHT:
+            Serial.printf("NFCManager: Set initial weight to %.2f grams\n", request.data.consumed_weight);
             break;
         case NFCWriteType::SET_BRAND_NAME:
             Serial.printf("NFCManager: Set brand name to %s\n", request.data.brand_name);
@@ -983,6 +1070,7 @@ void NFCManager::sendSpoolUpdatedMessage(uint32_t request_id, NFCWriteType type,
 
     msg.payload.spoolUpdated.update_type = static_cast<uint8_t>(type);
     msg.payload.spoolUpdated.success = success;
+    msg.payload.spoolUpdated.suppress_sync = 0;  // Default: allow sync
 
     // Get remaining weight from tag data
     float remaining_grams = 0;
@@ -1125,7 +1213,22 @@ bool NFCManager::scanOnce() {
     if (connection_->detectTag(uid, &uidLength)) {
         connection_->setCurrentUid(uid, uidLength);
 
-        if (!isDuplicateSpool(uid, uidLength)) {
+        // Check if this is the same spool or if re-detection is suppressed
+        bool shouldSkipReRead = isDuplicateSpool(uid, uidLength);
+
+        if (suppressReDetection_) {
+            char uidHex[17];
+            for (uint8_t i = 0; i < uidLength && i < 8; i++) {
+                sprintf(uidHex + (i * 2), "%02X", uid[i]);
+            }
+            uidHex[uidLength * 2] = '\0';
+
+            if (strcmp(uidHex, suppressReDetectionUid_) == 0) {
+                shouldSkipReRead = true;
+            }
+        }
+
+        if (!shouldSkipReRead) {
             // readAndParseTag manages its own mutex internally
             if (readAndParseTag(uid, uidLength)) {
                 result = true;
@@ -1157,6 +1260,11 @@ bool NFCManager::scanOnce() {
             currentSpool.present = false;
             currentSpool.blank_tag_present = false;
             lastSeenValid = false;
+
+            // Clear suppression if tag removed
+            suppressReDetection_ = false;
+            suppressReDetectionUid_[0] = '\0';
+
             xSemaphoreGive(tagMutex);
         }
     }

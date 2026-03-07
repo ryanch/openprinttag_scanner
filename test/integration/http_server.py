@@ -36,6 +36,7 @@ from scenarios.test_print_progress_edge_cases import PrintProgressEdgeCasesTest
 from scenarios.test_automation_mode_controlled import AutomationModeControlledTest
 from scenarios.test_job_disappeared_deduction import JobDisappearedDeductionTest
 from scenarios.test_real_tag import RealTagBinaryWriteTest
+from scenarios.test_write_spoolman_spool import WriteSpoolmanSpoolTest
 
 
 class TestOrchestrator:
@@ -155,6 +156,13 @@ class TestOrchestrator:
                 "name": "Test with Real Tag",
                 "description": "Write PETG Jet Black binary, verify 1050g, then deduct 100g",
                 "class": RealTagBinaryWriteTest,
+                "include_in_run_all": True
+            },
+            "write_spoolman_spool": {
+                "id": "write_spoolman_spool",
+                "name": "Write Spoolman Spool",
+                "description": "Test write_spoolman_spool in Mode A (API fetch) and Mode B (direct data)",
+                "class": WriteSpoolmanSpoolTest,
                 "include_in_run_all": True
             }
         }
@@ -328,6 +336,43 @@ class IntegrationTestHandler(BaseHTTPRequestHandler):
                           self.log_date_time_string(),
                           format%args))
 
+    def _expand_spool_response(self, spool):
+        """Expand spool with nested filament and vendor objects to match real Spoolman API"""
+        filament_id = spool.get("filament_id")
+        filament = self.orchestrator.mock_spoolman.filaments.get(filament_id)
+
+        if filament is None:
+            import sys
+            print(f"[HTTP] _expand_spool_response: filament_id={filament_id} NOT FOUND in mock", file=sys.stderr)
+            print(f"[HTTP] Available filaments: {list(self.orchestrator.mock_spoolman.filaments.keys())}", file=sys.stderr)
+            return spool  # Return as-is if filament not found
+
+        vendor_id = filament.get("vendor_id")
+        vendor = self.orchestrator.mock_spoolman.vendors.get(vendor_id)
+
+        # Build nested structure matching real Spoolman API
+        expanded = {
+            "id": spool["id"],
+            "remaining_weight": spool["remaining_weight"],
+            "initial_weight": spool["initial_weight"],
+            "extra": spool.get("extra", {}),
+            "filament": {
+                "id": filament["id"],
+                "material": filament["material"],
+                "color_hex": filament["color_hex"],
+                "density": filament["density"],
+                "diameter": filament["diameter"],
+                "weight": filament["weight"],
+                "vendor": {
+                    "id": vendor["id"],
+                    "name": vendor["name"]
+                } if vendor else None
+            }
+        }
+        import sys
+        print(f"[HTTP] _expand_spool_response: expanded spool {spool['id']} with material={filament['material']}", file=sys.stderr)
+        return expanded
+
     def do_GET(self):
         """Handle GET requests"""
         parsed = urlparse(self.path)
@@ -417,7 +462,8 @@ class IntegrationTestHandler(BaseHTTPRequestHandler):
             if spool is None:
                 self.send_error(404, "Spool not found")
             else:
-                self._send_json(spool)
+                expanded = self._expand_spool_response(spool)
+                self._send_json(expanded)
 
         elif path == "/api/v1/spool":
             query = parse_qs(parsed.query)

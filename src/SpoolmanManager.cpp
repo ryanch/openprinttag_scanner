@@ -544,6 +544,10 @@ bool SpoolmanManager::getSpoolDetails(int32_t spoolmanId, SpoolDetails& outDetai
         return false;
     }
 
+    // Debug: print first 200 chars of response
+    Serial.printf("SpoolmanManager: getSpoolDetails(%d) response: %.200s%s\n",
+                  spoolmanId, response.c_str(), response.length() > 200 ? "..." : "");
+
     // Parse JSON response using streaming parser
     const_buffer_stream stm((const uint8_t*)response.c_str(), response.length());
     json_reader reader(stm);
@@ -554,21 +558,23 @@ bool SpoolmanManager::getSpoolDetails(int32_t spoolmanId, SpoolDetails& outDetai
     unsigned vendorDepth = 0;
     bool hasId = false;
     bool hasMaterial = false;
+    char currentField[64] = {0};  // Buffer to hold field name (reader.value() is not stable after read())
 
     while (reader.read()) {
         json_node_type nodeType = reader.node_type();
 
         // Track entry into nested objects
         if (nodeType == json_node_type::field) {
-            const char* field = reader.value();
+            strncpy(currentField, reader.value(), sizeof(currentField) - 1);  // Copy field name to stable buffer
+            //Serial.printf("  [PARSE] field='%s' inFilament=%d inVendor=%d\n", currentField, inFilament, inVendor);
 
-            if (strcmp(field, "filament") == 0) {
+            if (strcmp(currentField, "filament") == 0) {
                 if (reader.read() && reader.node_type() == json_node_type::object) {
                     inFilament = true;
                     filamentDepth = reader.depth();
                 }
                 continue;
-            } else if (inFilament && strcmp(field, "vendor") == 0) {
+            } else if (inFilament && strcmp(currentField, "vendor") == 0) {
                 if (reader.read() && reader.node_type() == json_node_type::object) {
                     inVendor = true;
                     vendorDepth = reader.depth();
@@ -578,20 +584,26 @@ bool SpoolmanManager::getSpoolDetails(int32_t spoolmanId, SpoolDetails& outDetai
 
             // Read next value
             if (!reader.read()) {
+                //Serial.printf("  [PARSE] reader.read() failed for field '%s'\n", currentField);
                 break;
             }
+            //Serial.printf("  [PARSE] got value for field '%s', node_type=%d, inFilament=%d, inVendor=%d\n", currentField, reader.node_type(), inFilament, inVendor);
 
             // Extract fields based on context
             if (inVendor) {
-                if (strcmp(field, "name") == 0) {
+                if (strcmp(currentField, "name") == 0) {
                     readStringValue(reader, outDetails.manufacturer, sizeof(outDetails.manufacturer));
                 }
             } else if (inFilament) {
-                if (strcmp(field, "material") == 0) {
+                if (strcmp(currentField, "material") == 0) {
+                    //Serial.printf("  [PARSE] reading 'material' field\n");
                     if (readStringValue(reader, outDetails.material_type, sizeof(outDetails.material_type))) {
                         hasMaterial = true;
+                        //Serial.printf("  [PARSE] SUCCESS: material=%s\n", outDetails.material_type);
+                    } else {
+                        //Serial.printf("  [PARSE] FAILED: readStringValue returned false\n");
                     }
-                } else if (strcmp(field, "color_hex") == 0) {
+                } else if (strcmp(currentField, "color_hex") == 0) {
                     char colorBuf[8] = {0};
                     if (readStringValue(reader, colorBuf, sizeof(colorBuf))) {
                         // Ensure color has '#' prefix
@@ -601,7 +613,7 @@ bool SpoolmanManager::getSpoolDetails(int32_t spoolmanId, SpoolDetails& outDetai
                             snprintf(outDetails.color_hex, sizeof(outDetails.color_hex), "#%s", colorBuf);
                         }
                     }
-                } else if (strcmp(field, "weight") == 0) {
+                } else if (strcmp(currentField, "weight") == 0) {
                     // Fallback capacity if initial_weight is not set
                     if (outDetails.initial_weight_g == 0.0f && reader.value_type() == json_value_type::real) {
                         outDetails.initial_weight_g = static_cast<float>(reader.value_real());
@@ -609,19 +621,23 @@ bool SpoolmanManager::getSpoolDetails(int32_t spoolmanId, SpoolDetails& outDetai
                 }
             } else {
                 // Top-level spool fields
-                if (strcmp(field, "id") == 0) {
+                if (strcmp(currentField, "id") == 0) {
                     int id = -1;
+                    //Serial.printf("  [PARSE] reading 'id' field, node_type=%d\n", reader.node_type());
                     if (readIntValue(reader, id)) {
                         outDetails.spoolman_id = id;
                         hasId = true;
+                        //Serial.printf("  [PARSE] SUCCESS: id=%d\n", id);
+                    } else {
+                        //Serial.printf("  [PARSE] FAILED: readIntValue returned false\n");
                     }
-                } else if (strcmp(field, "remaining_weight") == 0) {
+                } else if (strcmp(currentField, "remaining_weight") == 0) {
                     if (reader.value_type() == json_value_type::real) {
                         outDetails.remaining_weight_g = static_cast<float>(reader.value_real());
                     } else if (reader.value_type() == json_value_type::integer) {
                         outDetails.remaining_weight_g = static_cast<float>(reader.value_int());
                     }
-                } else if (strcmp(field, "initial_weight") == 0) {
+                } else if (strcmp(currentField, "initial_weight") == 0) {
                     if (reader.value_type() == json_value_type::real) {
                         outDetails.initial_weight_g = static_cast<float>(reader.value_real());
                     } else if (reader.value_type() == json_value_type::integer) {
@@ -736,6 +752,18 @@ void SpoolmanManager::storeCachedSpoolmanId(const char* spoolId, int32_t spoolma
     slot.spool_id[sizeof(slot.spool_id) - 1] = '\0';
     slot.spoolman_id = spoolmanId;
     spoolIdCacheWriteIndex_ = (spoolIdCacheWriteIndex_ + 1) % (sizeof(spoolIdCache_) / sizeof(spoolIdCache_[0]));
+}
+
+void SpoolmanManager::invalidateCachedSpoolmanId(const char* spoolId) {
+    if (spoolId == nullptr || spoolId[0] == '\0') {
+        return;
+    }
+    for (size_t i = 0; i < (sizeof(spoolIdCache_) / sizeof(spoolIdCache_[0])); ++i) {
+        if (strcmp(spoolIdCache_[i].spool_id, spoolId) == 0) {
+            spoolIdCache_[i].spoolman_id = -1;  // Invalidate the entry
+            return;
+        }
+    }
 }
 
 void SpoolmanManager::taskFunc(void* param) {

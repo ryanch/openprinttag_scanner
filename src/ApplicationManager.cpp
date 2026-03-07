@@ -318,10 +318,18 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
     // Avoid sync loops:
     // - FORMAT_NEW is followed by SPOOL_DETECTED, which already triggers sync
     // - WRITE_SPOOLMAN_ID would cause sync->writeback->sync feedback
+    // - suppress_sync flag (used for batched writes like Mode B) prevents syncs
     const uint8_t updateType = msg.payload.spoolUpdated.update_type;
     const bool shouldSyncAfterUpdate =
+        !msg.payload.spoolUpdated.suppress_sync &&
         updateType != static_cast<uint8_t>(NFCWriteType::FORMAT_NEW) &&
         updateType != static_cast<uint8_t>(NFCWriteType::WRITE_SPOOLMAN_ID);
+
+    // Invalidate cache after WRITE_SPOOLMAN_ID so the next sync reads the fresh tag value
+    if (msg.payload.spoolUpdated.success &&
+        updateType == static_cast<uint8_t>(NFCWriteType::WRITE_SPOOLMAN_ID)) {
+        SpoolmanManager::getInstance().invalidateCachedSpoolmanId(msg.payload.spoolUpdated.spool_id);
+    }
 
     // Trigger Spoolman sync after relevant successful tag updates (only in SELF_DIRECTED mode)
     if (automationMode == AutomationMode::SELF_DIRECTED &&

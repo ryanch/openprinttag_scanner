@@ -14,12 +14,14 @@ enum class NFCWriteType : uint8_t {
     SET_BRAND_NAME,       // Set manufacturer name
     FORMAT_NEW,           // Format a blank tag with defaults
     WRITE_SPOOLMAN_ID,    // Write Spoolman spool ID to aux region
-    WRITE_RAW_TAG         // Write raw binary data to entire tag
+    WRITE_RAW_TAG,        // Write raw binary data to entire tag
+    SET_INITIAL_WEIGHT    // Set initial/full weight of spool
 };
 
 struct NFCWriteRequest {
     uint32_t request_id;         // Unique ID for deduplication
     NFCWriteType type;
+    uint8_t suppress_sync;       // If 1, don't trigger Spoolman sync (used for batched writes like Mode B)
     char expected_spool_id[17];  // Only write if this spool is present (empty = any)
     union {
         float grams_to_remove;

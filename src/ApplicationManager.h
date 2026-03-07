@@ -48,6 +48,7 @@ struct SpoolUpdatedPayload {
     char spool_id[17];           // Spool that was updated
     uint8_t update_type;         // NFCWriteType enum value
     bool success;                // Whether update succeeded
+    uint8_t suppress_sync;       // If 1, don't trigger Spoolman sync (used for batched writes)
     float kg_remaining;          // Remaining weight after update (kg)
 };
 

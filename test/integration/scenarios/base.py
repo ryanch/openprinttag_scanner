@@ -117,6 +117,27 @@ class BaseTestScenario(ABC):
         self._emit_step(step_name, "passed", f"Detected: {spool_id} ({source_detail})")
         return current
 
+    def _ensure_tag_formatted(self, step_name="Format Tag"):
+        """
+        Ensure tag is freshly formatted with clean state.
+        This prevents test interdependencies from corrupted tag data.
+        """
+        self._emit_step(step_name, "running", "Checking for NFC tag")
+        current = self._get_current_spool()
+
+        if current is None:
+            self._emit_step(step_name, "running", "Waiting for user to place tag on reader")
+            self._request_user_action("Place NFC tag on reader")
+            current = self._get_current_spool()
+            self._assert(current is not None, "No tag detected after user confirmation")
+
+        spool_id = current["id"]
+        self._emit_step(step_name, "running", f"Formatting tag {spool_id} for clean state")
+        self._ble_format_spool(spool_id)
+        self._wait_seconds(5, "Waiting for format to complete")
+        self._emit_step(step_name, "passed", f"Tag {spool_id} formatted successfully")
+        return spool_id
+
     def _request_user_action(self, msg):
         """Ask user to perform a physical action, wait for confirmation"""
         self.orchestrator.push_sse_event("user_action_required", {

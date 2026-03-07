@@ -583,6 +583,11 @@
         // BLE Commands
         async function executeBLECommand(cmd, readData) {
             return enqueueCommand(async () => {
+                // Check if BLE is connected
+                if (!configWriteCharacteristic || !configReadCharacteristic) {
+                    throw new Error('BLE not connected. Please click "Connect BLE" button first.');
+                }
+
                 const cmdStr = JSON.stringify(cmd);
                 log(`BLE → ${cmdStr}`);
 
@@ -753,6 +758,12 @@
 
         async function runTest(testId) {
             try {
+                // Validate BLE connection before starting test
+                if (!bleDevice || !bleDevice.gatt.connected || !configWriteCharacteristic) {
+                    log('BLE not connected! Please click "Connect BLE" button first.', 'error');
+                    return false;
+                }
+
                 setRunButtonsDisabled(true);
                 activeTestId = testId;
                 activeTestLogs = [];

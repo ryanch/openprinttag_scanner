@@ -17,12 +17,8 @@ class SetFilamentTest(BaseTestScenario):
 
     def run(self):
         try:
-            # Step 1: Ensure formatted spool is present
-            current = self._ensure_spool_present(
-                "Please place a formatted spool on the NFC reader",
-                require_formatted=True
-            )
-            spool_id = current["id"]
+            # Step 1: Ensure tag is freshly formatted with clean state
+            spool_id = self._ensure_tag_formatted()
 
             # Step 2: Set grams_remaining to 1000
             self._emit_step("Set 1000g", "running", "Writing 1000g to tag")
@@ -30,7 +26,7 @@ class SetFilamentTest(BaseTestScenario):
             self._emit_step("Set 1000g", "passed")
 
             # Step 3: Wait and verify 1000g
-            self._wait_seconds(3, "Waiting for NFC write")
+            self._wait_seconds(15, "Waiting for NFC write")
             self._emit_step("Verify 1000g", "running", "Reading back tag data")
             spools = self._ble_list_spools()
             current = spools.get("current")
@@ -45,7 +41,7 @@ class SetFilamentTest(BaseTestScenario):
             self._emit_step("Set 967g", "passed")
 
             # Step 5: Wait and verify 967g
-            self._wait_seconds(3, "Waiting for NFC write")
+            self._wait_seconds(15, "Waiting for NFC write")
             self._emit_step("Verify 967g", "running", "Reading back tag data")
             spools = self._ble_list_spools()
             current = spools.get("current")

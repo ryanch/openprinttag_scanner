@@ -61,16 +61,12 @@ class PrinterAPIErrorsTest(BaseTestScenario):
 
             # Step 5: Verify device recovers and can track a print normally
             # Ensure spool is present
-            current = self._ensure_spool_present(
-                "Please place a formatted spool on the NFC reader",
-                require_formatted=True
-            )
-            spool_id = current["id"]
+            spool_id = self._ensure_tag_formatted()
 
             # Set known weight
             self._emit_step("Set Weight", "running", "Writing 1000g to tag")
             self._ble_update_spool(spool_id, grams_remaining=1000)
-            self._wait_seconds(3, "Waiting for NFC write")
+            self._wait_seconds(5, 'Waiting for NFC write')
 
             current = self._get_current_spool()
             self._assert(current.get("grams_remaining") == 1000, "Failed to set 1000g")

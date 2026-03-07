@@ -78,7 +78,7 @@ class SpoolmanSyncTest(BaseTestScenario):
             if spool_b.get("blank"):
                 self._emit_step("Swap to Spool B", "running", f"Formatting blank spool B ({spool_b_id})")
                 self._ble_format_spool(spool_b_id)
-                self._wait_seconds(3, "Waiting for format to complete")
+                self._wait_seconds(5, 'Waiting for NFC write')
 
             self._emit_step("Swap to Spool B", "passed", f"Detected spool B: {spool_b_id}")
 

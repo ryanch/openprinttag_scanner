@@ -44,16 +44,12 @@ class PrintE2ETest(BaseTestScenario):
             self._emit_step("Configure Device", "passed", f"Device now polling {server_url}")
 
             # Step 3: Ensure formatted spool is present
-            current = self._ensure_spool_present(
-                "Please place a formatted spool on the NFC reader",
-                require_formatted=True
-            )
-            spool_id = current["id"]
+            spool_id = self._ensure_tag_formatted()
 
             # Step 4: Set initial weight to 1000g
             self._emit_step("Set Initial Weight", "running", "Writing 1000g to tag")
             self._ble_update_spool(spool_id, grams_remaining=1000)
-            self._wait_seconds(3, "Waiting for NFC write")
+            self._wait_seconds(5, 'Waiting for NFC write')
 
             spools = self._ble_list_spools()
             current = spools.get("current")

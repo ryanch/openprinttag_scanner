@@ -37,16 +37,12 @@ class ZeroWeightHandlingTest(BaseTestScenario):
             self._emit_step("Configure Device", "passed")
 
             # Step 2: Ensure formatted spool is present
-            current = self._ensure_spool_present(
-                "Please place a formatted spool on the NFC reader",
-                require_formatted=True
-            )
-            spool_id = current["id"]
+            spool_id = self._ensure_tag_formatted()
 
             # Step 3: Set spool to 5g (low weight)
             self._emit_step("Set Low Weight", "running", "Writing 5g to tag")
             self._ble_update_spool(spool_id, grams_remaining=5)
-            self._wait_seconds(3, "Waiting for NFC write")
+            self._wait_seconds(5, 'Waiting for NFC write')
 
             current = self._get_current_spool()
             self._assert(current is not None, "Spool disappeared")

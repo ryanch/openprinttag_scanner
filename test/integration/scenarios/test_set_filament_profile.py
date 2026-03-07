@@ -31,14 +31,10 @@ class SetFilamentProfileTest(BaseTestScenario):
 
     def run(self):
         try:
-            # Step 1: Ensure formatted spool is present
-            current = self._ensure_spool_present(
-                "Please place a formatted spool on the NFC reader",
-                require_formatted=True
-            )
-            spool_id = current["id"]
+            # Step 1: Ensure tag is freshly formatted with clean state
+            spool_id = self._ensure_tag_formatted()
 
-            # Step 2: Normalize starting values to avoid dependence on previous tests
+            # Step 2: Set baseline profile
             self._emit_step("Set Baseline", "running", "Writing type=PLA, manufacturer=Unknown")
             self._ble_update_spool(spool_id, type="PLA", manufacturer="Unknown")
             baseline = self._wait_for_profile("PLA", "Unknown")

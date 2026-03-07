@@ -61,7 +61,7 @@ src/HomeAssistantManager.cpp / .h — MQTT client task, publish/subscribe, HA di
 UI / UX
 src/LCDManager.cpp / .h — I2C LCD task + status updates
 src/LCDDisplayLogic.h — Shared LCD message merge/timing rules
-src/BluetoothManager.cpp / .h — BLE services + connections
+src/BluetoothManager.cpp / .h — BLE services + connections (includes get_spoolman_spool and write_spoolman_spool commands)
 docs/index.html — BLE config UI (device setup + spool editing)
 
 Utilities
@@ -113,4 +113,5 @@ test/integration/scenarios/test_print_progress_edge_cases.py — Print progress 
 test/integration/scenarios/test_automation_mode_controlled.py — HA-controlled mode (no auto-deduction) test
 test/integration/scenarios/test_job_disappeared_deduction.py — Job disappeared (204) bgcode fallback deduction test
 test/integration/scenarios/test_real_tag.py — Raw binary write from fixture and 100g deduction verification
+test/integration/scenarios/test_write_spoolman_spool.py — Write Spoolman spool test (Mode A API fetch, Mode B direct data)
 test/integration/site/index.html — Web Bluetooth test runner UI

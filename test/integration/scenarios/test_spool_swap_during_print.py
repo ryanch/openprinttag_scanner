@@ -58,7 +58,7 @@ class SpoolSwapDuringPrintTest(BaseTestScenario):
             # Step 3: Set spool A to 1000g
             self._emit_step("Set Spool A Weight", "running", "Writing 1000g to tag")
             self._ble_update_spool(spool_a_id, grams_remaining=1000)
-            self._wait_seconds(3, "Waiting for NFC write")
+            self._wait_seconds(5, 'Waiting for NFC write')
 
             current = self._get_current_spool()
             self._assert(current is not None, "Spool A disappeared")

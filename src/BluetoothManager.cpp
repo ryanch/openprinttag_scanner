@@ -5,6 +5,7 @@
 #include "NFCManager.h"
 #include "LCDManager.h"
 #include "ConversionUtils.h"
+#include "SpoolmanManager.h"
 #include <Arduino.h>
 #include <ArduinoJson.h>
 #include <json.hpp>
@@ -45,6 +46,7 @@ static bool s_is_connected = false;
 static bool s_is_advertising = false;
 static char s_response_buffer[BLE_RESPONSE_SIZE];
 static SemaphoreHandle_t s_ble_command_mutex = nullptr;
+static CurrentSpoolState s_spool_state_buffer;  // Reusable buffer (protected by s_ble_command_mutex)
 
 // Forward declarations
 static void process_command(const char* json);
@@ -63,12 +65,16 @@ struct ParsedBleCommand {
     char api_key[96];
     char data[420];  // Base64-encoded raw tag data (~416 chars for 312 bytes)
     float grams_remaining;
+    float initial_weight;
+    int32_t spoolman_id;
     bool has_command;
     bool has_id;
     bool has_type;
     bool has_color;
     bool has_manufacturer;
     bool has_grams_remaining;
+    bool has_initial_weight;
+    bool has_spoolman_id;
     bool has_url;
     bool has_api_key;
     bool has_data;
@@ -77,7 +83,13 @@ struct ParsedBleCommand {
 static void initParsedBleCommand(ParsedBleCommand& out) {
     memset(&out, 0, sizeof(out));
     out.grams_remaining = 0.0f;
+    out.initial_weight = 0.0f;
+    out.spoolman_id = -1;
 }
+
+// Additional static buffers for stack overflow prevention (protected by s_ble_command_mutex)
+static ParsedBleCommand s_parsed_command_buffer;
+static SpoolDetails s_spool_details_buffer;
 
 static bool readStringValue(json_reader& reader, char* out, size_t outSize) {
     if (out == nullptr || outSize == 0) return false;
@@ -158,6 +170,17 @@ static bool parseBleCommand(const char* jsonText, ParsedBleCommand& out) {
                    (reader.value_type() == json_value_type::real || reader.value_type() == json_value_type::integer)) {
             out.grams_remaining = static_cast<float>(reader.value_real());
             out.has_grams_remaining = true;
+        } else if (strcmp(field, "spoolman_id") == 0 &&
+                   reader.node_type() == json_node_type::value &&
+                   (reader.value_type() == json_value_type::real || reader.value_type() == json_value_type::integer)) {
+            out.spoolman_id = static_cast<int32_t>(reader.value_real());
+            out.has_spoolman_id = true;
+        } else if (strcmp(field, "initial_weight") == 0 &&
+                   reader.node_type() == json_node_type::value &&
+                   (reader.value_type() == json_value_type::real ||
+                    reader.value_type() == json_value_type::integer)) {
+            out.initial_weight = static_cast<float>(reader.value_real());
+            out.has_initial_weight = true;
         } else if (strcmp(field, "url") == 0) {
             out.has_url = readStringValue(reader, out.url, sizeof(out.url));
         } else if (strcmp(field, "api_key") == 0) {
@@ -193,7 +216,7 @@ static bool jsonHasTopLevelField(const char* jsonText, const char* fieldName) {
  * @brief Process a JSON command from the client
  */
 static void process_command(const char* json) {
-    ParsedBleCommand cmd;
+    ParsedBleCommand& cmd = s_parsed_command_buffer;  // Use static buffer to reduce stack usage
     if (!parseBleCommand(json, cmd)) {
         Serial.printf("%s: JSON parse error\n", TAG);
         snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Invalid JSON\"}");
@@ -223,7 +246,8 @@ static void process_command(const char* json) {
         }
     }
     else if (strcmp(command, "list_spools") == 0) {
-        CurrentSpoolState spool;
+        // Use static buffer to avoid stack overflow
+        CurrentSpoolState& spool = s_spool_state_buffer;
         if (!NFCManager::getInstance().getCurrentSpoolState(spool)) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
             if (s_config_write_char) {
@@ -265,7 +289,10 @@ static void process_command(const char* json) {
             float consumed = 0.0f;
             opt_get_actual_full_weight(&spool.tag_data, &full_weight);
             opt_get_consumed_weight(&spool.tag_data, &consumed);
-            current["grams_remaining"] = (int)(full_weight - consumed);
+            int grams_remaining = (int)(full_weight - consumed);
+            Serial.printf("BluetoothManager: list_spools - full_weight=%.2fg, consumed=%.2fg, remaining=%dg\n",
+                          full_weight, consumed, grams_remaining);
+            current["grams_remaining"] = grams_remaining;
 
             current["last_seen"] = time(nullptr);
 
@@ -308,7 +335,8 @@ static void process_command(const char* json) {
         //Serial.printf("%s: list_spools completed\n", TAG);
     }
     else if (strcmp(command, "format_spool") == 0) {
-        CurrentSpoolState spool;
+        // Use static buffer to avoid stack overflow
+        CurrentSpoolState& spool = s_spool_state_buffer;
         if (!NFCManager::getInstance().getCurrentSpoolState(spool)) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
             if (s_config_write_char) {
@@ -342,7 +370,8 @@ static void process_command(const char* json) {
         }
     }
     else if (strcmp(command, "update_spool") == 0) {
-        CurrentSpoolState spool;
+        // Use static buffer to avoid stack overflow
+        CurrentSpoolState& spool = s_spool_state_buffer;
         if (!NFCManager::getInstance().getCurrentSpoolState(spool)) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
             if (s_config_write_char) {
@@ -551,7 +580,8 @@ static void process_command(const char* json) {
         }
     }
     else if (strcmp(command, "write_raw_tag") == 0) {
-        CurrentSpoolState spool;
+        // Use static buffer to avoid stack overflow
+        CurrentSpoolState& spool = s_spool_state_buffer;
         if (!NFCManager::getInstance().getCurrentSpoolState(spool)) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
             if (s_config_write_char) {
@@ -627,6 +657,204 @@ static void process_command(const char* json) {
                     "{\"status\":\"error\",\"message\":\"HTTP %d\",\"code\":%d}", httpCode, httpCode);
             }
             Serial.printf("%s: test_prusalink %s -> %d\n", TAG, testUrl, httpCode);
+        }
+    }
+    else if (strcmp(command, "get_spoolman_spool") == 0) {
+        // Validate spoolman_id
+        if (!cmd.has_spoolman_id || cmd.spoolman_id <= 0) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Invalid spoolman_id\"}");
+            Serial.printf("%s: get_spoolman_spool failed - invalid spoolman_id\n", TAG);
+        } else if (!SpoolmanManager::getInstance().isConfigured()) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Spoolman not configured\"}");
+            Serial.printf("%s: get_spoolman_spool failed - Spoolman not configured\n", TAG);
+        } else if (xSemaphoreTake(g_httpMutex, pdMS_TO_TICKS(5000)) != pdTRUE) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Device busy\"}");
+            Serial.printf("%s: get_spoolman_spool failed - HTTP mutex timeout\n", TAG);
+        } else {
+            // Use static buffer to avoid stack overflow
+            SpoolDetails& details = s_spool_details_buffer;
+            bool success = SpoolmanManager::getInstance().getSpoolDetails(cmd.spoolman_id, details);
+            xSemaphoreGive(g_httpMutex);
+
+            if (!success || !details.valid) {
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Failed to fetch spool\"}");
+                Serial.printf("%s: get_spoolman_spool failed - API error for ID %d\n", TAG, cmd.spoolman_id);
+            } else {
+                // Build JSON response
+                StaticJsonDocument<JSON_RESPONSE_CAPACITY> responseDoc;
+                responseDoc["spoolman_id"] = details.spoolman_id;
+                responseDoc["material"] = details.material_type;
+                responseDoc["color"] = details.color_hex;
+                responseDoc["vendor_name"] = details.manufacturer;
+                responseDoc["remaining_weight_g"] = details.remaining_weight_g;
+                responseDoc["initial_weight_g"] = details.initial_weight_g;
+
+                char response[1024];
+                serializeJson(responseDoc, response, sizeof(response));
+                if (s_config_read_char) {
+                    s_config_read_char->setValue(response);
+                }
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
+                Serial.printf("%s: get_spoolman_spool(%d) success\n", TAG, cmd.spoolman_id);
+            }
+        }
+    }
+    else if (strcmp(command, "write_spoolman_spool") == 0) {
+        // Validate spoolman_id
+        if (!cmd.has_spoolman_id || cmd.spoolman_id <= 0) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Invalid spoolman_id\"}");
+            Serial.printf("%s: write_spoolman_spool failed - invalid spoolman_id\n", TAG);
+        } else if (!cmd.has_type || !cmd.has_color || !cmd.has_manufacturer ||
+                   !cmd.has_initial_weight || !cmd.has_grams_remaining) {
+            snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Missing required fields\"}");
+            Serial.printf("%s: write_spoolman_spool failed - missing type, color, manufacturer, initial_weight, or grams_remaining\n", TAG);
+        } else {
+            // Get current spool state (using static buffer to avoid stack overflow and heap fragmentation)
+            if (!NFCManager::getInstance().getCurrentSpoolState(s_spool_state_buffer)) {
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
+                if (s_config_write_char) {
+                    s_config_write_char->setValue(s_response_buffer);
+                }
+                return;
+            }
+
+            // Validate tag state
+            if (!s_spool_state_buffer.present) {
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
+                Serial.printf("%s: write_spoolman_spool failed - no tag present\n", TAG);
+            } else if (s_spool_state_buffer.blank_tag_present) {
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag is blank - format first\"}");
+                Serial.printf("%s: write_spoolman_spool failed - blank tag\n", TAG);
+            } else if (!s_spool_state_buffer.tag_data_valid) {
+                snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Tag not in range\"}");
+                Serial.printf("%s: write_spoolman_spool failed - tag data not valid\n", TAG);
+            } else {
+                // Use static buffer to avoid stack overflow
+                SpoolDetails& details = s_spool_details_buffer;
+                details.spoolman_id = cmd.spoolman_id;
+                strncpy(details.material_type, cmd.type, sizeof(details.material_type) - 1);
+                details.material_type[sizeof(details.material_type) - 1] = '\0';
+                strncpy(details.color_hex, cmd.color, sizeof(details.color_hex) - 1);
+                details.color_hex[sizeof(details.color_hex) - 1] = '\0';
+                strncpy(details.manufacturer, cmd.manufacturer, sizeof(details.manufacturer) - 1);
+                details.manufacturer[sizeof(details.manufacturer) - 1] = '\0';
+                details.initial_weight_g = cmd.initial_weight;
+                details.remaining_weight_g = cmd.grams_remaining;
+                details.valid = true;
+                Serial.printf("%s: write_spoolman_spool - using direct fields\n", TAG);
+
+                // Enqueue NFC writes - reuse single req struct to minimize stack usage
+                bool enqueueFailed = false;
+                int queuedCount = 0;
+                NFCWriteRequest req;  // Single reusable request struct
+
+                auto enqueueOrFail = [&](const char* label) {
+                    if (enqueueFailed) {
+                        return;
+                    }
+                    if (!NFCManager::getInstance().enqueueWrite(req)) {
+                        enqueueFailed = true;
+                        Serial.printf("%s: write_spoolman_spool failed - write queue full while enqueuing %s\n", TAG, label);
+                        return;
+                    }
+                    queuedCount++;
+                };
+
+                // 1. CHANGE_FILAMENT_TYPE
+                uint8_t materialType = materialTypeFromString(details.material_type);
+                memset(&req, 0, sizeof(req));
+                req.request_id = ++s_request_id_counter;
+                req.type = NFCWriteType::CHANGE_FILAMENT_TYPE;
+                req.suppress_sync = 1;  // Mode B: suppress sync during batch
+                strncpy(req.expected_spool_id, s_spool_state_buffer.spool_id, sizeof(req.expected_spool_id) - 1);
+                req.expected_spool_id[sizeof(req.expected_spool_id) - 1] = '\0';
+                req.data.new_material_type = materialType;
+                Serial.printf("BluetoothManager: Enqueuing CHANGE_FILAMENT_TYPE with type=%u (%s)\n",
+                              materialType, details.material_type);
+                enqueueOrFail("type");
+
+                // 2. SET_INITIAL_WEIGHT (before consumed weight, so total is known)
+                if (!enqueueFailed) {
+                    memset(&req, 0, sizeof(req));
+                    req.request_id = ++s_request_id_counter;
+                    req.type = NFCWriteType::SET_INITIAL_WEIGHT;
+                    req.suppress_sync = 1;  // Mode B: suppress sync during batch
+                    strncpy(req.expected_spool_id, s_spool_state_buffer.spool_id, sizeof(req.expected_spool_id) - 1);
+                    req.expected_spool_id[sizeof(req.expected_spool_id) - 1] = '\0';
+                    req.data.consumed_weight = details.initial_weight_g;  // Use consumed_weight field to pass initial weight
+                    Serial.printf("BluetoothManager: Enqueuing SET_INITIAL_WEIGHT with %.2fg\n", details.initial_weight_g);
+                    enqueueOrFail("initial_weight");
+                }
+
+                // 3. CHANGE_COLOR
+                if (!enqueueFailed) {
+                    uint8_t newRgba[4];
+                    if (parseHexColor(details.color_hex, newRgba)) {
+                        memset(&req, 0, sizeof(req));
+                        req.request_id = ++s_request_id_counter;
+                        req.type = NFCWriteType::CHANGE_COLOR;
+                        req.suppress_sync = 1;  // Mode B: suppress sync during batch
+                        strncpy(req.expected_spool_id, s_spool_state_buffer.spool_id, sizeof(req.expected_spool_id) - 1);
+                        req.expected_spool_id[sizeof(req.expected_spool_id) - 1] = '\0';
+                        memcpy(req.data.new_color, newRgba, 4);
+                        enqueueOrFail("color");
+                    }
+                }
+
+                // 4. SET_BRAND_NAME (truncate to 32 chars)
+                if (!enqueueFailed) {
+                    memset(&req, 0, sizeof(req));
+                    req.request_id = ++s_request_id_counter;
+                    req.type = NFCWriteType::SET_BRAND_NAME;
+                    req.suppress_sync = 1;  // Mode B: suppress sync during batch
+                    strncpy(req.expected_spool_id, s_spool_state_buffer.spool_id, sizeof(req.expected_spool_id) - 1);
+                    req.expected_spool_id[sizeof(req.expected_spool_id) - 1] = '\0';
+                    strncpy(req.data.brand_name, details.manufacturer, sizeof(req.data.brand_name) - 1);
+                    req.data.brand_name[sizeof(req.data.brand_name) - 1] = '\0';
+                    enqueueOrFail("manufacturer");
+                }
+
+                // 5. SET_CONSUMED_WEIGHT
+                if (!enqueueFailed) {
+                    float consumedWeight = details.initial_weight_g - details.remaining_weight_g;
+                    memset(&req, 0, sizeof(req));
+                    req.request_id = ++s_request_id_counter;
+                    req.type = NFCWriteType::SET_CONSUMED_WEIGHT;
+                    req.suppress_sync = 1;  // Mode B: suppress sync during batch
+                    strncpy(req.expected_spool_id, s_spool_state_buffer.spool_id, sizeof(req.expected_spool_id) - 1);
+                    req.expected_spool_id[sizeof(req.expected_spool_id) - 1] = '\0';
+                    req.data.consumed_weight = consumedWeight;
+                    Serial.printf("BluetoothManager: Enqueuing SET_CONSUMED_WEIGHT with %.2fg (initial=%.2fg, remaining=%.2fg)\n",
+                                  consumedWeight, details.initial_weight_g, details.remaining_weight_g);
+                    enqueueOrFail("consumed_weight");
+                }
+
+                // 6. WRITE_SPOOLMAN_ID
+                if (!enqueueFailed) {
+                    memset(&req, 0, sizeof(req));
+                    req.request_id = ++s_request_id_counter;
+                    req.type = NFCWriteType::WRITE_SPOOLMAN_ID;
+                    req.suppress_sync = 1;  // Mode B: suppress sync during batch
+                    strncpy(req.expected_spool_id, s_spool_state_buffer.spool_id, sizeof(req.expected_spool_id) - 1);
+                    req.expected_spool_id[sizeof(req.expected_spool_id) - 1] = '\0';
+                    req.data.spoolman_id = details.spoolman_id;
+                    enqueueOrFail("spoolman_id");
+                }
+
+                if (enqueueFailed) {
+                    if (queuedCount > 0) {
+                        snprintf(s_response_buffer, sizeof(s_response_buffer),
+                                 "{\"error\":\"Busy\",\"queued\":%d}", queuedCount);
+                        Serial.printf("%s: write_spoolman_spool partial enqueue, queued=%d\n", TAG, queuedCount);
+                    } else {
+                        snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Busy\"}");
+                        Serial.printf("%s: write_spoolman_spool enqueue failed\n", TAG);
+                    }
+                } else {
+                    snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"status\":\"ok\"}");
+                    Serial.printf("%s: write_spoolman_spool completed, queued=%d writes\n", TAG, queuedCount);
+                }
+            }
         }
     }
     else {

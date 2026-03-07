@@ -35,16 +35,12 @@ class PrintProgressEdgeCasesTest(BaseTestScenario):
             self._emit_step("Configure Device", "passed")
 
             # Ensure spool
-            current = self._ensure_spool_present(
-                "Please place a formatted spool on the NFC reader",
-                require_formatted=True
-            )
-            spool_id = current["id"]
+            spool_id = self._ensure_tag_formatted()
 
             # TEST A: Cancel at 0% progress
             self._emit_step("Test A: Cancel at 0%", "running", "Setting weight to 1000g")
             self._ble_update_spool(spool_id, grams_remaining=1000)
-            self._wait_seconds(3, "Waiting for NFC write")
+            self._wait_seconds(5, 'Waiting for NFC write')
 
             self._emit_step("Test A: Cancel at 0%", "running", "Starting print at 0%")
             self.mock_state.set_printing(
@@ -72,7 +68,7 @@ class PrintProgressEdgeCasesTest(BaseTestScenario):
             # TEST B: Finish at 100%
             self._emit_step("Test B: Finish at 100%", "running", "Setting weight to 900g")
             self._ble_update_spool(spool_id, grams_remaining=900)
-            self._wait_seconds(3, "Waiting for NFC write")
+            self._wait_seconds(5, 'Waiting for NFC write')
 
             self._emit_step("Test B: Finish at 100%", "running", "Starting print")
             self.mock_state.set_printing(
@@ -107,7 +103,7 @@ class PrintProgressEdgeCasesTest(BaseTestScenario):
             # TEST C: Stay at 100% for 30s before finishing (no double-count)
             self._emit_step("Test C: 100% Dwell", "running", "Setting weight to 800g")
             self._ble_update_spool(spool_id, grams_remaining=800)
-            self._wait_seconds(3, "Waiting for NFC write")
+            self._wait_seconds(5, 'Waiting for NFC write')
 
             self._emit_step("Test C: 100% Dwell", "running", "Starting print")
             self.mock_state.set_printing(

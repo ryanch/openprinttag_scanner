@@ -37,6 +37,7 @@ public:
     bool enqueueSync(const SpoolmanSyncRequest& req);
     bool isConfigured() const;
     bool getSpoolDetails(int32_t spoolmanId, SpoolDetails& outDetails);
+    void invalidateCachedSpoolmanId(const char* spoolId);
 
 private:
     struct SpoolIdCacheEntry {
