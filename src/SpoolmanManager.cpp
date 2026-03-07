@@ -603,6 +603,14 @@ bool SpoolmanManager::getSpoolDetails(int32_t spoolmanId, SpoolDetails& outDetai
                     } else {
                         //Serial.printf("  [PARSE] FAILED: readStringValue returned false\n");
                     }
+                } else if (strcmp(currentField, "name") == 0) {
+                    // Fallback to 'name' field if 'material' hasn't been set yet
+                    // (real Spoolman API uses 'name' for material type in some responses)
+                    if (outDetails.material_type[0] == '\0') {
+                        if (readStringValue(reader, outDetails.material_type, sizeof(outDetails.material_type))) {
+                            hasMaterial = true;
+                        }
+                    }
                 } else if (strcmp(currentField, "color_hex") == 0) {
                     char colorBuf[8] = {0};
                     if (readStringValue(reader, colorBuf, sizeof(colorBuf))) {

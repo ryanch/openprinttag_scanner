@@ -704,10 +704,9 @@ static void process_command(const char* json) {
         if (!cmd.has_spoolman_id || cmd.spoolman_id <= 0) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Invalid spoolman_id\"}");
             Serial.printf("%s: write_spoolman_spool failed - invalid spoolman_id\n", TAG);
-        } else if (!cmd.has_type || !cmd.has_color || !cmd.has_manufacturer ||
-                   !cmd.has_initial_weight || !cmd.has_grams_remaining) {
+        } else if (!cmd.has_type || !cmd.has_initial_weight || !cmd.has_grams_remaining) {
             snprintf(s_response_buffer, sizeof(s_response_buffer), "{\"error\":\"Missing required fields\"}");
-            Serial.printf("%s: write_spoolman_spool failed - missing type, color, manufacturer, initial_weight, or grams_remaining\n", TAG);
+            Serial.printf("%s: write_spoolman_spool failed - missing type, initial_weight, or grams_remaining\n", TAG);
         } else {
             // Get current spool state (using static buffer to avoid stack overflow and heap fragmentation)
             if (!NFCManager::getInstance().getCurrentSpoolState(s_spool_state_buffer)) {

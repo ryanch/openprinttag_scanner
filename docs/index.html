@@ -795,6 +795,77 @@
         </div>
     </div>
 
+    <!-- Write from Spoolman Modal -->
+    <div id="write-spoolman-modal" class="modal-overlay">
+        <div class="modal">
+            <div class="modal-header">
+                <h2>Write from Spoolman</h2>
+                <button class="modal-close" id="write-spoolman-close">&times;</button>
+            </div>
+            <div class="modal-body">
+                <input type="hidden" id="write-spoolman-spool-id">
+
+                <!-- Form View -->
+                <div id="spoolman-form-view">
+                    <p style="color: var(--prusa-light-gray); font-size: 0.85rem; margin-bottom: 1rem;">
+                        Enter a Spoolman spool ID to fetch and write its data to the NFC tag.
+                    </p>
+                    <div class="form-group">
+                        <label for="spoolman-id-input">Spoolman Spool ID</label>
+                        <input type="number" id="spoolman-id-input" min="1" placeholder="e.g., 42">
+                    </div>
+                </div>
+
+                <!-- Preview View -->
+                <div id="spoolman-preview-view" style="display: none;">
+                    <div style="background-color: var(--prusa-medium-gray); padding: 1rem; border-radius: 4px; margin-bottom: 1rem;">
+                        <div style="display: grid; grid-template-columns: 140px 1fr; gap: 0.5rem; font-size: 0.9rem;">
+                            <div style="color: var(--prusa-light-gray);">Spoolman ID:</div>
+                            <div id="preview-spoolman-id" style="font-weight: 600;"></div>
+
+                            <div style="color: var(--prusa-light-gray);">Material:</div>
+                            <div id="preview-material"></div>
+
+                            <div style="color: var(--prusa-light-gray);">Color:</div>
+                            <div id="preview-color"></div>
+
+                            <div style="color: var(--prusa-light-gray);">Manufacturer:</div>
+                            <div id="preview-manufacturer"></div>
+
+                            <div style="color: var(--prusa-light-gray);">Initial Weight:</div>
+                            <div><span id="preview-initial-weight"></span>g</div>
+
+                            <div style="color: var(--prusa-light-gray);">Remaining Weight:</div>
+                            <div><span id="preview-remaining-weight"></span>g</div>
+                        </div>
+                    </div>
+                    <p style="color: var(--prusa-light-gray); font-size: 0.85rem;">
+                        This data will be written to the NFC tag. The operation takes 15-20 seconds.
+                    </p>
+                </div>
+
+                <!-- Progress View -->
+                <div id="spoolman-progress-view" style="display: none;">
+                    <div style="text-align: center; padding: 2rem 0;">
+                        <p style="margin-bottom: 1rem;">Writing to NFC tag...</p>
+                        <p style="color: var(--prusa-light-gray); font-size: 0.85rem;">This may take 15-20 seconds. Please wait.</p>
+                    </div>
+                </div>
+
+                <!-- Result View -->
+                <div id="spoolman-result-view" style="display: none;">
+                    <div id="spoolman-result-message" style="padding: 1rem; border-radius: 4px; margin-bottom: 1rem;"></div>
+                </div>
+            </div>
+            <div class="modal-footer">
+                <div class="modal-footer-actions">
+                    <button class="secondary" id="write-spoolman-cancel">Cancel</button>
+                    <button id="write-spoolman-action">Preview</button>
+                </div>
+            </div>
+        </div>
+    </div>
+
     <script>
         // DOM Elements
         const connectButton = document.getElementById('connect-button');
@@ -838,6 +909,19 @@
         const rawWriteFile = document.getElementById('raw-write-file');
         const rawWriteFileInfo = document.getElementById('raw-write-file-info');
         let rawWriteFileData = null;
+
+        // Write from Spoolman modal elements and state
+        const writeSpoolmanModal = document.getElementById('write-spoolman-modal');
+        const writeSpoolmanClose = document.getElementById('write-spoolman-close');
+        const writeSpoolmanCancel = document.getElementById('write-spoolman-cancel');
+        const writeSpoolmanAction = document.getElementById('write-spoolman-action');
+        const writeSpoolmanSpoolId = document.getElementById('write-spoolman-spool-id');
+        const spoolmanIdInput = document.getElementById('spoolman-id-input');
+        const spoolmanFormView = document.getElementById('spoolman-form-view');
+        const spoolmanPreviewView = document.getElementById('spoolman-preview-view');
+        const spoolmanProgressView = document.getElementById('spoolman-progress-view');
+        const spoolmanResultView = document.getElementById('spoolman-result-view');
+        let spoolmanPreviewData = null;
 
         // Bluetooth UUIDs
         const SERVICE_UUID = "0a1b2c3d-4e5f-6a7b-8c9d-0e1f2a3b0001";
@@ -950,6 +1034,9 @@
                 if (cachedSpoolmanUrl && spool.spoolman_id > 0) {
                     dropdownItems += `<button data-action="open-spoolman" data-url="${cachedSpoolmanUrl}/spool/show/${spool.spoolman_id}">Open In Spoolman</button>`;
                 }
+                if (cachedSpoolmanUrl) {
+                    dropdownItems += `<button data-action="write-spoolman">Write from Spoolman</button>`;
+                }
                 dropdownItems += `<button data-action="write-binary">Write Binary Data</button>`;
                 buttons += `<div class="actions-wrapper">
                     <button type="button" class="spool-edit-btn secondary actions-toggle" aria-haspopup="menu" aria-expanded="false">Actions</button>
@@ -1011,6 +1098,16 @@
                             actionsToggle.setAttribute('aria-expanded', 'false');
                             openActionsSpoolId = null;
                             openRawWriteModal(spool.id);
+                        });
+                    }
+
+                    const writeSpoolmanAction = actionsDropdown.querySelector('[data-action="write-spoolman"]');
+                    if (writeSpoolmanAction) {
+                        writeSpoolmanAction.addEventListener('click', () => {
+                            actionsDropdown.classList.remove('open');
+                            actionsToggle.setAttribute('aria-expanded', 'false');
+                            openActionsSpoolId = null;
+                            openWriteSpoolmanModal(spool.id);
                         });
                     }
                 }
@@ -1099,6 +1196,256 @@
         function closeRawWriteModal() {
             rawWriteModal.classList.remove('active');
         }
+
+        // Write from Spoolman Modal Functions
+        function openWriteSpoolmanModal(spoolId) {
+            writeSpoolmanSpoolId.value = spoolId;
+            spoolmanIdInput.value = '';
+            spoolmanPreviewData = null;
+
+            // Reset to form view
+            spoolmanFormView.style.display = 'block';
+            spoolmanPreviewView.style.display = 'none';
+            spoolmanProgressView.style.display = 'none';
+            spoolmanResultView.style.display = 'none';
+
+            writeSpoolmanAction.textContent = 'Preview';
+            writeSpoolmanAction.disabled = false;
+            writeSpoolmanCancel.textContent = 'Cancel';
+
+            // Pause automatic spool polling while modal is open
+            stopSpoolPolling();
+
+            writeSpoolmanModal.classList.add('active');
+        }
+
+        function closeWriteSpoolmanModal() {
+            writeSpoolmanModal.classList.remove('active');
+            spoolmanPreviewData = null;
+
+            // Resume automatic spool polling
+            startSpoolPolling();
+        }
+
+        writeSpoolmanClose.addEventListener('click', closeWriteSpoolmanModal);
+        writeSpoolmanCancel.addEventListener('click', closeWriteSpoolmanModal);
+        writeSpoolmanModal.addEventListener('click', (e) => {
+            if (e.target === writeSpoolmanModal) closeWriteSpoolmanModal();
+        });
+
+        async function handlePreviewSpoolman() {
+            const spoolmanId = parseInt(spoolmanIdInput.value, 10);
+
+            if (!spoolmanId || spoolmanId <= 0) {
+                alert('Please enter a valid Spoolman ID.');
+                return;
+            }
+
+            if (!configWriteCharacteristic || !configReadCharacteristic) {
+                alert('Not connected to device.');
+                return;
+            }
+
+            try {
+                writeSpoolmanAction.disabled = true;
+                writeSpoolmanAction.textContent = 'Loading...';
+
+                const response = await enqueueCommand(async () => {
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode(JSON.stringify({
+                            command: 'get_spoolman_spool',
+                            spoolman_id: spoolmanId
+                        }))
+                    );
+
+                    // Read response from write characteristic
+                    await new Promise(resolve => setTimeout(resolve, 120));
+                    const statusValue = await configWriteCharacteristic.readValue();
+                    const statusResponse = JSON.parse(textDecoder.decode(statusValue));
+
+                    if (statusResponse.error) {
+                        throw new Error(statusResponse.error);
+                    }
+
+                    // Read data from read characteristic
+                    const dataValue = await configReadCharacteristic.readValue();
+                    const dataJson = textDecoder.decode(dataValue);
+                    return JSON.parse(dataJson);
+                });
+
+                // Store preview data
+                spoolmanPreviewData = {
+                    spoolman_id: response.spoolman_id,
+                    material: response.material || '',
+                    color: response.color || '',
+                    manufacturer: response.vendor_name || '',
+                    initial_weight_g: response.initial_weight_g,
+                    remaining_weight_g: response.remaining_weight_g
+                };
+
+                // Populate preview fields
+                document.getElementById('preview-spoolman-id').textContent = response.spoolman_id;
+                document.getElementById('preview-material').textContent = response.material || '(not set)';
+                document.getElementById('preview-color').textContent = response.color || '(not set)';
+                document.getElementById('preview-manufacturer').textContent = response.vendor_name || '(not set)';
+                document.getElementById('preview-initial-weight').textContent = response.initial_weight_g;
+                document.getElementById('preview-remaining-weight').textContent = response.remaining_weight_g;
+
+                // Switch to preview view
+                spoolmanFormView.style.display = 'none';
+                spoolmanPreviewView.style.display = 'block';
+
+                writeSpoolmanAction.textContent = 'Write to Tag';
+                writeSpoolmanAction.disabled = false;
+
+            } catch (error) {
+                alert(`Failed to fetch spool: ${error.message}`);
+                writeSpoolmanAction.disabled = false;
+                writeSpoolmanAction.textContent = 'Preview';
+            }
+        }
+
+        async function handleWriteSpoolman() {
+            if (!spoolmanPreviewData) {
+                alert('No preview data available.');
+                return;
+            }
+
+            if (!configWriteCharacteristic || !configReadCharacteristic) {
+                alert('Not connected to device.');
+                return;
+            }
+
+            try {
+                // Disable action button while writing
+                writeSpoolmanAction.disabled = true;
+
+                // Switch to progress view
+                spoolmanPreviewView.style.display = 'none';
+                spoolmanProgressView.style.display = 'block';
+                writeSpoolmanCancel.disabled = true;
+
+                // Update progress message
+                const progressEl = spoolmanProgressView.querySelector('p:first-child');
+                progressEl.textContent = 'Sending write command...';
+
+                const response = await enqueueCommand(async () => {
+                    await configWriteCharacteristic.writeValue(
+                        textEncoder.encode(JSON.stringify({
+                            command: 'write_spoolman_spool',
+                            spoolman_id: spoolmanPreviewData.spoolman_id,
+                            type: spoolmanPreviewData.material,
+                            color: spoolmanPreviewData.color,
+                            manufacturer: spoolmanPreviewData.manufacturer,
+                            initial_weight: spoolmanPreviewData.initial_weight_g,
+                            grams_remaining: spoolmanPreviewData.remaining_weight_g
+                        }))
+                    );
+
+                    const responseValue = await configWriteCharacteristic.readValue();
+                    return JSON.parse(textDecoder.decode(responseValue));
+                });
+
+                if (response.error) {
+                    throw new Error(response.error);
+                }
+
+                // Command accepted - now poll for completion
+                progressEl.textContent = 'Writing to NFC tag...';
+
+                const expectedData = {
+                    type: spoolmanPreviewData.material,
+                    color: spoolmanPreviewData.color ? spoolmanPreviewData.color.toUpperCase() : '',
+                    manufacturer: spoolmanPreviewData.manufacturer,
+                    spoolman_id: spoolmanPreviewData.spoolman_id,
+                    grams_remaining: spoolmanPreviewData.remaining_weight_g
+                };
+
+                // Wait 10 seconds before first check
+                await new Promise(resolve => setTimeout(resolve, 10000));
+
+                // Poll up to 3 times (10s, 20s, 30s)
+                let writeComplete = false;
+                for (let attempt = 1; attempt <= 3; attempt++) {
+                    progressEl.textContent = `Writing to NFC tag... (${attempt * 10}s)`;
+
+                    const spoolsData = await enqueueCommand(async () => {
+                        await configWriteCharacteristic.writeValue(
+                            textEncoder.encode('{"command":"list_spools"}')
+                        );
+                        const value = await configReadCharacteristic.readValue();
+                        return JSON.parse(textDecoder.decode(value));
+                    });
+
+                    const current = spoolsData.current;
+                    if (current &&
+                        current.type === expectedData.type &&
+                        current.spoolman_id === expectedData.spoolman_id &&
+                        current.manufacturer === expectedData.manufacturer &&
+                        Math.abs((current.grams_remaining || 0) - expectedData.grams_remaining) < 5) {
+
+                        // Verify color if it was set
+                        const colorMatch = !expectedData.color ||
+                                         (current.color && current.color.toUpperCase() === expectedData.color);
+
+                        if (colorMatch) {
+                            writeComplete = true;
+                            break;
+                        }
+                    }
+
+                    // Wait 10 seconds before next check (unless this was the last attempt)
+                    if (attempt < 3) {
+                        await new Promise(resolve => setTimeout(resolve, 10000));
+                    }
+                }
+
+                // Switch to result view
+                spoolmanProgressView.style.display = 'none';
+                spoolmanResultView.style.display = 'block';
+
+                if (writeComplete) {
+                    document.getElementById('spoolman-result-message').innerHTML =
+                        `<strong style="color: var(--prusa-green);">✓ Success</strong><br>Spool ${spoolmanPreviewData.spoolman_id} written to NFC tag.`;
+                    document.getElementById('spoolman-result-message').style.backgroundColor = 'rgba(46, 204, 113, 0.1)';
+                    document.getElementById('spoolman-result-message').style.border = '1px solid var(--prusa-green)';
+
+                    // Refresh spools and close after 2 seconds
+                    setTimeout(() => {
+                        closeWriteSpoolmanModal();
+                        loadSpools();
+                    }, 2000);
+                } else {
+                    document.getElementById('spoolman-result-message').innerHTML =
+                        `<strong style="color: var(--prusa-orange);">⚠ Timeout</strong><br>Write command sent but verification timed out after 30s. The write may still be in progress - check the tag in a few moments.`;
+                    document.getElementById('spoolman-result-message').style.backgroundColor = 'rgba(250, 104, 49, 0.1)';
+                    document.getElementById('spoolman-result-message').style.border = '1px solid var(--prusa-orange)';
+                }
+
+                writeSpoolmanCancel.disabled = false;
+                writeSpoolmanCancel.textContent = 'Close';
+
+            } catch (error) {
+                spoolmanProgressView.style.display = 'none';
+                spoolmanResultView.style.display = 'block';
+
+                document.getElementById('spoolman-result-message').innerHTML =
+                    `<strong style="color: var(--prusa-red);">Write Failed</strong><br>${error.message}`;
+                document.getElementById('spoolman-result-message').style.backgroundColor = 'rgba(214, 48, 49, 0.1)';
+                document.getElementById('spoolman-result-message').style.border = '1px solid var(--prusa-red)';
+
+                writeSpoolmanCancel.disabled = false;
+                writeSpoolmanCancel.textContent = 'Close';
+            }
+        }
+
+        writeSpoolmanAction.addEventListener('click', () => {
+            if (writeSpoolmanAction.textContent === 'Preview') {
+                handlePreviewSpoolman();
+            } else if (writeSpoolmanAction.textContent === 'Write to Tag') {
+                handleWriteSpoolman();
+            }
+        });
 
         rawWriteClose.addEventListener('click', closeRawWriteModal);
         rawWriteCancel.addEventListener('click', closeRawWriteModal);

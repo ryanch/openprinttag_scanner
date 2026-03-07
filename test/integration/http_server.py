@@ -358,6 +358,7 @@ class IntegrationTestHandler(BaseHTTPRequestHandler):
             "extra": spool.get("extra", {}),
             "filament": {
                 "id": filament["id"],
+                "name": filament["material"],  # Real Spoolman API uses 'name' for material type
                 "material": filament["material"],
                 "color_hex": filament["color_hex"],
                 "density": filament["density"],
