@@ -48,8 +48,8 @@ openprinttag_lib.o: ../../lib/openprinttag/openprinttag_lib.c
 cbor_native.o: ../../lib/openprinttag/cbor_native.c
 	$(CC) $(CFLAGS) $(INCLUDES) -c $< -o $@
 
-$(APP_FLOW_TARGET): $(APP_FLOW_SRCS)
-	$(CXX) $(CXXFLAGS) $(INCLUDES) $(APP_FLOW_SRCS) -o $(APP_FLOW_TARGET)
+$(APP_FLOW_TARGET): $(APP_FLOW_SRCS) $(OPT_OBJS)
+	$(CXX) $(CXXFLAGS) $(INCLUDES) $(APP_FLOW_SRCS) $(OPT_OBJS) -o $(APP_FLOW_TARGET)
 
 $(NFC_READ_TARGET): $(NFC_READ_SRCS) $(OPT_OBJS)
 	$(CXX) $(CXXFLAGS) $(INCLUDES) $(NFC_READ_SRCS) $(OPT_OBJS) -o $(NFC_READ_TARGET)

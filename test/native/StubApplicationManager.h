@@ -38,12 +38,14 @@ struct SpoolDetectedPayload {
     float initial_weight_g;
     char manufacturer[33];
     int32_t spoolman_id;
+    uint8_t suppress_spoolman_sync;
 };
 
 struct SpoolUpdatedPayload {
     char spool_id[17];
     uint8_t update_type;
     bool success;
+    uint8_t suppress_sync;
     float kg_remaining;
 };
 

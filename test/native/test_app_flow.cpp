@@ -425,6 +425,151 @@ int test_default_automation_mode() {
     return 0;
 }
 
+// Test: Delayed Type/Remain display after spool updated (no Spoolman)
+int test_delayed_type_remain_after_spool_updated_no_spoolman() {
+    setup_test();
+
+    // Scan a spool first
+    auto detectMsg = createSpoolDetected("SPOOL001", OPT_MATERIAL_TYPE_PLA, 0.850f, "PLA");
+    g_app->injectMessage(detectMsg);
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine3, "PLA");
+    g_lcd->reset();
+
+    // Set up TestNFCManager with the spool data so handleSpoolUpdated can retrieve material_name
+    CurrentSpoolState spoolState = {0};
+    spoolState.tag_data_valid = true;
+    opt_format_empty_tag(&spoolState.tag_data, 888, 64);
+    opt_set_material_name(&spoolState.tag_data, "PLA");
+    NFCManager::getInstance().setCurrentSpool(spoolState);
+
+    // Send SPOOL_UPDATED message (no Spoolman configured)
+    AppMessage updateMsg;
+    updateMsg.type = AppMessageType::SPOOL_UPDATED;
+    strncpy(updateMsg.payload.spoolUpdated.spool_id, "SPOOL001", sizeof(updateMsg.payload.spoolUpdated.spool_id) - 1);
+    updateMsg.payload.spoolUpdated.update_type = static_cast<uint8_t>(NFCWriteType::REMOVE_WEIGHT);
+    updateMsg.payload.spoolUpdated.success = true;
+    updateMsg.payload.spoolUpdated.suppress_sync = 0;
+    updateMsg.payload.spoolUpdated.kg_remaining = 0.750f;
+
+    g_app->injectMessage(updateMsg);
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Updated");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine2, "750");
+    g_lcd->reset();
+
+    // Advance time by TYPE_REMAIN_DISPLAY_DELAY_MS
+    advance_milliseconds(25);  // 25ms in test mode
+
+    // Process messages to trigger delayed display
+    g_app->processMessages();
+
+    // Verify Type/Remain display appeared (1 more LCD update)
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Type");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "PLA");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine2, "Remain");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine2, "750");
+
+    teardown_test();
+    return 0;
+}
+
+// Test: Delayed Type/Remain display after Spoolman sync
+int test_delayed_type_remain_after_spoolman_synced() {
+    setup_test();
+
+    // Scan a spool first
+    auto detectMsg = createSpoolDetected("SPOOL001", OPT_MATERIAL_TYPE_PLA, 0.850f, "PLA");
+    g_app->injectMessage(detectMsg);
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+    g_lcd->reset();
+
+    // Set up TestNFCManager with the spool data so both handlers can retrieve material_name
+    CurrentSpoolState spoolState = {0};
+    spoolState.tag_data_valid = true;
+    opt_format_empty_tag(&spoolState.tag_data, 888, 64);
+    opt_set_material_name(&spoolState.tag_data, "PLA");
+    NFCManager::getInstance().setCurrentSpool(spoolState);
+
+    // Send SPOOL_UPDATED message (will show "Updated: Xg" / "Syncing Spoolman")
+    AppMessage updateMsg;
+    updateMsg.type = AppMessageType::SPOOL_UPDATED;
+    strncpy(updateMsg.payload.spoolUpdated.spool_id, "SPOOL001", sizeof(updateMsg.payload.spoolUpdated.spool_id) - 1);
+    updateMsg.payload.spoolUpdated.update_type = static_cast<uint8_t>(NFCWriteType::REMOVE_WEIGHT);
+    updateMsg.payload.spoolUpdated.success = true;
+    updateMsg.payload.spoolUpdated.suppress_sync = 0;
+    updateMsg.payload.spoolUpdated.kg_remaining = 0.750f;
+
+    g_app->injectMessage(updateMsg);
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+    g_lcd->reset();
+
+    // Send SPOOLMAN_SYNCED message (will show "Updated: Xg" / "Spoolman OK!")
+    AppMessage syncMsg;
+    syncMsg.type = AppMessageType::SPOOLMAN_SYNCED;
+    strncpy(syncMsg.payload.spoolmanSynced.spool_id, "SPOOL001", sizeof(syncMsg.payload.spoolmanSynced.spool_id) - 1);
+    syncMsg.payload.spoolmanSynced.success = true;
+    syncMsg.payload.spoolmanSynced.kg_remaining = 0.750f;
+    syncMsg.payload.spoolmanSynced.spoolman_id = 123;
+
+    g_app->injectMessage(syncMsg);
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+    // After successful sync, should immediately show Type/Remain (not delayed anymore)
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "Type");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine1, "PLA");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine2, "Remain");
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine2, "750");
+
+    teardown_test();
+    return 0;
+}
+
+// Test: Delayed Type/Remain display canceled by new spool scan
+int test_delayed_type_remain_canceled_by_new_scan() {
+    setup_test();
+
+    // Scan a spool first
+    g_app->injectMessage(createSpoolDetected("SPOOL001", OPT_MATERIAL_TYPE_PLA, 0.850f, "PLA"));
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+    g_lcd->reset();
+
+    // Send SPOOL_UPDATED message
+    AppMessage updateMsg;
+    updateMsg.type = AppMessageType::SPOOL_UPDATED;
+    strncpy(updateMsg.payload.spoolUpdated.spool_id, "SPOOL001", sizeof(updateMsg.payload.spoolUpdated.spool_id) - 1);
+    updateMsg.payload.spoolUpdated.update_type = static_cast<uint8_t>(NFCWriteType::REMOVE_WEIGHT);
+    updateMsg.payload.spoolUpdated.success = true;
+    updateMsg.payload.spoolUpdated.suppress_sync = 0;
+    updateMsg.payload.spoolUpdated.kg_remaining = 0.750f;
+
+    g_app->injectMessage(updateMsg);
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+    g_lcd->reset();
+
+    // Advance time by 10ms (mid-delay)
+    advance_milliseconds(10);
+
+    // Scan a new spool (should cancel pending Type/Remain display)
+    g_app->injectMessage(createSpoolDetected("SPOOL002", OPT_MATERIAL_TYPE_PETG, 0.500f, "PETG"));
+    TEST_ASSERT_EQ(g_lcd->updateCount, 1);
+    TEST_ASSERT_STR_CONTAINS(g_lcd->lastLine3, "PETG");
+    g_lcd->reset();
+
+    // Advance time by TYPE_REMAIN_DISPLAY_DELAY_MS + 10ms
+    advance_milliseconds(35);
+
+    // Process messages - should NOT show Type/Remain from the first spool
+    g_app->processMessages();
+
+    // Verify no duplicate Type/Remain from SPOOL001
+    // The LCD should only show SPOOL002's info (from the SPOOL_DETECTED)
+    TEST_ASSERT_EQ(g_lcd->updateCount, 0);  // No new messages
+
+    teardown_test();
+    return 0;
+}
+
 int main() {
     int passed = 0, failed = 0, total = 0;
 
@@ -451,6 +596,11 @@ int main() {
     RUN_TEST(test_tag_removed_delayed_status_screen);
     RUN_TEST(test_blank_tag_shows_scanned_4line_message);
     RUN_TEST(test_default_automation_mode);
+
+    // Delayed Type/Remain display tests
+    RUN_TEST(test_delayed_type_remain_after_spool_updated_no_spoolman);
+    RUN_TEST(test_delayed_type_remain_after_spoolman_synced);
+    RUN_TEST(test_delayed_type_remain_canceled_by_new_scan);
 
     printf("\n=== Results: %d/%d passed ===\n", passed, total);
 

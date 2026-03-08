@@ -19,6 +19,10 @@ public:
         ApplicationManager::getInstance().handleMessage(msg);
     }
 
+    void processMessages() {
+        ApplicationManager::getInstance().processMessages();
+    }
+
     AppState getState() const {
         return ApplicationManager::getInstance().getState();
     }

@@ -491,8 +491,8 @@ static void process_command(const char* json) {
                     opt_get_consumed_weight(&spool.tag_data, &currentConsumed);
                     float currentRemaining = full_weight - currentConsumed;
                     float newConsumed = full_weight - newRemaining;
-                    // Only update if difference is significant (>1g)
-                    if (abs(newRemaining - currentRemaining) > 1.0f) {
+                    // Only update if difference is significant (>=1g)
+                    if (abs(newRemaining - currentRemaining) >= 1.0f) {
                         NFCWriteRequest req;
                         memset(&req, 0, sizeof(req));
                         req.request_id = ++s_request_id_counter;

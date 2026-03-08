@@ -133,6 +133,10 @@ public:
         lastDisplayedBlankId[0] = '\0';
         pendingStatusAfterTagRemoved = false;
         tagRemovedAtMs = 0;
+        pendingTypeRemainDisplay = false;
+        typeRemainScheduledAtMs = 0;
+        delayedDisplayMaterialName[0] = '\0';
+        delayedDisplayKgRemaining = 0.0f;
         automationMode = AutomationMode::SELF_DIRECTED;
     }
 #endif
@@ -158,6 +162,12 @@ private:
     bool pendingStatusAfterTagRemoved = false;
     uint32_t tagRemovedAtMs = 0;
 
+    // Delayed Type/Remain display state
+    bool pendingTypeRemainDisplay = false;
+    uint32_t typeRemainScheduledAtMs = 0;
+    char delayedDisplayMaterialName[32] = {0};
+    float delayedDisplayKgRemaining = 0.0f;
+
     // Automation mode
     AutomationMode automationMode = AutomationMode::SELF_DIRECTED;
 
@@ -174,6 +184,7 @@ private:
     void finishPrint(float gramsUsed, bool canceled);
     void enqueueSpoolmanSync(const SpoolDetectedPayload& spool);
     void publishToHA(const char* topicSuffix, const char* payload, bool retained);
+    void scheduleTypeRemainDisplay(const char* material_name, float kg_remaining);
 };
 
 #endif // APPLICATION_MANAGER_H

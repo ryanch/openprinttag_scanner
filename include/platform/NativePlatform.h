@@ -144,10 +144,18 @@ inline BaseType_t xQueuePeek(QueueHandle_t queue, void* item, TickType_t wait) {
 }
 
 // Arduino timing functions
+// Global test time for advancing milliseconds in tests
+static uint32_t g_test_millis_offset = 0;
+
 inline unsigned long millis() {
     static auto start = std::chrono::steady_clock::now();
     auto now = std::chrono::steady_clock::now();
-    return std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count();
+    return std::chrono::duration_cast<std::chrono::milliseconds>(now - start).count() + g_test_millis_offset;
+}
+
+// Helper to advance test time (for testing delayed operations)
+inline void advance_milliseconds(uint32_t ms) {
+    g_test_millis_offset += ms;
 }
 
 inline void delay(unsigned long ms) {

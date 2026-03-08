@@ -19,8 +19,10 @@
 
 #ifdef NATIVE_TEST
 static constexpr uint32_t TAG_REMOVED_STATUS_DELAY_MS = 25;
+static constexpr uint32_t TYPE_REMAIN_DISPLAY_DELAY_MS = 25;
 #else
 static constexpr uint32_t TAG_REMOVED_STATUS_DELAY_MS = 5000;
+static constexpr uint32_t TYPE_REMAIN_DISPLAY_DELAY_MS = 5000;
 #endif
 
 ApplicationManager& ApplicationManager::getInstance() {
@@ -71,6 +73,23 @@ void ApplicationManager::processMessages() {
         if (elapsedMs >= TAG_REMOVED_STATUS_DELAY_MS) {
             showStatusOnLCD();
             pendingStatusAfterTagRemoved = false;
+        }
+    }
+
+    // Check for delayed Type/Remain display
+    if (pendingTypeRemainDisplay && lcdManager) {
+        uint32_t elapsedMs = static_cast<uint32_t>(millis() - typeRemainScheduledAtMs);
+        if (elapsedMs >= TYPE_REMAIN_DISPLAY_DELAY_MS) {
+            char line1[17];
+            char line2[17];
+            snprintf(line1, sizeof(line1), "Type: %.10s", delayedDisplayMaterialName);
+            snprintf(line2, sizeof(line2), "Remain: %.0fg", delayedDisplayKgRemaining * 1000.0f);
+            lcdManager->updateScreen(line1, line2);
+
+            pendingTypeRemainDisplay = false;
+
+            Serial.printf("ApplicationManager: Displayed delayed Type/Remain - Type: %s, Remain: %.0fg\n",
+                         delayedDisplayMaterialName, delayedDisplayKgRemaining * 1000.0f);
         }
     }
 }
@@ -128,6 +147,14 @@ void ApplicationManager::showStatusOnLCD() {
     snprintf(line1, sizeof(line1), "NFC+ BLE%c Wifi%c", bleInd, wifiInd);
     snprintf(line2, sizeof(line2), "PL%c SM%c HA%c", prusaInd, smInd, haInd);
     lcdManager->updateScreen(line1, line2);
+}
+
+void ApplicationManager::scheduleTypeRemainDisplay(const char* material_name, float kg_remaining) {
+    strncpy(delayedDisplayMaterialName, material_name, sizeof(delayedDisplayMaterialName) - 1);
+    delayedDisplayMaterialName[sizeof(delayedDisplayMaterialName) - 1] = '\0';
+    delayedDisplayKgRemaining = kg_remaining;
+    pendingTypeRemainDisplay = true;
+    typeRemainScheduledAtMs = millis();
 }
 
 void ApplicationManager::handleMessage(const AppMessage& msg) {
@@ -240,6 +267,8 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
         }
     }
 
+    // Clear any pending delayed Type/Remain display (new spool detected)
+    pendingTypeRemainDisplay = false;
     pendingStatusAfterTagRemoved = false;
 
     // Update LCD with spool info (dedupe by spool_id)
@@ -292,9 +321,22 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
         msg.payload.spoolUpdated.update_type,
         msg.payload.spoolUpdated.success ? "true" : "false");
 
+    // Get current spool state for material name (needed for delayed display)
+    char materialName[32] = {0};
+    float kgRemaining = msg.payload.spoolUpdated.kg_remaining;
+
 #ifndef NATIVE_TEST
+    CurrentSpoolState state;
+    if (NFCManager::getInstance().getCurrentSpoolState(state) && state.tag_data_valid) {
+        opt_get_material_name(&state.tag_data, materialName, sizeof(materialName));
+    }
     bool spoolmanConfigured = SpoolmanManager::getInstance().isConfigured();
 #else
+    // In test mode, also try to get material name for delayed display testing
+    CurrentSpoolState state;
+    if (NFCManager::getInstance().getCurrentSpoolState(state) && state.tag_data_valid) {
+        opt_get_material_name(&state.tag_data, materialName, sizeof(materialName));
+    }
     bool spoolmanConfigured = false;
 #endif
 
@@ -302,14 +344,20 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
         if (msg.payload.spoolUpdated.success) {
             char line1[17];
             snprintf(line1, sizeof(line1), "Updated: %.0fg",
-                     msg.payload.spoolUpdated.kg_remaining * 1000.0f);
+                     kgRemaining * 1000.0f);
             if (spoolmanConfigured) {
                 lcdManager->updateScreen(line1, "Syncing Spoolman");
+                // Type/Remain will be scheduled after SPOOLMAN_SYNCED
             } else {
                 char line2[17];
                 snprintf(line2, sizeof(line2), "Remain: %.0fg",
-                         msg.payload.spoolUpdated.kg_remaining * 1000.0f);
+                         kgRemaining * 1000.0f);
                 lcdManager->updateScreen("Spool Updated!", line2);
+
+                // Schedule Type/Remain display after 5 seconds (no Spoolman path)
+                if (materialName[0] != '\0') {
+                    scheduleTypeRemainDisplay(materialName, kgRemaining);
+                }
             }
         } else {
             lcdManager->updateScreen("Spool Update", "Failed!");
@@ -453,17 +501,33 @@ void ApplicationManager::handleSpoolmanSynced(const AppMessage& msg) {
         msg.payload.spoolmanSynced.success ? "true" : "false",
         msg.payload.spoolmanSynced.spoolman_id);
 
+    // Get current spool state for material name
+    char materialName[32] = {0};
+    float kgRemaining = msg.payload.spoolmanSynced.kg_remaining;
+
+    CurrentSpoolState state;
+    if (NFCManager::getInstance().getCurrentSpoolState(state) && state.tag_data_valid) {
+        opt_get_material_name(&state.tag_data, materialName, sizeof(materialName));
+    }
+
     if (lcdManager) {
         if (msg.payload.spoolmanSynced.success) {
             char line1[17];
-            snprintf(line1, sizeof(line1), "Updated: %.0fg",
-                     msg.payload.spoolmanSynced.kg_remaining * 1000.0f);
-            lcdManager->updateScreen(line1, "Spoolman OK!");
+            char line2[17];
+            snprintf(line1, sizeof(line1), "Type: %.10s", materialName);
+            snprintf(line2, sizeof(line2), "Remain: %.0fg",
+                     kgRemaining * 1000.0f);
+            lcdManager->updateScreen(line1, line2);
         } else {
             char line1[17];
             snprintf(line1, sizeof(line1), "Updated: %.0fg",
-                     msg.payload.spoolmanSynced.kg_remaining * 1000.0f);
+                     kgRemaining * 1000.0f);
             lcdManager->updateScreen(line1, "Spoolman Error");
+
+            // Schedule Type/Remain display after 5 seconds even on error
+            if (materialName[0] != '\0') {
+                scheduleTypeRemainDisplay(materialName, kgRemaining);
+            }
         }
     }
 
