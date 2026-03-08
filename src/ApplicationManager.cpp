@@ -277,8 +277,10 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
 
 #ifndef NATIVE_TEST
     // Trigger Spoolman sync if configured (only in SELF_DIRECTED mode)
+    // Skip if suppress_spoolman_sync is set (e.g., after write_spoolman_spool batch)
     if (automationMode == AutomationMode::SELF_DIRECTED &&
-        SpoolmanManager::getInstance().isConfigured()) {
+        SpoolmanManager::getInstance().isConfigured() &&
+        !msg.payload.spoolDetected.suppress_spoolman_sync) {
         enqueueSpoolmanSync(msg.payload.spoolDetected);
     }
 #endif

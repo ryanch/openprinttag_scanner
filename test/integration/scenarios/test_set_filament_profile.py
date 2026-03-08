@@ -14,21 +14,6 @@ class SetFilamentProfileTest(BaseTestScenario):
     4. Poll until both fields match expected values
     """
 
-    def _wait_for_profile(self, expected_type, expected_manufacturer, max_attempts=12):
-        for attempt in range(1, max_attempts + 1):
-            spools = self._ble_list_spools()
-            current = spools.get("current")
-            if current is not None:
-                actual_type = current.get("type")
-                actual_manufacturer = current.get("manufacturer")
-                if actual_type == expected_type and actual_manufacturer == expected_manufacturer:
-                    return current
-            self._wait_seconds(1, f"Waiting for profile write ({attempt}/{max_attempts})")
-
-        raise AssertionError(
-            f"Timed out waiting for type={expected_type}, manufacturer={expected_manufacturer}"
-        )
-
     def run(self):
         try:
             # Step 1: Ensure tag is freshly formatted with clean state
@@ -37,11 +22,19 @@ class SetFilamentProfileTest(BaseTestScenario):
             # Step 2: Set baseline profile
             self._emit_step("Set Baseline", "running", "Writing type=PLA, manufacturer=Unknown")
             self._ble_update_spool(spool_id, type="PLA", manufacturer="Unknown")
-            baseline = self._wait_for_profile("PLA", "Unknown")
+            baseline = self._wait_for_mqtt_multi_field_match({
+                "material_type": "PLA",
+                "manufacturer": "Unknown"
+            }, max_wait_sec=30)
+
+            # Belt-and-suspenders: verify via BLE
+            spools = self._ble_list_spools()
+            current = spools.get("current")
+            self._assert(current is not None, "Spool disappeared after baseline write")
             self._emit_step(
                 "Set Baseline",
                 "passed",
-                f"Baseline confirmed: type={baseline.get('type')}, manufacturer={baseline.get('manufacturer')}"
+                f"Baseline confirmed: type={current.get('type')}, manufacturer={current.get('manufacturer')}"
             )
 
             # Step 3: Update filament profile
@@ -51,7 +44,15 @@ class SetFilamentProfileTest(BaseTestScenario):
 
             # Step 4: Verify updated values (type/manufacturer writes are queued separately)
             self._emit_step("Verify Profile", "running", "Reading back spool data")
-            current = self._wait_for_profile("PETG", "Prusament")
+            self._wait_for_mqtt_multi_field_match({
+                "material_type": "PETG",
+                "manufacturer": "Prusament"
+            }, max_wait_sec=30)
+
+            # Belt-and-suspenders: verify via BLE
+            spools = self._ble_list_spools()
+            current = spools.get("current")
+            self._assert(current is not None, "Spool disappeared after profile write")
             actual_type = current.get("type")
             actual_manufacturer = current.get("manufacturer")
             self._emit_step(

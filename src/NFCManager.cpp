@@ -486,7 +486,7 @@ bool NFCManager::formatNewSpool() {
     return true;
 }
 
-void NFCManager::sendSpoolDetectedMessage() {
+void NFCManager::sendSpoolDetectedMessage(bool suppress_spoolman_sync) {
     if (!currentSpool.tag_data_valid) {
         return;
     }
@@ -542,6 +542,9 @@ void NFCManager::sendSpoolDetectedMessage() {
     int32_t spoolman_id = -1;
     opt_get_gp_spoolman_id(&currentSpool.tag_data, &spoolman_id);
     msg.payload.spoolDetected.spoolman_id = spoolman_id;
+
+    // Set suppress_spoolman_sync flag
+    msg.payload.spoolDetected.suppress_spoolman_sync = suppress_spoolman_sync ? 1 : 0;
 
     // Get material name
     if (opt_get_material_name(&currentSpool.tag_data, msg.payload.spoolDetected.material_name,
@@ -707,6 +710,10 @@ bool NFCManager::enqueueWrite(const NFCWriteRequest& req) {
             strncpy(suppressReDetectionUid_, req.expected_spool_id, sizeof(suppressReDetectionUid_) - 1);
             suppressReDetectionUid_[sizeof(suppressReDetectionUid_) - 1] = '\0';
         }
+        // Track if this batch has suppress_sync
+        if (req.suppress_sync) {
+            batchHadSuppressSync_ = true;
+        }
     }
 
     return queued;
@@ -771,13 +778,15 @@ void NFCManager::processWriteQueue() {
     if (xQueuePeek(writeQueue, &peekReq, 0) != pdTRUE) {
         // Queue is empty - clear suppression flag
         if (suppressReDetection_) {
-            Serial.println("NFCManager: Write queue empty, clearing suppression (NOT sending SpoolDetected - batched writes had suppress_sync)");
+            bool hadSuppressSync = batchHadSuppressSync_;
+            Serial.printf("NFCManager: Write queue empty, clearing suppression and sending SpoolDetected (suppress_spoolman_sync=%d)\n", hadSuppressSync);
             suppressReDetection_ = false;
             suppressReDetectionUid_[0] = '\0';
+            batchHadSuppressSync_ = false;
 
-            // DON'T send SpoolDetected - the batched writes had suppress_sync flag
-            // which means they don't want to trigger Spoolman sync.
-            // ApplicationManager already received SPOOL_UPDATED events for each write.
+            // Send SpoolDetected to notify listeners (tests, MQTT, LCD) of final state.
+            // The suppress_spoolman_sync flag prevents Spoolman sync for write_spoolman_spool batches.
+            sendSpoolDetectedMessage(hadSuppressSync);
         }
     }
 }

@@ -17,22 +17,6 @@ class RealTagBinaryWriteTest(BaseTestScenario):
     4. Remove 100g (set grams_remaining=950) and verify.
     """
 
-    def _wait_for_type_and_weight(self, spool_id, expected_type, expected_grams, max_attempts=15):
-        for attempt in range(1, max_attempts + 1):
-            spools = self._ble_list_spools()
-            current = spools.get("current")
-            if current is not None and current.get("id") == spool_id:
-                if (
-                    current.get("type") == expected_type
-                    and current.get("grams_remaining") == expected_grams
-                ):
-                    return current
-            self._wait_seconds(1, f"Waiting for {expected_type}, {expected_grams}g ({attempt}/{max_attempts})")
-
-        raise AssertionError(
-            f"Timed out waiting for type={expected_type}, grams_remaining={expected_grams}"
-        )
-
     def run(self):
         try:
             # Step 1: Ensure spool is present
@@ -55,8 +39,16 @@ class RealTagBinaryWriteTest(BaseTestScenario):
 
             # Step 3: Verify PETG at 1050g
             self._emit_step("Verify PETG 1050g", "running", "Reading back tag data")
-            current = self._wait_for_type_and_weight(spool_id, "PETG", 1050)
-            self._emit_step("Verify PETG 1050g", "passed", f"type={current.get('type')}, grams={current.get('grams_remaining')}")
+            self._wait_for_mqtt_multi_field_match({
+                "material_type": "PETG",
+                "remaining_g": 1050
+            }, max_wait_sec=30)
+
+            # Belt-and-suspenders verify
+            spools = self._ble_list_spools()
+            assert spools["current"]["material_type"] == "PETG"
+            assert spools["current"]["grams_remaining"] == 1050
+            self._emit_step("Verify PETG 1050g", "passed", "type=PETG, grams=1050")
 
             # Step 4: Remove 100g and verify 950g
             self._emit_step("Remove 100g", "running", "Writing grams_remaining=950")
@@ -64,8 +56,16 @@ class RealTagBinaryWriteTest(BaseTestScenario):
             self._emit_step("Remove 100g", "passed")
 
             self._emit_step("Verify 950g", "running", "Reading back tag data")
-            current = self._wait_for_type_and_weight(spool_id, "PETG", 950)
-            self._emit_step("Verify 950g", "passed", f"grams={current.get('grams_remaining')}")
+            self._wait_for_mqtt_multi_field_match({
+                "material_type": "PETG",
+                "remaining_g": 950
+            }, max_wait_sec=30)
+
+            # Belt-and-suspenders verify
+            spools = self._ble_list_spools()
+            assert spools["current"]["material_type"] == "PETG"
+            assert spools["current"]["grams_remaining"] == 950
+            self._emit_step("Verify 950g", "passed", "type=PETG, grams=950")
 
             self.result = "passed"
 

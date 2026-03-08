@@ -42,8 +42,9 @@ class ZeroWeightHandlingTest(BaseTestScenario):
             # Step 3: Set spool to 5g (low weight)
             self._emit_step("Set Low Weight", "running", "Writing 5g to tag")
             self._ble_update_spool(spool_id, grams_remaining=5)
-            self._wait_seconds(5, 'Waiting for NFC write')
+            state = self._wait_for_mqtt_remaining_weight(5, max_wait_sec=30)
 
+            # Belt-and-suspenders verify
             current = self._get_current_spool()
             self._assert(current is not None, "Spool disappeared")
             self._assert(current.get("grams_remaining") == 5, "Failed to set 5g")

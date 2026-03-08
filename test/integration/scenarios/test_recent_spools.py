@@ -14,15 +14,6 @@ class RecentSpoolsTest(BaseTestScenario):
     4. Verify recent list contains spool A
     """
 
-    def _wait_for_different_spool(self, spool_a_id, max_attempts=15):
-        for attempt in range(1, max_attempts + 1):
-            current = self._get_current_spool()
-            if current is not None and current.get("id") and current.get("id") != spool_a_id:
-                return current
-            self._wait_seconds(1, f"Waiting for different spool ({attempt}/{max_attempts})")
-
-        raise AssertionError("Timed out waiting for a different spool")
-
     def run(self):
         try:
             # Step 1: Ensure spool A is present
@@ -37,7 +28,16 @@ class RecentSpoolsTest(BaseTestScenario):
             self._request_user_action(
                 "Please remove spool A and place a different spool B on the NFC reader"
             )
-            current_b = self._wait_for_different_spool(spool_a_id)
+            current_b = self._wait_for_mqtt_spool_update(
+                condition=lambda s: s.get("uid") != spool_a_id and s.get("present") == True,
+                max_wait_sec=30,
+                reason="Waiting for different spool"
+            )
+
+            # Belt-and-suspenders: verify via BLE
+            spools = self._ble_list_spools()
+            current_b = spools.get("current")
+            self._assert(current_b is not None, "No spool detected via BLE after swap")
             spool_b_id = current_b.get("id")
             self._assert(spool_b_id is not None, "Spool B missing id")
             self._assert(spool_b_id != spool_a_id, "Spool B must be different from spool A")

@@ -57,7 +57,7 @@ private:
     // Internal operations
     bool readAndParseTag(uint8_t* uid, uint8_t uid_length);
     bool formatNewSpool();
-    void sendSpoolDetectedMessage();
+    void sendSpoolDetectedMessage(bool suppress_spoolman_sync = false);
     void sendBlankTagMessage();
     void sendTagRemovedMessage();
     void processWriteQueue();
@@ -112,6 +112,7 @@ private:
     // Write batch tracking: prevents tag re-reads during batched writes
     volatile bool suppressReDetection_ = false;
     char suppressReDetectionUid_[17] = {0};
+    volatile bool batchHadSuppressSync_ = false;  // Track if any write in batch had suppress_sync
 };
 
 #endif // NFC_MANAGER_H

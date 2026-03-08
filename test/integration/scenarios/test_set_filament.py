@@ -25,9 +25,11 @@ class SetFilamentTest(BaseTestScenario):
             self._ble_update_spool(spool_id, grams_remaining=1000)
             self._emit_step("Set 1000g", "passed")
 
-            # Step 3: Wait and verify 1000g
-            self._wait_seconds(15, "Waiting for NFC write")
+            # Step 3: Wait for MQTT update and verify 1000g
             self._emit_step("Verify 1000g", "running", "Reading back tag data")
+            state = self._wait_for_mqtt_remaining_weight(1000, max_wait_sec=30)
+
+            # Verify with BLE (belt-and-suspenders during migration)
             spools = self._ble_list_spools()
             current = spools.get("current")
             self._assert(current is not None, "Spool disappeared")
@@ -40,9 +42,11 @@ class SetFilamentTest(BaseTestScenario):
             self._ble_update_spool(spool_id, grams_remaining=967)
             self._emit_step("Set 967g", "passed")
 
-            # Step 5: Wait and verify 967g
-            self._wait_seconds(15, "Waiting for NFC write")
+            # Step 5: Wait for MQTT update and verify 967g
             self._emit_step("Verify 967g", "running", "Reading back tag data")
+            state = self._wait_for_mqtt_remaining_weight(967, max_wait_sec=30)
+
+            # Verify with BLE (belt-and-suspenders during migration)
             spools = self._ble_list_spools()
             current = spools.get("current")
             self._assert(current is not None, "Spool disappeared")
@@ -57,3 +61,7 @@ class SetFilamentTest(BaseTestScenario):
             self.result = "failed"
             if hasattr(self, '_current_step'):
                 self._emit_step(self._current_step, "failed", str(e))
+
+        finally:
+            # Cleanup MQTT
+            self._cleanup_mqtt()

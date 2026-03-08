@@ -66,8 +66,9 @@ class PrinterAPIErrorsTest(BaseTestScenario):
             # Set known weight
             self._emit_step("Set Weight", "running", "Writing 1000g to tag")
             self._ble_update_spool(spool_id, grams_remaining=1000)
-            self._wait_seconds(5, 'Waiting for NFC write')
+            state = self._wait_for_mqtt_remaining_weight(1000, max_wait_sec=30)
 
+            # Belt-and-suspenders verify
             current = self._get_current_spool()
             self._assert(current.get("grams_remaining") == 1000, "Failed to set 1000g")
             self._emit_step("Set Weight", "passed", "Confirmed: 1000g")

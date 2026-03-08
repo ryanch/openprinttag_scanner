@@ -18,16 +18,6 @@ class SpoolSwapDuringPrintTest(BaseTestScenario):
     8. Verify: no auto-deduction occurs (spool identity is ambiguous after swap)
     """
 
-    def _wait_for_different_spool(self, spool_a_id, max_attempts=15):
-        """Poll until a different spool is detected"""
-        for attempt in range(1, max_attempts + 1):
-            current = self._get_current_spool()
-            if current is not None and current.get("id") and current.get("id") != spool_a_id:
-                return current
-            self._wait_seconds(1, f"Waiting for different spool ({attempt}/{max_attempts})")
-
-        raise AssertionError("Timed out waiting for a different spool")
-
     def run(self):
         original_config = None
 
@@ -83,7 +73,16 @@ class SpoolSwapDuringPrintTest(BaseTestScenario):
                 "WHILE PRINT IS RUNNING: Remove spool A and place a different formatted spool B on the reader"
             )
 
-            spool_b = self._wait_for_different_spool(spool_a_id)
+            self._wait_for_mqtt_spool_update(
+                condition=lambda s: s.get("uid") != spool_a_id and s.get("present") == True,
+                max_wait_sec=30,
+                reason="Waiting for different spool"
+            )
+
+            # Belt-and-suspenders: verify via BLE
+            spools = self._ble_list_spools()
+            spool_b = spools.get("current")
+            self._assert(spool_b is not None, "No spool detected via BLE after swap")
             spool_b_id = spool_b.get("id")
             self._assert(spool_b_id is not None, "Spool B missing id")
             self._assert(spool_b_id != spool_a_id, "Spool B must be different from spool A")

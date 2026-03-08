@@ -15,18 +15,6 @@ class ColorUpdateTest(BaseTestScenario):
     5. Edge case: Try invalid color format (should reject or clamp)
     """
 
-    def _wait_for_color(self, spool_id, expected_color, max_attempts=10):
-        """Poll until spool has the expected color"""
-        for attempt in range(1, max_attempts + 1):
-            spools = self._ble_list_spools()
-            current = spools.get("current")
-            if current and current.get("id") == spool_id:
-                if current.get("color") == expected_color:
-                    return current
-            self._wait_seconds(1, f"Waiting for color {expected_color} ({attempt}/{max_attempts})")
-
-        raise AssertionError(f"Timed out waiting for color {expected_color}")
-
     def run(self):
         try:
             # Step 1: Ensure spool is present
@@ -41,23 +29,36 @@ class ColorUpdateTest(BaseTestScenario):
             self._wait_seconds(2, "Waiting for format to complete")
 
             self._emit_step("Verify Default Color", "running", "Reading back tag data")
-            current = self._wait_for_color(spool_id, "#FFFFFF")
+            self._wait_for_mqtt_field_match("color", "#FFFFFF", max_wait_sec=30)
+
+            # Belt-and-suspenders: verify via BLE
+            spools = self._ble_list_spools()
+            current = spools.get("current")
+            self._assert(current is not None, "Spool disappeared after format")
             self._assert(current["color"] == "#FFFFFF", f"Expected #FFFFFF, got {current.get('color')}")
             self._emit_step("Verify Default Color", "passed", "#FFFFFF confirmed")
 
             # Step 3: Update color to red
             self._emit_step("Update Color to Red", "running", "Writing #FF0000 to tag")
             self._ble_update_spool(spool_id, color="#FF0000")
-            self._wait_seconds(2, "Waiting for NFC write")
-            current = self._wait_for_color(spool_id, "#FF0000")
+            self._wait_for_mqtt_field_match("color", "#FF0000", max_wait_sec=30)
+
+            # Belt-and-suspenders: verify via BLE
+            spools = self._ble_list_spools()
+            current = spools.get("current")
+            self._assert(current is not None, "Spool disappeared after red write")
             self._assert(current["color"] == "#FF0000", f"Expected #FF0000, got {current.get('color')}")
             self._emit_step("Update Color to Red", "passed", "#FF0000 confirmed")
 
             # Step 4: Update color to green
             self._emit_step("Update Color to Green", "running", "Writing #00FF00 to tag")
             self._ble_update_spool(spool_id, color="#00FF00")
-            self._wait_seconds(2, "Waiting for NFC write")
-            current = self._wait_for_color(spool_id, "#00FF00")
+            self._wait_for_mqtt_field_match("color", "#00FF00", max_wait_sec=30)
+
+            # Belt-and-suspenders: verify via BLE
+            spools = self._ble_list_spools()
+            current = spools.get("current")
+            self._assert(current is not None, "Spool disappeared after green write")
             self._assert(current["color"] == "#00FF00", f"Expected #00FF00, got {current.get('color')}")
             self._emit_step("Update Color to Green", "passed", "#00FF00 confirmed")
 

@@ -71,7 +71,16 @@ class SpoolmanSyncTest(BaseTestScenario):
             # Step 5: Swap to spool B
             self._emit_step("Swap to Spool B", "running", "Waiting for spool B")
             self._request_user_action("Remove spool A, place spool B on reader")
-            spool_b = self._wait_for_different_spool(spool_a_id)
+            self._wait_for_mqtt_spool_update(
+                condition=lambda s: s.get("uid") != spool_a_id and s.get("present") == True,
+                max_wait_sec=30,
+                reason="Waiting for different spool"
+            )
+
+            # Belt-and-suspenders: verify via BLE
+            spools = self._ble_list_spools()
+            spool_b = spools.get("current")
+            self._assert(spool_b is not None, "No spool detected via BLE after swap")
             spool_b_id = spool_b["id"]
 
             # Format if blank
@@ -123,7 +132,17 @@ class SpoolmanSyncTest(BaseTestScenario):
             # Step 8: Swap back to spool A
             self._emit_step("Swap Back to A", "running", "Waiting for spool A to return")
             self._request_user_action("Remove spool B, place spool A back on reader")
-            self._wait_for_specific_spool(spool_a_id)
+            self._wait_for_mqtt_spool_update(
+                condition=lambda s: s.get("uid") == spool_a_id and s.get("present") == True,
+                max_wait_sec=30,
+                reason=f"Waiting for spool A ({spool_a_id})"
+            )
+
+            # Belt-and-suspenders: verify via BLE
+            spools = self._ble_list_spools()
+            current = spools.get("current")
+            self._assert(current is not None, "No spool detected via BLE")
+            self._assert(current.get("id") == spool_a_id, f"Expected spool A, got {current.get('id')}")
             self._emit_step("Swap Back to A", "passed", f"Detected spool A again: {spool_a_id}")
 
             # Step 9: Verify spool A ID unchanged
@@ -191,20 +210,3 @@ class SpoolmanSyncTest(BaseTestScenario):
             "ids": matching_ids
         }
 
-    def _wait_for_different_spool(self, exclude_id, max_attempts=15):
-        """Poll until current spool ID != exclude_id"""
-        for attempt in range(max_attempts):
-            current = self._get_current_spool()
-            if current is not None and current.get("id") != exclude_id:
-                return current
-            time.sleep(2)
-        raise Exception(f"Timeout waiting for different spool (not {exclude_id})")
-
-    def _wait_for_specific_spool(self, spool_id, max_attempts=15):
-        """Poll until current spool ID == spool_id"""
-        for attempt in range(max_attempts):
-            current = self._get_current_spool()
-            if current is not None and current.get("id") == spool_id:
-                return current
-            time.sleep(2)
-        raise Exception(f"Timeout waiting for spool {spool_id}")

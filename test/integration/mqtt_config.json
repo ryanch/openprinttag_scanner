@@ -1,0 +1,8 @@
+{
+  "broker_host": "localhost",
+  "broker_port": 1883,
+  "device_id": "199d90",
+  "username": "mqtt_user",
+  "password": "mqttrmq",
+  "_comment": "device_id is last 6 hex chars of ESP32 MAC address. Find it via: BLE device config, HA entity names, or serial output: 'HomeAssistantManager: Initialized (device_id=...)'"
+}

@@ -40,7 +40,7 @@ class PrintProgressEdgeCasesTest(BaseTestScenario):
             # TEST A: Cancel at 0% progress
             self._emit_step("Test A: Cancel at 0%", "running", "Setting weight to 1000g")
             self._ble_update_spool(spool_id, grams_remaining=1000)
-            self._wait_seconds(5, 'Waiting for NFC write')
+            state = self._wait_for_mqtt_remaining_weight(1000, max_wait_sec=30)
 
             self._emit_step("Test A: Cancel at 0%", "running", "Starting print at 0%")
             self.mock_state.set_printing(
@@ -68,7 +68,7 @@ class PrintProgressEdgeCasesTest(BaseTestScenario):
             # TEST B: Finish at 100%
             self._emit_step("Test B: Finish at 100%", "running", "Setting weight to 900g")
             self._ble_update_spool(spool_id, grams_remaining=900)
-            self._wait_seconds(5, 'Waiting for NFC write')
+            state = self._wait_for_mqtt_remaining_weight(900, max_wait_sec=30)
 
             self._emit_step("Test B: Finish at 100%", "running", "Starting print")
             self.mock_state.set_printing(
@@ -103,7 +103,7 @@ class PrintProgressEdgeCasesTest(BaseTestScenario):
             # TEST C: Stay at 100% for 30s before finishing (no double-count)
             self._emit_step("Test C: 100% Dwell", "running", "Setting weight to 800g")
             self._ble_update_spool(spool_id, grams_remaining=800)
-            self._wait_seconds(5, 'Waiting for NFC write')
+            state = self._wait_for_mqtt_remaining_weight(800, max_wait_sec=30)
 
             self._emit_step("Test C: 100% Dwell", "running", "Starting print")
             self.mock_state.set_printing(

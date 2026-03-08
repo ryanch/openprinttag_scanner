@@ -46,8 +46,9 @@ class AutomationModeControlledTest(BaseTestScenario):
             # Step 3: Set initial weight to 1000g
             self._emit_step("Set Initial Weight", "running", "Writing 1000g to tag")
             self._ble_update_spool(spool_id, grams_remaining=1000)
-            self._wait_seconds(5, 'Waiting for NFC write')
+            state = self._wait_for_mqtt_remaining_weight(1000, max_wait_sec=30)
 
+            # Belt-and-suspenders verify
             current = self._get_current_spool()
             self._assert(current is not None, "Spool disappeared")
             self._assert(current.get("grams_remaining") == 1000, "Failed to set 1000g")
@@ -85,7 +86,7 @@ class AutomationModeControlledTest(BaseTestScenario):
             # Step 6: Wait 10 seconds
             self._wait_seconds(10, "Waiting 10 seconds before color change")
 
-            # Step 7: Change color of filament
+            # Step 7: Change color of filament (no weight change, keep fixed wait)
             self._emit_step("Change Color", "running", "Updating color to #FF00FF")
             self._ble_update_spool(spool_id, color="#FF00FF")
             self._wait_seconds(5, 'Waiting for NFC write')

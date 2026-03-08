@@ -41,8 +41,9 @@ class Print30PercentE2ETest(BaseTestScenario):
             # Step 4: Set initial weight to 1000g
             self._emit_step("Set Initial Weight", "running", "Writing 1000g to tag")
             self._ble_update_spool(spool_id, grams_remaining=1000)
-            self._wait_seconds(5, 'Waiting for NFC write')
+            state = self._wait_for_mqtt_remaining_weight(1000, max_wait_sec=30)
 
+            # Belt-and-suspenders: verify via BLE
             spools = self._ble_list_spools()
             current = spools.get("current")
             self._assert(current is not None, "Spool disappeared")

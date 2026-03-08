@@ -70,7 +70,7 @@ class WriteSpoolmanSpoolTest(BaseTestScenario):
                 initial_weight=750,
                 grams_remaining=600
             )
-            self._wait_seconds(20, "Waiting for NFC writes to complete")
+            state = self._wait_for_mqtt_remaining_weight(600, tolerance=5, max_wait_sec=30)
             self._emit_step("Write Mode B", "passed", "Mode B write command completed")
 
             # Step 7: Verify tag contents
@@ -105,8 +105,9 @@ class WriteSpoolmanSpoolTest(BaseTestScenario):
             self._emit_step("Test Decrement", "running", "Decrementing weight to 500g")
             spool_id = current["id"]
             self._ble_update_spool(spool_id, grams_remaining=500)
-            self._wait_seconds(3, "Waiting for weight update")
+            state = self._wait_for_mqtt_remaining_weight(500, tolerance=5, max_wait_sec=30)
 
+            # Belt-and-suspenders verify
             spools = self._ble_list_spools()
             current = spools.get("current")
             self._assert_approx(current.get("grams_remaining", 0), 500, 5, "grams_remaining after decrement")

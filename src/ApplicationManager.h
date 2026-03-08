@@ -42,6 +42,7 @@ struct SpoolDetectedPayload {
     float initial_weight_g;      // Full spool weight in grams
     char manufacturer[33];       // Brand name from tag
     int32_t spoolman_id;         // Spoolman ID from tag (-1 if absent)
+    uint8_t suppress_spoolman_sync; // 1 = don't trigger Spoolman sync (e.g., after write_spoolman_spool batch)
 };
 
 struct SpoolUpdatedPayload {

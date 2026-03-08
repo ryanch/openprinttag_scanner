@@ -115,3 +115,5 @@ test/integration/scenarios/test_job_disappeared_deduction.py — Job disappeared
 test/integration/scenarios/test_real_tag.py — Raw binary write from fixture and 100g deduction verification
 test/integration/scenarios/test_write_spoolman_spool.py — Write Spoolman spool test (Mode A API fetch, Mode B direct data)
 test/integration/site/index.html — Web Bluetooth test runner UI
+test/integration/requirements.txt — Python dependencies for integration tests (paho-mqtt)
+test/integration/mqtt_config.json — MQTT broker configuration for event-driven test waits

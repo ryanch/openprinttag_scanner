@@ -49,8 +49,11 @@ class PrintE2ETest(BaseTestScenario):
             # Step 4: Set initial weight to 1000g
             self._emit_step("Set Initial Weight", "running", "Writing 1000g to tag")
             self._ble_update_spool(spool_id, grams_remaining=1000)
-            self._wait_seconds(5, 'Waiting for NFC write')
 
+            # Wait for MQTT update (falls back to BLE polling if MQTT unavailable)
+            state = self._wait_for_mqtt_remaining_weight(1000, max_wait_sec=30)
+
+            # Verify with BLE (belt-and-suspenders during migration)
             spools = self._ble_list_spools()
             current = spools.get("current")
             self._assert(current is not None, "Spool disappeared")
@@ -67,7 +70,7 @@ class PrintE2ETest(BaseTestScenario):
             )
             self._emit_step("Start Print", "passed", "Job 42 active, 9.18g filament")
 
-            # Step 6: Wait for device to detect print
+            # Step 6: Wait for device to detect print (no tag state change, use fixed wait)
             self._wait_seconds(15, "Waiting for device to detect print (3× poll interval)")
 
             # Step 7: Finish print
@@ -76,7 +79,16 @@ class PrintE2ETest(BaseTestScenario):
             self._emit_step("Finish Print", "passed", "Job 42 finished at 100%")
 
             # Step 8: Wait for device to process completion and update tag
-            self._wait_seconds(20, "Waiting for device to fetch metadata and update tag")
+            # Use MQTT to wait for weight update
+            expected_final = int(1000 - 9.18)  # ~991g
+            try:
+                state = self._wait_for_mqtt_remaining_weight(expected_final, tolerance=2, max_wait_sec=30)
+                self.orchestrator.push_sse_event("info", {
+                    "message": f"Weight update detected via MQTT: {state.get('remaining_g')}g"
+                })
+            except TimeoutError:
+                # Fall back to fixed wait if MQTT times out
+                self._wait_seconds(10, "MQTT timeout - waiting additional 10s for deduction")
 
             # Step 9: Return mock to idle
             self._emit_step("Reset Printer", "running", "Mock printer returning to idle")
@@ -120,6 +132,9 @@ class PrintE2ETest(BaseTestScenario):
                     self.orchestrator.push_sse_event("warning", {
                         "message": f"Failed to restore config: {restore_error}"
                     })
+
+            # Cleanup MQTT
+            self._cleanup_mqtt()
 
             # Reset mock state
             self.mock_state.set_idle()
