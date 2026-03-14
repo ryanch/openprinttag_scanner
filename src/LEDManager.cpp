@@ -3,10 +3,9 @@
 #include <cstdlib>
 
 LEDManager::LEDManager()
-    : _initialized(false), _pixel(1, 0, NEO_GRB + NEO_KHZ800) {}
-
+    : _initialized(false), _pixel(1, 0, NEO_GRBW + NEO_KHZ800) {}
 void LEDManager::begin(uint8_t pin) {
-    _pixel.updateType(NEO_GRB + NEO_KHZ800);
+    _pixel.updateType(NEO_GRBW + NEO_KHZ800);    
     _pixel.setPin(pin);
     _pixel.begin();
     _pixel.setBrightness(64);
@@ -16,7 +15,7 @@ void LEDManager::begin(uint8_t pin) {
 
 void LEDManager::setColor(uint8_t r, uint8_t g, uint8_t b) {
     if (!_initialized) return;
-    _pixel.setPixelColor(0, _pixel.Color(r, g, b));
+    _pixel.setPixelColor(0, _pixel.Color(r, g, b, 0));
     _pixel.show();
 }
 
@@ -25,7 +24,9 @@ void LEDManager::showOff() {
 }
 
 void LEDManager::showBooting() {
-    setColor(255, 255, 255);
+    if (!_initialized) return;
+    _pixel.setPixelColor(0, _pixel.Color(0, 0, 0, 255));  // pure white via W channel
+    _pixel.show();
 }
 
 void LEDManager::showWifiConnected() {
