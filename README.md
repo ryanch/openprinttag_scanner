@@ -80,8 +80,8 @@ A common ground between the ESP32 and the LED is required.
 | Valid spool/tag | Filament color |
 | Blank/invalid tag | Red flash |
 | Tag removed | Off |
-| Write success | Green flash then restore filament color |
-| Write failure | Red flash then restore filament color/off |
+| Write success | Green flash, then firmware restores filament color |
+| Write failure | Red flash, then firmware restores filament color or turns LED off |
 
 ### Enabling the LED
 
