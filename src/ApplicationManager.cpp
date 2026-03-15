@@ -9,6 +9,10 @@
   #include "ConfigurationManager.h"
   #include "HomeAssistantManager.h"
   #include <Arduino.h>
+  #if USE_STATUS_LED
+  #include "LEDManager.h"
+  extern LEDManager ledManager;
+  #endif
   #include <WiFi.h>
 #else
   #include "platform/NativePlatform.h"
@@ -252,6 +256,15 @@ void ApplicationManager::handleSpoolDetected(const AppMessage& msg) {
         msg.payload.spoolDetected.spool_id,
         msg.payload.spoolDetected.material_type,
         msg.payload.spoolDetected.kg_remaining);
+    
+    #if USE_STATUS_LED
+        ledManager.flashTagDetected();
+        ledManager.showFilamentColor(
+            msg.payload.spoolDetected.primary_color[0],
+            msg.payload.spoolDetected.primary_color[1],
+            msg.payload.spoolDetected.primary_color[2]
+        );
+    #endif
 
     if (currentState == AppState::MONITORING_PRINT) {
         if (startingSpoolId[0] == '\0') {
@@ -340,6 +353,25 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
     bool spoolmanConfigured = false;
 #endif
 
+#if USE_STATUS_LED
+    if (msg.payload.spoolUpdated.success) {
+        ledManager.flashWriteSuccess();
+    } else {
+        ledManager.flashWriteFailure();
+    }
+
+    if (state.tag_data_valid) {
+        uint8_t color[4] = {0};
+        if (opt_get_primary_color(&state.tag_data, color) == OPT_OK) {
+            ledManager.showFilamentColor(color[0], color[1], color[2]);
+        } else {
+            ledManager.showOff();
+        }
+    } else {
+        ledManager.showOff();
+    }
+#endif
+
     if (lcdManager) {
         if (msg.payload.spoolUpdated.success) {
             char line1[17];
@@ -422,6 +454,9 @@ void ApplicationManager::handleSpoolUpdated(const AppMessage& msg) {
 void ApplicationManager::handleBlankTagDetected(const AppMessage& msg) {
     Serial.printf("EVENT: BlankTagDetected - spool_id=%s\n",
         msg.payload.blankTag.spool_id);
+#if USE_STATUS_LED
+    ledManager.flashParseFailed();
+#endif
 
     pendingStatusAfterTagRemoved = false;
 
@@ -564,6 +599,9 @@ void ApplicationManager::handleSpoolmanSynced(const AppMessage& msg) {
 void ApplicationManager::handleTagRemoved(const AppMessage& msg) {
     Serial.printf("EVENT: TagRemoved - spool_id=%s\n",
         msg.payload.tagRemoved.spool_id);
+#if USE_STATUS_LED
+    ledManager.showOff();
+#endif
 
     // Clear displayed spool so next scan re-displays
     lastDisplayedSpoolId[0] = '\0';

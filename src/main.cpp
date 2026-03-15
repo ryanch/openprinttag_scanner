@@ -13,6 +13,12 @@
 #include "StubPrinterLinkStrategy.h"
 #include "LCDManager.h"
 
+
+#if USE_STATUS_LED
+#include "LEDManager.h"
+LEDManager ledManager;
+#endif
+
 // Global HTTP mutex for serializing WiFi HTTP requests
 SemaphoreHandle_t g_httpMutex = nullptr;
 
@@ -54,15 +60,18 @@ void initWiFi() {
 
     lcdManager.updateScreen("WiFi OK", WiFi.localIP().toString().c_str());
 
+#if USE_STATUS_LED
+    ledManager.showWifiConnected();  // network up — not yet fully initialized
+#endif
+
     Serial.println("Setting up NTP...");
     configTime(0, 0, "pool.ntp.org");
     struct tm timeinfo;
-    if(!getLocalTime(&timeinfo)){
+    if (!getLocalTime(&timeinfo)) {
       Serial.println("Failed to obtain time");
       lcdManager.updateScreen("NTP FAILED", "");
     } else {
       Serial.println("Time obtained");
-      //lcdManager.updateScreen("NTP OK", "");
     }
 
     delay(2000);
@@ -71,6 +80,11 @@ void initWiFi() {
     Serial.println("WiFi connection failed!");
 
     lcdManager.updateScreen("WiFi FAILED", "");
+
+#if USE_STATUS_LED
+    ledManager.showWifiFailed();
+#endif
+
     delay(2000);
   }
 }
@@ -80,6 +94,11 @@ void setup() {
   Serial.begin(9600);
   delay(1000);
   Serial.println("=== Starting setup ===");
+
+#if USE_STATUS_LED
+  ledManager.begin(STATUS_LED_PIN);
+  ledManager.showBooting();
+#endif
 
   // Initialize I2C with custom pins for LCD
   Wire.begin(LCD_SDA, LCD_SCL);
@@ -105,7 +124,6 @@ void setup() {
     lcdManager.updateScreen("AppMgr FAILED", "");
     while (1) { delay(1000); }
   }
-
 
   // Initialize BluetoothManager BEFORE WiFi (they share the radio)
   lcdManager.updateScreen("Starting BLE...", "");
@@ -149,9 +167,7 @@ void setup() {
     while (1) { delay(1000); }
   }
 
-  // Initialize and start PrinterManager with stub strategy for testing
-  // To use real PrusaLink API, replace StubPrinterLinkStrategy with PrusaLinkAPIStrategy
-  //static StubPrinterLinkStrategy printerStrategy;
+  // Initialize and start PrinterManager
   static PrusaLinkAPIStrategy printerStrategy;
   printerStrategy.setHttpMutex(g_httpMutex);
   PrinterManager::getInstance().setStrategy(&printerStrategy);
@@ -168,10 +184,8 @@ void setup() {
   // Start SpoolmanManager task
   SpoolmanManager::getInstance().startTask();
 
-  // Build status + HA startup from same config snapshot
-  auto& config = ConfigurationManager::getInstance();
-
   // Start HomeAssistantManager task
+  auto& config = ConfigurationManager::getInstance();
   Serial.printf("Setup: HA config before startTask: enabled=%s host='%s' host_len=%u port=%u user_set=%s\n",
                 config.getHAEnabled() ? "true" : "false",
                 config.getHAMqttHost(),
@@ -181,6 +195,10 @@ void setup() {
   HomeAssistantManager::getInstance().startTask();
 
   ApplicationManager::getInstance().showStatusOnLCD();
+
+#if USE_STATUS_LED
+  ledManager.showReady();  // NFC + Spoolman + HA + scanner all initialized
+#endif
 
   Serial.println("=== Setup complete ===");
 }
