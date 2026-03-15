@@ -13,7 +13,6 @@
 #include "StubPrinterLinkStrategy.h"
 #include "LCDManager.h"
 
-#define STATUS_LED_PIN 4
 
 #if USE_STATUS_LED
 #include "LEDManager.h"

@@ -85,14 +85,40 @@ A common ground between the ESP32 and the LED is required.
 
 ### Enabling the LED
 
-The LED feature is optional and controlled via the build configuration in `platformio.ini`:
+The status LED feature is **optional** and is controlled via the build configuration in `platformio.ini`.
+
+To enable the LED, add the following build flags:
 
 ```
 build_flags =
     -DUSE_STATUS_LED=1
+    -DSTATUS_LED_PIN=4
 ```
 
-If `USE_STATUS_LED` is not enabled, the firmware behaves exactly as before and the LED code is not compiled.
+**Explanation:**
+
+* `USE_STATUS_LED` enables compilation of the LED feature.
+* `STATUS_LED_PIN` sets the ESP32 GPIO pin used for the LED data line.
+
+You may change the pin to any suitable GPIO supported by your ESP32 board. For example:
+
+```
+build_flags =
+    -DUSE_STATUS_LED=1
+    -DSTATUS_LED_PIN=16
+```
+
+### Disabling the LED
+
+If you do **not** have the optional status LED installed, simply omit the `USE_STATUS_LED` flag from `platformio.ini`.
+
+Example with LED disabled:
+
+```
+build_flags =
+```
+
+When the flag is not present, the LED code is **not compiled**, and the firmware behaves exactly like the original scanner firmware with no LED functionality.
 
 ### Printables BOM (non-printed parts)
 The model page lists this BOM:
